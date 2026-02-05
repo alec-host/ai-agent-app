@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import time
 import logging
 import httpx
@@ -105,24 +106,44 @@ async def verify_tenant_access(
         raise HTTPException(status_code=401, detail="X-Tenant-ID is required.")
     return {"tenant_id": x_tenant_id, "role": user_role.lower()}
 
-# --- 3. Node.js Backend API Client ---
+# --- 3. Node.js Backend API Client ---            
 class CalendarServiceClient:
     """Async client to communicate with the existing Node.js Microservice."""
-    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient):
-        self.headers = {"X-Tenant-ID": tenant_id}
-        self.client = http_client # Use the passed-in client
+    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str):
+        # 1. Store the correlation_id and update headers
+        self.correlation_id = correlation_id
+        self.headers = {
+            "X-Tenant-ID": tenant_id,
+            "X-Correlation-ID": correlation_id  # Pass the ID to Node.js
+        }
+        self.client = http_client 
         self.timeout = httpx.Timeout(15.0)
 
     async def request(self, method: str, path: str, json_data: dict = None):
-        async with httpx.AsyncClient(headers=self.headers, timeout=self.timeout) as ac:
-            url = f"{NODE_SERVICE_URL}{path}"
-            logger.info(f"Agent calling Node Service: {method} {url}")
-            response = await ac.request(method, url, json=json_data)
+        # 2. Use the SHARED self.client instead of creating a new one
+        url = f"{NODE_SERVICE_URL}{path}"
+        
+        # Log with the Correlation ID for easier tracing
+        logger.info(f"[{self.correlation_id}] Agent calling Node Service: {method} {url}")
+        
+        try:
+            response = await self.client.request(
+                method, 
+                url, 
+                json=json_data, 
+                headers=self.headers, # Use our updated headers
+                timeout=self.timeout
+            )
             
             if response.status_code >= 400:
-                logger.error(f"Node Service Error: {response.text}")
+                logger.error(f"[{self.correlation_id}] Node Service Error: {response.text}")
                 return {"error": "Backend service error", "status": response.status_code}
+            
             return response.json()
+            
+        except Exception as e:
+            logger.error(f"[{self.correlation_id}] Connection to Node failed: {str(e)}")
+            return {"error": "Connection failed"}
 
 # --- 4. Agentic AI Tool Schemas ---
 TOOLS = [
@@ -192,9 +213,12 @@ async def handle_agent_query(
     tenant_id = auth["tenant_id"]
     user_role = auth["role"]
     
+    corr_id = request.state.correlation_id
+    
     calendar = CalendarServiceClient(
         tenant_id,
-        request.app.state.http_client
+        request.app.state.http_client,
+        correlation_id=corr_id
     )
 
     # 1. Consult the LLM
@@ -286,3 +310,37 @@ async def log_requests(request: Request, call_next):
     )
     
     return response
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    # 1. Generate or Capture the ID
+    # We check the header first so if your Frontend generates an ID, we reuse it.
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+    
+    # 2. Attach to request.state 
+    # This is the "secret sauce" that lets your /ai/chat route find it later.
+    request.state.correlation_id = correlation_id
+    
+    # 3. Tag Sentry
+    # This ensures any crash reported to Sentry includes the ID automatically.
+    sentry_sdk.set_tag("correlation_id", correlation_id)
+
+    start_time = time.time()
+    
+    try:
+        # 4. Process the request
+        response = await call_next(request)
+        
+        # 5. Inject the ID into the outgoing Response headers
+        # This allows you to see the ID in your Browser Inspect -> Network tab.
+        response.headers["X-Correlation-ID"] = correlation_id
+        
+        duration = (time.time() - start_time) * 1000
+        logger.info(f"[{correlation_id}] {request.method} {request.url.path} - {response.status_code} ({duration:.2f}ms)")
+        
+        return response
+
+    except Exception as e:
+        # 6. Log failures with the ID so you can find the exact trace
+        logger.error(f"[{correlation_id}] Request failed: {str(e)}")
+        raise e
