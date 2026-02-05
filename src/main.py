@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 
+from src.prompts import get_legal_system_prompt
 from src.config import settings
 from src.logger import logger
 
@@ -220,11 +221,13 @@ async def handle_agent_query(
         request.app.state.http_client,
         correlation_id=corr_id
     )
+    
+    # GENERATE THE DYNAMIC PROMPT
+    system_instructions = get_legal_system_prompt(tenant_id, user_role)
 
     # 1. Consult the LLM
     messages = [
-        {"role": "system", "content": f"You are a legal AI assistant. Current Tenant: {tenant_id}. Role: {user_role}. "
-                                     "You cannot delete events unless the user is an 'admin' and has confirmed."},
+        {"role": "system", "content": system_instructions},
         {"role": "user", "content": req.prompt}
     ]
     
