@@ -4,11 +4,15 @@ import time
 import logging
 import httpx
 
+import sentry_sdk
+
 from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 
 from src.config import settings
+from src.logger import logger
+
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
@@ -265,6 +269,9 @@ async def log_requests(request: Request, call_next):
     method = request.method
     path = request.url.path
     tenant_id = request.headers.get("X-Tenant-ID", "N/A")
+    
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("tenant_id", tenant_id)
 
     # Process the request
     response = await call_next(request)

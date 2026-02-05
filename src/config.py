@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     
     # API Keys (Required)
     OPENAI_API_KEY: str
+    
+    # Sentry
+    SENTRY_DSN: str = "11111111"
 
     # This config tells Pydantic to look for a .env file
     model_config = SettingsConfigDict(
