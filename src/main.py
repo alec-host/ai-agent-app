@@ -4,35 +4,16 @@ import logging
 import httpx
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Depends, status
+
+from src.config import settings
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
-from pathlib import Path
-from dotenv import load_dotenv
-
-# 1. Get the directory where main.py is located (src/)
-current_dir = Path(__file__).resolve().parent
-
-# 2. Go up one level to the project root where .env lives
-env_path = current_dir.parent / ".env"
-
-# 3. Load the specific path
-load_dotenv(dotenv_path=env_path)
-
-# --- 1. Configuration & Logging ---
-# Ensure these are set in your environment variables
-NODE_SERVICE_URL = os.getenv("NODE_SERVICE_URL", "http://node-service:3000")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION)
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("legal-agentic-ai")
-
-app = FastAPI(
-    title="Legal Agentic AI Microservice",
-    description="Orchestration layer for Legal Calendar Operations with strict Tenant isolation."
-)
-
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # --- 2. Security & Multi-tenancy Guardrails ---
 async def verify_tenant_access(
@@ -184,4 +165,4 @@ async def handle_agent_query(
 @app.post("/ai/sync")
 async def trigger_sync(auth: dict = Depends(verify_tenant_access)):
     calendar = CalendarServiceClient(auth["tenant_id"])
-    return await calendar.request("POST", "/events/sync-google")
+    return await calendar.request("POST", "/events/sync-google")zzz
