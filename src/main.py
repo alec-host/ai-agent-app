@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 
+from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
 from src.config import settings
 from src.logger import logger
@@ -145,60 +146,6 @@ class CalendarServiceClient:
         except Exception as e:
             logger.error(f"[{self.correlation_id}] Connection to Node failed: {str(e)}")
             return {"error": "Connection failed"}
-
-# --- 4. Agentic AI Tool Schemas ---
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_all_events",
-            "description": "Retrieves all calendar events for the current tenant."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_event_by_id",
-            "description": "Gets specific details for a calendar event using its ID.",
-            "parameters": {
-                "type": "object",
-                "properties": {"event_id": {"type": "string"}},
-                "required": ["event_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "schedule_event",
-            "description": "Creates a new custom calendar event or deadline.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "start_time": {"type": "string", "description": "ISO format"},
-                    "end_time": {"type": "string", "description": "ISO format"}
-                },
-                "required": ["title", "start_time", "end_time"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_event",
-            "description": "Deletes a calendar event. REQUIRES ADMIN ROLE.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "event_id": {"type": "string"},
-                    "confirmed": {"type": "boolean", "description": "Must be true to execute"}
-                },
-                "required": ["event_id", "confirmed"]
-            }
-        }
-    }
-]
 
 # --- 5. Request Models ---
 class ChatRequest(BaseModel):
