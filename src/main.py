@@ -15,6 +15,8 @@ from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
 from src.agent_manager import execute_tool_call
 
+from src.utils import sanitize_history
+
 from src.config import settings
 from src.logger import logger
 
@@ -146,8 +148,8 @@ class CalendarServiceClient:
             return response.json()
             
         except Exception as e:
-            logger.error(f"[{self.correlation_id}] Connection to Node failed: {str(e)}")
-            return {"error": "Connection failed"}
+            logger.error(f"[{self.correlation_id}] ❌ Backend Service Error:: {str(e)}")
+            return {"error": "Service Temporarily Unavailable","technical_details": str(e),"user_friendly_message": "I'm having trouble connecting to the calendar system right now. Please try again in a moment."}
 
 # --- 5. Request Models ---
 class ChatMessage(BaseModel):
@@ -183,9 +185,13 @@ async def handle_agent_query(
     
     # 1. Process History
     if req.history:
-        for msg in req.history[-6:]:
+        recent_history = req.history[-6:]
+        # Then, we trim any massive content strings
+        clean_history = sanitize_history(recent_history)
+        for msg in clean_history:
             # Changed to exclude_none=True (standard Pydantic)
-            messages.append(msg.dict(exclude_none=True))
+            # messages.append(msg.dict(exclude_none=True))
+            messages.append(msg)
     
     messages.append({"role": "user", "content": req.prompt})
     

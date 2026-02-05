@@ -15,6 +15,15 @@ async def handle_calendar(func_name, args, calendar_service, user_role):
 
     if func_name == "schedule_event":
         return await calendar_service.request("POST", "/events", args)
+        
+    # NEW: Logic for updating events (Change of plans)
+    if func_name == "update_event":
+        event_id = args.get("event_id")
+        if not event_id:
+            return {"error": "I couldn't identify which event to update. Please provide the event ID."}
+        
+        # We pass the args directly as the update payload
+        return await calendar_service.request("PATCH", f"/events/{event_id}", args)        
 
     if func_name == "delete_event":
         if user_role != "admin":
