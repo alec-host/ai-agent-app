@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import logging
 import httpx
 
@@ -10,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 from src.config import settings
 from pydantic import BaseModel
 from openai import AsyncOpenAI
-print(f"DEBUG: Loading Node Backend at {settings.NODE_SERVICE_URL}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # [STARTUP LOGIC]
@@ -215,6 +216,9 @@ async def handle_agent_query(
         tool_call = message.tool_calls[0]
         func_name = tool_call.function.name
         args = json.loads(tool_call.function.arguments)
+        
+        # High-visibility log for the agent's "thinking"
+        logger.warning(f"🤖 AGENT DECISION: Calling {func_name} with args {args}")        
 
         # Audit Log Entry
         logger.info(f"AUDIT: Tenant {tenant_id} | User {user_role} | Action {func_name}")
@@ -252,3 +256,26 @@ async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_acce
     )
     
     return await calendar.request("POST", "/events/sync-google")
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    # Extract info for the log
+    method = request.method
+    path = request.url.path
+    tenant_id = request.headers.get("X-Tenant-ID", "N/A")
+
+    # Process the request
+    response = await call_next(request)
+    
+    # Calculate duration
+    process_time = (time.time() - start_time) * 1000
+    
+    # Log the results
+    logger.info(
+        f"REQ: {method} {path} | Tenant: {tenant_id} | "
+        f"Status: {response.status_code} | Time: {process_time:.2f}ms"
+    )
+    
+    return response
