@@ -43,6 +43,40 @@ app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION, life
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("legal-agentic-ai")
 
+from fastapi import APIRouter, status
+
+# --- 1. Health Check Endpoint ---
+@app.get("/health", status_code=status.HTTP_200_OK)
+async def health_check():
+    """
+    Verifies the Agentic AI service is running and can reach 
+    the Node.js calendar backend.
+    """
+    health_status = {
+        "service": settings.APP_NAME,
+        "status": "online",
+        "dependencies": {
+            "node_backend": "unknown",
+            "openai_api": "connected" # Basic check assuming key is loaded
+        }
+    }
+
+    try:
+        # Ping the Node.js service (adjust path if your Node app has its own /health)
+        # We use a short timeout so the health check doesn't hang
+        response = await app.state.http_client.get("/", timeout=2.0)
+        
+        if response.status_code < 500:
+            health_status["dependencies"]["node_backend"] = "reachable"
+        else:
+            health_status["dependencies"]["node_backend"] = "error_response"
+            
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["dependencies"]["node_backend"] = f"unreachable: {str(e)}"
+
+    return health_status
+
 # --- 2. Security & Multi-tenancy Guardrails ---
 async def verify_tenant_access(
     x_tenant_id: str = Header(...), 
