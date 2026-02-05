@@ -2,6 +2,8 @@ import os
 import json
 import logging
 import httpx
+
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Depends, status
 
@@ -9,8 +11,34 @@ from src.config import settings
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
-app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION)
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # [STARTUP LOGIC]
+    # Initialize shared resources
+    app.state.http_client = httpx.AsyncClient(
+        base_url=settings.NODE_SERVICE_URL,
+        timeout=httpx.Timeout(15.0)
+    )
+    app.state.ai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    
+    print(f"--- {settings.APP_NAME} Started Successfully ---")
+    
+    yield  # --- The app runs here ---
+
+    # [SHUTDOWN LOGIC]
+    # This runs when you hit Ctrl+C or stop the process
+    print(f"--- {settings.APP_NAME} Shutting Down ---")
+    
+    # Close the global HTTP client pool
+    await app.state.http_client.aclose()
+    
+    # If you later add a real DB engine (like SQLAlchemy):
+    # await engine.dispose()
+    
+    print("Resources cleaned up. Goodbye.")
+
+app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION, lifespan=lifespan)
+#client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("legal-agentic-ai")
@@ -165,4 +193,4 @@ async def handle_agent_query(
 @app.post("/ai/sync")
 async def trigger_sync(auth: dict = Depends(verify_tenant_access)):
     calendar = CalendarServiceClient(auth["tenant_id"])
-    return await calendar.request("POST", "/events/sync-google")zzz
+    return await calendar.request("POST", "/events/sync-google")
