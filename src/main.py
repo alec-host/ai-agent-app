@@ -10,15 +10,18 @@ from fastapi import FastAPI, Header, HTTPException, Depends, status
 from src.config import settings
 from pydantic import BaseModel
 from openai import AsyncOpenAI
-
+print(f"DEBUG: Loading Node Backend at {settings.NODE_SERVICE_URL}")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # [STARTUP LOGIC]
     # Initialize shared resources
     app.state.http_client = httpx.AsyncClient(
         base_url=settings.NODE_SERVICE_URL,
+        headers={"User-Agent": "Legal-AI-Agent/1.0"},
+        verify=False,
         timeout=httpx.Timeout(15.0)
     )
+    
     app.state.ai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     
     print(f"--- {settings.APP_NAME} Started Successfully ---")
@@ -64,7 +67,8 @@ async def health_check():
     try:
         # Ping the Node.js service (adjust path if your Node app has its own /health)
         # We use a short timeout so the health check doesn't hang
-        response = await app.state.http_client.get("/", timeout=2.0)
+        #--->response = await app.state.http_client.get("/", timeout=2.0)
+        response = await app.state.http_client.get("/", timeout=5.0)
         
         if response.status_code < 500:
             health_status["dependencies"]["node_backend"] = "reachable"
@@ -72,6 +76,12 @@ async def health_check():
             health_status["dependencies"]["node_backend"] = "error_response"
             
     except Exception as e:
+        # This will print the full technical error to your console
+        print(f"DEBUG: Connection to {settings.NODE_SERVICE_URL} failed!")
+        print(f"ERROR TYPE: {type(e).__name__}")
+        print(f"ERROR MESSAGE: {str(e)}")        
+        
+        logger.error(f"Health check failed to reach Node: {str(e)}") # Add this line
         health_status["status"] = "degraded"
         health_status["dependencies"]["node_backend"] = f"unreachable: {str(e)}"
 
