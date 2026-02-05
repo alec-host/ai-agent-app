@@ -5,7 +5,7 @@ import httpx
 
 from contextlib import asynccontextmanager
 from typing import Optional, List
-from fastapi import FastAPI, Header, HTTPException, Depends, status
+from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 
 from src.config import settings
 from pydantic import BaseModel
@@ -103,8 +103,9 @@ async def verify_tenant_access(
 # --- 3. Node.js Backend API Client ---
 class CalendarServiceClient:
     """Async client to communicate with the existing Node.js Microservice."""
-    def __init__(self, tenant_id: str):
+    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient):
         self.headers = {"X-Tenant-ID": tenant_id}
+        self.client = http_client # Use the passed-in client
         self.timeout = httpx.Timeout(15.0)
 
     async def request(self, method: str, path: str, json_data: dict = None):
@@ -185,7 +186,11 @@ async def handle_agent_query(
 ):
     tenant_id = auth["tenant_id"]
     user_role = auth["role"]
-    calendar = CalendarServiceClient(tenant_id,request.app.state.http_client)
+    
+    calendar = CalendarServiceClient(
+        tenant_id,
+        request.app.state.http_client
+    )
 
     # 1. Consult the LLM
     messages = [
@@ -238,6 +243,12 @@ async def handle_agent_query(
 
 # --- 7. Utility Route for Google Sync ---
 @app.post("/ai/sync")
-async def trigger_sync(auth: dict = Depends(verify_tenant_access)):
-    calendar = CalendarServiceClient(auth["tenant_id"])
+async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_access)):
+    tenant_id = auth["tenant_id"]
+    
+    calendar = CalendarServiceClient(
+        tenant_id, 
+        request.app.state.http_client
+    )
+    
     return await calendar.request("POST", "/events/sync-google")
