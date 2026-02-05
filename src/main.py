@@ -180,11 +180,12 @@ class ChatRequest(BaseModel):
 @app.post("/ai/chat")
 async def handle_agent_query(
     req: ChatRequest, 
+    request: Request,
     auth: dict = Depends(verify_tenant_access)
 ):
     tenant_id = auth["tenant_id"]
     user_role = auth["role"]
-    calendar = CalendarServiceClient(tenant_id)
+    calendar = CalendarServiceClient(tenant_id,request.app.state.http_client)
 
     # 1. Consult the LLM
     messages = [
@@ -193,7 +194,9 @@ async def handle_agent_query(
         {"role": "user", "content": req.prompt}
     ]
     
-    response = await client.chat.completions.create(
+    ai_client = request.app.state.ai_client
+    
+    response = await ai_client.chat.completions.create(
         model="gpt-4o",
         messages=messages,
         tools=TOOLS,
