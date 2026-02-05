@@ -13,6 +13,8 @@ from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 
 from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
+from src.agent_manager import execute_tool_call
+
 from src.config import settings
 from src.logger import logger
 
@@ -123,7 +125,7 @@ class CalendarServiceClient:
 
     async def request(self, method: str, path: str, json_data: dict = None):
         # 2. Use the SHARED self.client instead of creating a new one
-        url = f"{NODE_SERVICE_URL}{path}"
+        url = f"{settings.NODE_SERVICE_URL}{path}"
         
         # Log with the Correlation ID for easier tracing
         logger.info(f"[{self.correlation_id}] Agent calling Node Service: {method} {url}")
@@ -148,8 +150,14 @@ class CalendarServiceClient:
             return {"error": "Connection failed"}
 
 # --- 5. Request Models ---
+class ChatMessage(BaseModel):
+    role: str # "user" or "assistant" or "tool"
+    content: Optional[str] = None
+    tool_calls: Optional[list] = None # To track tool context
+    
 class ChatRequest(BaseModel):
     prompt: str
+    history: Optional[List[ChatMessage]] = []
 
 # --- 6. The Core Reasoning Endpoint ---
 @app.post("/ai/chat")
@@ -160,26 +168,30 @@ async def handle_agent_query(
 ):
     tenant_id = auth["tenant_id"]
     user_role = auth["role"]
-    
     corr_id = request.state.correlation_id
     
-    calendar = CalendarServiceClient(
-        tenant_id,
-        request.app.state.http_client,
-        correlation_id=corr_id
-    )
+    services = {
+        "calendar": CalendarServiceClient(
+            tenant_id,
+            request.app.state.http_client,
+            correlation_id=corr_id
+        )
+    }
     
-    # GENERATE THE DYNAMIC PROMPT
     system_instructions = get_legal_system_prompt(tenant_id, user_role)
-
-    # 1. Consult the LLM
-    messages = [
-        {"role": "system", "content": system_instructions},
-        {"role": "user", "content": req.prompt}
-    ]
+    messages = [{"role": "system", "content": system_instructions}]
+    
+    # 1. Process History
+    if req.history:
+        for msg in req.history[-6:]:
+            # Changed to exclude_none=True (standard Pydantic)
+            messages.append(msg.dict(exclude_none=True))
+    
+    messages.append({"role": "user", "content": req.prompt})
     
     ai_client = request.app.state.ai_client
     
+    # 2. First AI Call
     response = await ai_client.chat.completions.create(
         model="gpt-4o",
         messages=messages,
@@ -187,42 +199,42 @@ async def handle_agent_query(
         tool_choice="auto"
     )
 
-    message = response.choices[0].message
+    assistant_message = response.choices[0].message
     
-    # 2. Handle Tool Calls
-    if message.tool_calls:
-        tool_call = message.tool_calls[0]
-        func_name = tool_call.function.name
-        args = json.loads(tool_call.function.arguments)
-        
-        # High-visibility log for the agent's "thinking"
-        logger.warning(f"🤖 AGENT DECISION: Calling {func_name} with args {args}")        
-
-        # Audit Log Entry
-        logger.info(f"AUDIT: Tenant {tenant_id} | User {user_role} | Action {func_name}")
-
-        if func_name == "get_all_events":
-            return await calendar.request("GET", "/events")
-
-        if func_name == "get_event_by_id":
-            return await calendar.request("GET", f"/events/{args['event_id']}")
-
-        if func_name == "schedule_event":
-            return await calendar.request("POST", "/events", args)
-
-        if func_name == "delete_event":
-            # REJECTION: Non-admin
-            if user_role != "admin":
-                return {"response": "Access Denied: Only administrators can delete events."}
-            # REJECTION: No confirmation
-            if not args.get("confirmed"):
-                return {"response": "I need your explicit confirmation to delete this event. Should I proceed?"}
+    # --- THE CRITICAL FIX START ---
+    # You MUST add the assistant's decision to the messages list
+    # so the subsequent 'tool' messages have a parent.
+    messages.append(assistant_message)
+    # --- THE CRITICAL FIX END ---
+    
+    if assistant_message.tool_calls:
+        for tool_call in assistant_message.tool_calls:
+            result_data = await execute_tool_call(
+                tool_call,
+                services,
+                user_role,
+                tenant_id 
+            )
             
-            return await calendar.request("DELETE", f"/events/{args['event_id']}")
+            # Add the tool result
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": json.dumps(result_data)
+            })
 
-    # 3. Default Text Response
-    return {"response": message.content}
-
+        # 3. Second AI Call: Generate human-friendly response
+        second_response = await ai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        ) 
+        
+        final_output = second_response.choices[0].message.content
+        return {"response": final_output, "history": messages[1:]}
+        
+    # If no tools were called, return the direct response
+    return {"response": assistant_message.content, "history": messages[1:]}
 # --- 7. Utility Route for Google Sync ---
 @app.post("/ai/sync")
 async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_access)):
