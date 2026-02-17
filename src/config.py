@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     # App Settings
-    APP_NAME: str = "Legal Agentic AI"
+    APP_NAME: str = "MatterMiner Legal Agentic AI"
     APP_DESCRIPTION: str = "Orchestration layer for Legal Calendar Operations with strict Tenant isolation."
     DEBUG: bool = False
 
