@@ -90,6 +90,34 @@ async def verify_tenant_access(
         raise HTTPException(status_code=401, detail="X-Tenant-ID is required.")
     return {"tenant_id": x_tenant_id, "role": user_role.lower(), "timezone": x_user_timezone}
 
+# ---0. Track token usage ---
+async def update_tenant_wallet(tenant_id: str, usage_object, calendar_service):
+    """
+    Sends token usage to the wallet service using the service's authenticated headers.
+    """
+    if not usage_object or not tenant_id:
+        return
+        
+    payload = {
+        "tenantId": tenant_id,
+        "prompt_tokens": usage_object.prompt_tokens,
+        "completion_tokens": usage_object.completion_tokens,
+        "total_tokens": usage_object.total_tokens,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    try:
+        # We use the existing calendar_service.request method 
+        # because it already handles the Base URL and Authorization Headers.
+        response = await calendar_service.request(
+            "POST", 
+            "/wallet/deplete", 
+            json_data=payload
+        )
+        logger.info(f"[WALLET] Tokens deducted for {tenant_id}. Result: {response}")
+    except Exception as e:
+        logger.error(f"[WALLET] Background update failed for tenant {tenant_id}: {e}")
+
 # --- 3. Node.js Backend API Client ---            
 class CalendarServiceClient:
     """Async client to communicate with the existing Node.js Microservice."""
@@ -107,7 +135,34 @@ class CalendarServiceClient:
         self.headers["Authorization"] = f"Bearer {token}"
         
     def is_authenticated(self) -> bool:
-        return "Authorization" in self.headers        
+        return "Authorization" in self.headers
+
+    def get_workflow_protocol(self, query: str, tenant_id: str) -> str:
+        """
+        Retrieves relevant legal protocols and workflow steps from the 
+        Node.js RAG service to provide context for the AI Agent.
+        """
+        try:
+            params = {
+                "query": query,
+                "tenantId": tenant_id
+            }
+            # Calling the Node.js endpoint we created above
+            response = requests.get(
+                f"{self.base_url}/api/rag/lookup", 
+                params=params, 
+                headers=self.headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            return data.get("context", "No protocol found.")
+
+        except Exception as e:
+            print(f"Error fetching RAG context: {e}")
+            return "Knowledge base currently unavailable. Rely on general legal best practices."
+
 
     def _get_local_offset(self) -> str:
         """Helper to get the server's local UTC offset (e.g. +03:00)"""
@@ -204,6 +259,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
     calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
     
+	# DROP-IN PRE-FLIGHT CHECK
+    wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
+    '''
+    if wallet_check.get("allowed") is False:
+        error_type = wallet_check.get("error")
+        if error_type == "insufficient_funds":
+            return {
+                "role": "assistant",
+                "content": f"Your token wallet is low ({wallet_check.get('balance')} tokens). Please top up your balance to continue using the AI assistant."
+            }
+        elif error_type == "no_wallet":
+             return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
+    '''
     # --- 1. HISTORY REPAIR STEP (CRITICAL FIX FOR 400 ERROR) ---
     cleaned_history = [m.dict() for m in req.history]
     while cleaned_history and cleaned_history[-1].get("role") == "assistant" and cleaned_history[-1].get("tool_calls"):
@@ -262,6 +330,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         )
         
         assistant_msg = response.choices[0].message
+
+        # TRACK TOKENS - usage tracking
+        if(hasattr(response, 'usage')):
+            import asyncio 
+            asyncio.create_task(update_tenant_wallet(tenant_id, response.usage, calendar_service))
         
         # PROACTIVE ARGUMENT INJECTION
         if assistant_msg.tool_calls:

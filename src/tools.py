@@ -134,5 +134,49 @@ TOOLS = [
                 "required": ["event_id", "confirmed"]
             }
         }
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_firm_protocol",
+            "description": "Searches firm guidelines for matter intake, practice area mapping, and summarization rules.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                   "query": {"type": "string", "description": "The workflow step Nuru needs help with."}
+                }
+            }
+        }
+    },
+    { 
+       "type": "function",
+       "function": {
+           "name": "search_knowledge_base",
+           "description": "Search for firm policies, legal templates, or case notes to provide accurate answers.",
+           "parameters": {
+              "type": "object",
+              "properties": {
+                 "query": {"type": "string", "description": "The specific topic or question to research."}
+              },
+              "required": ["query"]
+           }
+      }
+   },
+   {
+      "type": "function",
+      "function": {
+          "name": "create_client_record",
+          "description": "Saves a new client to the database after conversational intake is complete.",
+          "parameters": {
+             "type": "object",
+             "properties": {
+                 "full_name": {"type": "string"},
+                 "email": {"type": "string"},
+                 "phone": {"type": "string"},
+                 "address": {"type": "string"}
+             },
+            "required": ["full_name", "email"]
+          }
+      }
+   }
 ]
