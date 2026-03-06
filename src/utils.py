@@ -120,17 +120,18 @@ async def get_rehydration_context(tenant_id, services):
         logger.error(f"[REHYDRATION-ERROR] {e}")
         return ""
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
-    Maps client fields to top-level columns and events to 'metadata'.
+    Maps client fields to top-level columns and events/states to 'metadata'.
     """
     client_data = client_args or {}
     
     # We maintain the existing schema while using 'metadata' for flexible storage
     metadata = {
         "chat_history": history if history else [],
-        "event_draft": event_draft if event_draft else {}
+        "event_draft": event_draft if event_draft else {},
+        "active_workflow": active_workflow # 'client' or 'calendar'
     }
     
     return {

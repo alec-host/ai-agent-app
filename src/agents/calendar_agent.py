@@ -40,7 +40,8 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 tenant_id=tenant_id,
                 client_args=db_data, # Keep existing client data
                 event_draft=current_draft,
-                history=history
+                history=history,
+                active_workflow="calendar"
             )
             await calendar_service.sync_client_session(sync_payload)
             logger.info(f"[CAL-DRAFT] Sync successful for '{current_draft.get('title')}'")
@@ -51,6 +52,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         if func_name == "schedule_event":
             # Validation
             if not current_draft.get("startTime"):
+                # Progress sync: lock into 'calendar' workflow
+                await calendar_service.sync_client_session(
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                )
                 return {
                     "status": "partial_success",
                     "message": "Title captured. Need a start time.",
@@ -65,8 +70,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             except Exception as e:
                 return {"status": "error", "message": f"Invalid time format: {e}"}
 
-            # PRE-FLIGHT SYNC (Last check)
-            await calendar_service.sync_client_session(format_sync_chat_payload(tenant_id, db_data, current_draft, history))
+            # PRE-FLIGHT SYNC (Last check) - includes workflow lock
+            await calendar_service.sync_client_session(
+                format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+            )
 
             # Execute save to actual calendar
             try:
@@ -84,7 +91,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 # B: Success Scenario
                 if result.get("status") == "success" or "id" in result:
                     # SUCCESS: Perform the "Clean Exit"
-                    # Wiping the session is important so the NEXT task starts from blank
+                    # Wiping the session clears the 'active_workflow' and the draft
                     await calendar_service.clear_client_session(tenant_id)
                     logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
                     
@@ -101,6 +108,11 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
     # --- 4. SESSION INITIALIZATION ---
     if func_name == "initialize_calendar_session":
+        # Lock into 'calendar' workflow even before any data is gathered
+        await calendar_service.sync_client_session(
+            format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar")
+        )
+        
         result = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
         if isinstance(result, dict) and result.get("status") == "ready":
              result["message"] = "SUCCESS: Session ready. You are authorized to manage the calendar."

@@ -37,26 +37,40 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     client_funcs = ["create_client_record", "setup_client"]
     rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
 
-    # 3. ROUTE TO SPECIALIST
+    # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:
-        if func_name in calendar_funcs:
-            # Calendar Agent: Handles scheduling, retrieval, and auth token recovery
+        db_session = await services['calendar'].get_client_session(tenant_id)
+        metadata = db_session.get("metadata", {})
+        active_workflow = metadata.get("active_workflow")  # 'calendar' or 'client'
+        
+        # Define strict demarcation
+        is_calendar_tool = func_name in calendar_funcs
+        is_client_tool = func_name in client_funcs
+        
+        # 3. ROUTE TO SPECIALIST WITH GATING
+        if is_calendar_tool:
+            # If we are strictly in Client mode, block calendar tools unless it's a retrieval tool
+            if active_workflow == "client" and func_name in ["schedule_event", "initialize_calendar_session"]:
+                 return {"status": "error", "message": "Conflict: Active client intake. Finish or cancel client registration first."}
+            
             result = await handle_calendar(func_name, args, services['calendar'], user_role, history=history)
             
             # Post-execution Hook: If a new token was recovered, set it in the service
             if func_name == "initialize_calendar_session" and isinstance(result, dict) and result.get("status") == "ready":
                 token = result.get("jwtToken")
-                if token:
-                    services['calendar'].set_auth_token(token)
+                if token: services['calendar'].set_auth_token(token)
                 result["_continue_chaining"] = True
             return result
             
-        elif func_name in client_funcs:
-            # Client Agent: Handles multi-step intake, state recovery, and DB syncing
+        elif is_client_tool:
+            # GATING: If we are in Calendar mode, block client tools.
+            # This prevents meeting titles like "Legal Battles" from triggering client creation.
+            if active_workflow == "calendar":
+                return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
+
             return await handle_client_creation(func_name, args, services, tenant_id, history)
             
         elif func_name in rag_funcs:
-            # RAG Agent: Handles knowledge retrieval and protocol lookups
             return await handle_rag_lookup(func_name, args, services, tenant_id)
 
     except Exception as e:

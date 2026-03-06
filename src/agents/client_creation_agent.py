@@ -45,7 +45,8 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             tenant_id=tenant_id,
             client_args=final_args,
             event_draft=db_metadata.get("event_draft"),
-            history=history if history else db_history
+            history=history if history else db_history,
+            active_workflow="client"
         )
         
         await services['calendar'].sync_client_session(sync_payload)
