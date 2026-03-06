@@ -210,18 +210,29 @@ class CalendarServiceClient:
                 val = json_data.get(field)
                 if val and isinstance(val, str) and not re.search(r"Z$|[+-]\d{2}:?\d{2}$", val):
                     json_data[field] = f"{val}{self._get_local_offset()}"
+
         try:
             response = await self._do_request(method, url, json_data)
-            if response.status_code in [400, 401] and "token" in response.text.lower():
+            
+            # --- AUTH RECOVERY INTERCEPTION ---
+            # 401 (Expired) or 403 (No Consent) from the Node.js backend
+            if response.status_code in [401, 403]:
+                logger.warning(f"[AUTH-GUARD] {response.status_code} received for {path}. Redirecting to OAuth.")
                 return {
-                    "status": "ready_to_reauth",
-                    "auth_required": True,
-                    "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}"
+                    "status": "auth_required",
+                    "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                    "message": "Your Google session has expired or requires consent. Please re-authorize.",
+                    "code": response.status_code
                 }
+
+            if response.status_code >= 400:
+                logger.error(f"Backend API Error {response.status_code}: {response.text}")
+                return {"status": "error", "message": f"Server returned error {response.status_code}", "details": response.text}
+
             return response.json()
         except Exception as e:
-            logger.error(f"Backend Failure: {str(e)}")
-            return {"error": "system_offline"}
+            logger.error(f"Backend Failure: {str(e)}", exc_info=True)
+            return {"status": "error", "message": "The calendar service is currently offline or unreachable."}
 
     async def check_conflicts(self, start_iso: str, end_iso: str) -> bool:
         """
@@ -435,10 +446,18 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages)
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
-            if isinstance(result, dict) and (result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining")):
-                last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
-            else:
-                last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
+            if isinstance(result, dict):
+                # SUCCESS / PROGRESS
+                if result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
+                    last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
+                
+                # AUTH EXPIRED
+                elif result.get("status") == "auth_required":
+                    last_action = "Google session expired. Presenting Auth link."
+                
+                # ERROR
+                else:
+                    last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
 
     return {"response": messages[-1].get("content"), "history": messages[1:]}
 

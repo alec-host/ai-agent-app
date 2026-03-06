@@ -54,7 +54,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 return {
                     "status": "partial_success",
                     "message": "Title captured. Need a start time.",
-                    "response_instruction": "You have the title saved. Ask the user for the specific date and time for this meeting."
+                    "response_instruction": "You have the title saved in the database. Ask the user for the specific date and time."
                 }
 
             # Time Normalization
@@ -65,21 +65,39 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             except Exception as e:
                 return {"status": "error", "message": f"Invalid time format: {e}"}
 
+            # PRE-FLIGHT SYNC (Last check)
+            await calendar_service.sync_client_session(format_sync_chat_payload(tenant_id, db_data, current_draft, history))
+
             # Execute save to actual calendar
             try:
                 result = await calendar_service.request("POST", "/events", current_draft)
                 
+                # A: Auth Recovery Scenario
+                if isinstance(result, dict) and result.get("status") == "auth_required":
+                    return {
+                        "status": "auth_required",
+                        "auth_url": result.get("auth_url"),
+                        "message": "Your Google session has expired. I have saved your meeting details.",
+                        "response_instruction": "PROVIDE THE AUTH LINK to the user immediately. Reassure them the draft is safe."
+                    }
+
+                # B: Success Scenario
                 if result.get("status") == "success" or "id" in result:
-                    # SUCCESS: Clear the draft so it doesn't haunt future conversations
-                    await calendar_service.sync_client_session(format_sync_chat_payload(tenant_id, db_data, {}, history))
+                    # SUCCESS: Perform the "Clean Exit"
+                    # Wiping the session is important so the NEXT task starts from blank
+                    await calendar_service.clear_client_session(tenant_id)
+                    logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
+                    
                     return {
                         "status": "success",
                         "message": f"Event '{current_draft['title']}' scheduled successfully.",
                         "data": result
                     }
+                
                 return result
             except Exception as e:
-                return {"status": "error", "message": f"Calendar service error: {e}"}
+                logger.error(f"Execution crash: {e}")
+                return {"status": "error", "message": f"Calendar service failure: {e}"}
 
     # --- 4. SESSION INITIALIZATION ---
     if func_name == "initialize_calendar_session":
