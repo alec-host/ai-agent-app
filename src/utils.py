@@ -1,5 +1,7 @@
 # src/utils.py
 
+import json
+import logging
 import asyncio
 import functools
 from src.logger import logger
@@ -65,3 +67,71 @@ def retry_with_backoff(retries=3, backoff_in_seconds=1):
                     x += 1
         return wrapper
     return decorator
+
+logger = logging.getLogger("legal-agentic-ai")
+
+async def get_rehydration_context(tenant_id, services):
+    """
+    Fetches the persisted session from Node.js and returns 
+    a system-ready injection string for the AI.
+    """
+    try:
+        # Access the service exactly how your main.py does
+        calendar_service = services.get("calendar")
+        if not calendar_service:
+            return ""
+
+        # Make the request to your Node.js endpoint
+        resp = await calendar_service.request("GET", f"/chat/session?tenantId={tenant_id}")
+        
+        # Check if we actually got a valid session
+        if not resp or not isinstance(resp, dict):
+            return ""
+
+        # Extract the key fields
+        vault_state = {k: v for k, v in {
+            "client_number": resp.get("client_number"),
+            "client_type": resp.get("client_type"),
+            "first_name": resp.get("first_name"),
+            "last_name": resp.get("last_name"), 
+            "email": resp.get("email")
+        }.items() if v}
+
+        if not vault_state:
+            return ""
+
+        # Determine the guidance for the AI
+        all_required = ["client_number", "client_type", "first_name", "last_name", "email"]
+        missing = [f for f in all_required if f not in vault_state]
+        
+        guidance = f"Ask for {missing[0]} next." if missing else "Intake complete. Proceed to next task."
+
+        # Return the structured block
+        return (
+            f"\n\n### DATABASE VAULT (RECOVERED STATE)\n"
+            f"The following client data is already saved. DO NOT ask for these:\n"
+            f"```json\n{json.dumps(vault_state, indent=2)}\n```\n"
+            f"TARGET: {guidance}\n"
+        )
+    except Exception as e:
+        logger.error(f"[REHYDRATION-ERROR] {e}")
+        return ""
+
+def format_sync_client_payload(tenant_id, args, history):
+    """
+    Transforms merged AI args into the structure 
+    the Node.js 'syncChatSession' controller expects.
+    """
+    # Ensure args is a dictionary to prevent .get() crashes
+    data = args if args is not None else {}
+    
+    return {
+        "tenantId": tenant_id,
+        "first_name": data.get("first_name"),
+        "last_name": data.get("last_name"),
+        "client_number": data.get("client_number"),
+        "client_type": data.get("client_type"),
+        "email": data.get("email"),
+        # Matches the 'chat_history' destructuring in Node.js
+        "chat_history": history if history else []
+    }

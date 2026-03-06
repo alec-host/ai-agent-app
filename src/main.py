@@ -23,7 +23,7 @@ from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
 from src.agent_manager import execute_tool_call
 
-from src.utils import sanitize_history, retry_with_backoff
+from src.utils import sanitize_history, retry_with_backoff, get_rehydration_context
 
 from src.config import settings
 from src.logger import logger
@@ -137,32 +137,44 @@ class CalendarServiceClient:
     def is_authenticated(self) -> bool:
         return "Authorization" in self.headers
 
-    def get_workflow_protocol(self, query: str, tenant_id: str) -> str:
+    async def get_workflow_protocol(self, query: str, tenant_id: str) -> str:
         """
         Retrieves relevant legal protocols and workflow steps from the 
         Node.js RAG service to provide context for the AI Agent.
         """
+        logger.info(f"[RAG-TRACE] Requesting protocol for: '{query}' (Tenant: {tenant_id})")
         try:
             params = {
                 "query": query,
                 "tenantId": tenant_id
             }
             # Calling the Node.js endpoint we created above
-            response = requests.get(
-                f"{self.base_url}/api/rag/lookup", 
+            response = await self.client.get(
+                "/rag/lookup", 
                 params=params, 
                 headers=self.headers,
                 timeout=10
             )
+
+            logger.info(f"[RAG-TRACE] Node Response Status: {response.status_code}")
+
+            if response.status_code != 200:
+                logger.error(f"[RAG-TRACE] Node Error Body: {response.text}")
+                return "Protocol service unavailable. Continue using VAULT_DATA."
+            
             response.raise_for_status()
             
             data = response.json()
-            return data.get("context", "No protocol found.")
+
+            context = data.get("context", "No protocol found.")
+
+            logger.info(f"[RAG-TRACE] Context Retrieved: {context[:100]}...")
+
+            return context
 
         except Exception as e:
-            print(f"Error fetching RAG context: {e}")
-            return "Knowledge base currently unavailable. Rely on general legal best practices."
-
+            logger.error(f"[RAG-TRACE] CRITICAL FAILURE: {str(e)}", exc_info=True)
+            return "Knowledge base error. DO NOT RESTART INTAKE. Rely on VAULT_DATA."
 
     def _get_local_offset(self) -> str:
         """Helper to get the server's local UTC offset (e.g. +03:00)"""
@@ -238,6 +250,59 @@ class CalendarServiceClient:
             logger.error(f"[CONFLICT CHECK] Request failed: {e}")
             return False
 
+    async def save_new_client(self, client_data: dict, tenant_id: str):
+        """
+        Finalizes the client record by moving it from a 'chat session' 
+        to the permanent 'clients' table.
+        """
+        payload = {
+            "tenantId": tenant_id,
+            "client_number": client_data.get("client_number"),
+            "client_type": client_data.get("client_type"),
+            "first_name": client_data.get("first_name"),
+            "last_name": client_data.get("last_name"),
+            "email": client_data.get("email")
+        }
+
+        # This should hit your Node.js permanent storage endpoint
+        # return await self.request("POST", "/calendar/api/web", payload)
+        return await self.client.post("/api/web", json=payload)
+    
+    async def get_client_session(self, tenant_id: str):
+        """Fetches partial intake data from the Node.js chatsessions table."""
+        try:
+            response = await self.client.get("/chat/session", params={"tenantId": tenant_id})
+            return response.json() if response.status_code == 200 else {}
+        except Exception as e:
+            logger.error(f"Error fetching session: {e}")
+            return {}
+
+    async def sync_client_session(self, payload: dict):
+        """Updates the Node.js chatsessions table with latest client_number,client_type,first_name,last_name,email, and history."""
+        try:
+            response = await self.client.post("/chat/session", json=payload)
+
+            logger.info(f"[DB-SYNC] Status: {response.status_code} | Payload: {payload}")
+
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Error syncing session: {e}")
+            return False
+
+    async def clear_client_session(self, tenant_id: str):
+        """Deletes the draft session once the intake is complete."""
+        try:
+            response = await self.client.delete("/chat/session", params={"tenantId": tenant_id})
+            if response.status_code == 200:
+                logger.info(f"[DB-CLEAR] Session destroyed for tenant: {tenant_id}")
+                return True
+            else:
+                logger.warning(f"[DB-CLEAR] Failed to clear session. Status: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"[DB-CLEAR] Error calling delete: {e}")
+            return False
+
 # --- 5. Request Models ---
 class ChatMessage(BaseModel):
     role: str 
@@ -260,7 +325,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
     
 	# DROP-IN PRE-FLIGHT CHECK
-    wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
+    # wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
     '''
     if wallet_check.get("allowed") is False:
         error_type = wallet_check.get("error")
@@ -274,8 +339,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     '''
     # --- 1. HISTORY REPAIR STEP (CRITICAL FIX FOR 400 ERROR) ---
     cleaned_history = [m.dict() for m in req.history]
+    '''
     while cleaned_history and cleaned_history[-1].get("role") == "assistant" and cleaned_history[-1].get("tool_calls"):
         cleaned_history.pop()
+    '''
+
+    # REPLACE THE 'while' BLOCK WITH THIS:
+    if cleaned_history and len(cleaned_history) > 0:
+        last_msg = cleaned_history[-1]
+        # Only pop if the AI made a tool call but we haven't received the tool result yet
+        # This prevents the 'must be followed by tool role' error without wiping memory
+        if last_msg.get("role") == "assistant" and last_msg.get("tool_calls") and i == 0:
+            # Check if the message before it was also an assistant (rare)
+            pass
 
     # --- PROACTIVE PARAMETER LOCK-IN ---
     locked_params = {"title": None, "startTime": None}
@@ -302,7 +378,17 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             except: continue
 
     services = {"calendar": calendar_service}
+
+    # --- START DROP-IN REHYDRATION ---
+    rehydration_block = await get_rehydration_context(tenant_id, services)
+    # --- END DROP-IN REHYDRATION ---
+
     messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
+
+    # OPTIONAL: If you want the rehydration to be part of the base system prompt:
+    if rehydration_block:
+        messages[0]["content"] += rehydration_block
+
     messages.extend(sanitize_history(cleaned_history))
     messages.append({"role": "user", "content": req.prompt})
 
@@ -312,19 +398,68 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # --- 4. AGENTIC LOOP ---
     user_tz = auth.get("timezone", "UTC")
     for i in range(5):
+        # --- REINFORCED VAULT SCANNER ---
+        # 1. Start with the data we recovered from the DB at the very beginning
+        # We parse the db_session again or use the vault_state from our helper
+        db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+        # --- NEW: VAULT SCANNER (Non-destructive) --- 
+        vault_data = {
+            "client_number": db_session.get("client_number"),
+            "client_type": db_session.get("client_type"),
+            "first_name": db_session.get("first_name"),
+            "last_name": db_session.get("last_name"),
+            "email": db_session.get("email")
+        }
+        for m in reversed(messages):
+            if m.get("role") == "tool":
+                try:
+                    content = json.loads(m.get("content", "{}"))
+                    if content.get("status") == "partial_success":
+                        new_stuff = content.get("current_state", {})
+                        # Only update if the field actually has a value
+                        for k, v in new_stuff.items():
+                            if v: vault_data[k] = v
+                        break
+                except: continue
+
+
         current_now_utc = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
         lock_str = ", ".join([f"{k}: {v}" for k, v in locked_params.items() if v])
+
+        # Add the VAULT_DATA to the prompt
+        vault_str = ", ".join([f"{k}: {v}" for k, v in vault_data.items() if v])
+
         
         state_injection = {
             "role": "system", 
-            "content": f"STATE: {last_action} | NOW (UTC): {current_now_utc} | LOCKED_PARAMETERS: {lock_str or 'None'}. DO NOT ask for items in LOCKED_PARAMETERS. | Note: If user says 'tomorrow', calculate based on {user_tz}."
+            "content": (
+                f"STATE: {last_action} | NOW (UTC): {current_now_utc} | "
+                f"LOCKED_PARAMETERS (Calendar): {lock_str or 'None'}. |"
+                f"VAULT_DATA (Client Intake): {vault_str or 'None'}. "
+                "\n--- EXECUTION RULES ---\n"
+                "1. VAULT IS SUPREME: If a name is in VAULT_DATA, it is 'Locked.' You are FORBIDDEN from asking for it again, even if a protocol search fails.\n"
+                "2. IGNORE RAG FAILURES: If a protocol lookup returns 'not found', do NOT apologize or explain. Simply look at VAULT_DATA and ask for the next MISSING field.\n"
+                f"3. CALENDAR: If user says 'tomorrow', use {user_tz}. Do not ask for LOCKED_PARAMETERS."
+            )
         }
         
         if messages[-1]["role"] == "assistant" and messages[-1].get("tool_calls"):
             loop_messages = messages 
         else:
-            loop_messages = [messages[0]] + [state_injection] + messages[1:]
-        
+            reminder = {
+               "role": "system",
+               "content": (
+                   f"CURRENT REGISTERED DATA: {vault_str or 'None'}. "
+                   "If a client_number,client_type,first_name,last_name,email is listed above, you are FORBIDDEN from asking for it. "
+                   "Move to the next missing field immediately."
+                )
+            }
+
+            loop_messages = [messages[0]] + [state_injection] + messages[1:] + [reminder]
+
+        logger.info(f"[DEBUG-INTAKE] Iteration {i} | Last Action: {last_action}")
+        logger.info(f"[DEBUG-INTAKE] Vault Content: {vault_str}")
+
         response = await ai_client.chat.completions.create(
             model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto"
         )
@@ -375,7 +510,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                     logger.error(f"Conflict check logic error: {e}")
 
             # Normal Tool Execution
-            result = await execute_tool_call(tool_call, services, user_role, tenant_id, cleaned_history)
+            #--.result = await execute_tool_call(tool_call, services, user_role, tenant_id, cleaned_history)
+            result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages)
+
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
             if tool_call.function.name == "schedule_event":

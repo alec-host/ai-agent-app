@@ -4,6 +4,8 @@ import re
 from datetime import datetime, timedelta
 from src.logger import logger
 from src.agents.calendar_agent import handle_calendar
+from src.agents.client_creation_agent import handle_client_intake_partial
+from src.utils import format_sync_client_payload 
 
 async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     """
@@ -34,9 +36,10 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
             except: continue
 
     # 2. Force the tool and RE-INJECT the missing data
-    if is_mid_intake and func_name not in ["create_client_record", "lookup_firm_protocol"]:
-        logger.info(f"FORCE-REDIRECT: Re-anchoring to client intake for {last_data.get('full_name')}")
-        func_name = "create_client_record"
+    if is_mid_intake:
+        if func_name not in ["create_client_record", "lookup_firm_protocol"]:
+            logger.info(f"FORCE-REDIRECT: Re-anchoring to client intake for {last_data.get('first name')}")
+            func_name = "create_client_record"
 
         # This is the fix: It ensures the name 'Peter Pan' is passed 
         # into the NEW tool call even if the AI forgot to include it.
@@ -115,84 +118,117 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
 
             if func_name == "lookup_firm_protocol":
                 # This calls the method we added to your CalendarServiceClient
-                result_context = services['calendar'].get_workflow_protocol(
+                result_context = await services['calendar'].get_workflow_protocol(
                     query=user_query, 
                     tenant_id=tenant_id
                 )
+            print(result_context)
             return {"status": "success", "data": result_context}
         except Exception as e:
             logger.error(f"RAG lookup failed for {func_name}: {str(e)}")
             return {"error": "Knowledge base retrieval failed", "details": str(e)}
 
-    client_funcs = ["create_client_record"]
+    client_funcs = ["create_client_record", "setup_client"]
 
-    # helper in agent_manager.py
-    def extract_missing_entities(text, current_args):
-        if not text: return current_args
-
-        # Simple regex for email if not already present
-        if not current_args.get("email"):
-            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-            if email_match:
-                current_args["email"] = email_match.group(0)
-
-        # If text is 2-3 words and title-cased, and name is missing, assume it's the name
-        if not current_args.get("full_name"):
-            words = text.strip().split()
-            if 1 <= len(words) <= 3 and all(w[0].isupper() for w in words if w):
-                current_args["full_name"] = text.strip()
-
-        return current_args
 
     if func_name in client_funcs:
-        required_fields = ["full_name", "email", "phone", "address"]
-
-        # 1. First, harvest from previous TOOL CALLS (your existing logic)
-        for msg in reversed(history or []):
-            t_calls = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, 'tool_calls', None)
-            if t_calls:
-                for tc in t_calls:
-                    try:
-                        tc_args_raw = tc.get("function", {}).get("arguments") if isinstance(tc, dict) else tc.function.arguments
-                        tc_args = json.loads(tc_args_raw)
-                        for field in required_fields:
-                            if not args.get(field) and tc_args.get(field):
-                                args[field] = tc_args[field]
-                    except: continue
-
-        # 2. NEW: Harvest from RAW TEXT (The "Peter Pan" Fix)
-        # We look at the very last user message to see if they just typed a value
-        if history:
-            last_user_msg = next((m for m in reversed(history) if (m.get("role") if isinstance(m, dict) else m.role) == "user"), None)
-            if last_user_msg:
-                user_text = last_user_msg.get("content") if isinstance(last_user_msg, dict) else last_user_msg.content
-                # Use our helper to find names/emails/phones in the plain text
-                args = extract_missing_entities(user_text, args)
-
-        # 3. Now check what is still missing
-        missing = [f for f in required_fields if not args.get(f)]
+        required_fields = ["first_name", "last_name", "client_number", "client_type", "email"]
         
+        # 1. FETCH FROM DATABASE (Session Recovery)
+        db_data = {}
+        db_history = []
+        try:
+            resp = await services['calendar'].get_client_session(tenant_id)
+
+            status_code = getattr(resp, 'status_code', resp.get('status') if isinstance(resp, dict) else None)
+
+            if status_code == 200:
+                if isinstance(resp, dict):
+                    db_data = resp
+                elif hasattr(resp, 'json'):
+                    db_data = resp.json()
+                else:
+                    db_data = {}
+
+                if db_data and (db_data.get('client_number') or db_data.get('email')):
+                    # Recover chat history from metadata
+                    db_history = db_data.get("metadata", {}).get("chat_history", [])
+
+                    vault_parts = [f"{k}: {db_data.get(k)}" for k in required_fields if db_data.get(k)]
+                    logger.info(f"[DEBUG-INTAKE] Vault Content: {', '.join(vault_parts)}")
+                else:
+                    logger.warning(f"[DB-RECOVERY] Response received but required client fields are missing: {db_data}")
+            else:
+                logger.warning(f"[DB-RECOVERY] Session not found or error status: {status_code}")
+        except Exception as e:
+            logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
+
+        sync_client_partial_payload = format_sync_payload(tenant_id, args, history)
+        logger.info(f"[DB-SYNCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTt]    {sync_client_partial_payload}")
+        await services['calendar'].sync_client_session(sync_client_partial_payload)
+
+        db_data = result.get("current_state", {})
+
+        # 2. INITIALIZE & SAFE MERGE
+        # We use 'or' to ensure that if 'args' has a null/empty value, 
+        # we retain what was already in 'db_data'.
+        final_args = {
+            "first_name": args.get("first_name") or db_data.get("first_name"),
+            "last_name": args.get("first_name") or db_data.get("last_name"),
+            "client_number": args.get("client_number") or db_data.get("client_number"),
+            "client_type": args.get("client_type") or db_data.get("client_type"),
+            "email": args.get("email") or db_data.get("email")          
+        }
+
+        # 3. REHYDRATE HISTORY: If frontend history is empty [], use DB history
+        db_history = db_data.get("metadata", {}).get("chat_history", [])
+        effective_history = history if (history and len(history) > 0) else db_history
+
+        # 4. SYNC TO DATABASE (Persistence)
+        try:
+            # Note: Ensure Node.js controller syncSession handles the 'history' key 
+            # and saves it into metadata.chat_history
+            sync_client_payload = format_sync_payload(tenant_id, final_args, effective_history)
+            logger.info(f"[DB-SYNCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTt]    {sync_client_payload}")
+            await services['calendar'].sync_client_session(sync_client_payload)
+        except Exception as e:
+            logger.error(f"[DB-SYNC] Failed to sync session: {e}")
+
+        # 5. CHECK FOR COMPLETION
+        missing = [f for f in required_fields if not final_args.get(f)]
+
         if not missing:
             try:
-                result = await services['calendar'].save_new_client(args, tenant_id) 
+                # Save to permanent Client Database
+                result = await services['calendar'].save_new_client(final_args, tenant_id)
+                logger.info(f"Final save : {result}")
+                
+                # 6. CLEAR DB SESSION: Use the clear endpoint we created
+                await services['calendar'].clear_client_session(tenant_id)
+
                 return {
                     "status": "success",
-                    "message": f"RECORD COMPLETE: Client {args.get('full_name')} has been saved to the database.",
-                    "data": args,
-                    "instructions": "Inform the user the client is created and ask if they want to 'Create a Matter' for this client now."
+                    "message": f"RECORD COMPLETE: {final_args.get('first_name')} has been saved.",
+                    "data": final_args,
+                    "instructions": "Inform the user the client record is created. Ask if they want to schedule an appointment or create a matter."
                 }
             except Exception as e:
-                return { "error": "Final save failed", "details": str(e) }
+                logger.error(f"Final save failed: {e}")
+                return {"status": "error", "message": "The system encountered an error while saving the final record."}
+
         else:
-            # Identify which fields we HAVE collected to inform the AI
-            collected = {f: args.get(f) for f in required_fields if args.get(f)}
-            #last_captured = collected[-1] if collected else "initial intent"
+            # --- THE CIRCUIT BREAKER TRIGGERED ---
+            # The AI tried to save, but we caught missing data
+            # 7. PARTIAL SUCCESS: Lock progress and instruct the AI
+            # Force it back to "partial_success" mode.
+            missing_str = ", ".join(missing)
+            logger.warning(f"[INTAKE-GUARD] AI tried to save but {missing_str} is missing.")
+
             return {
-				"status": "partial_content",
-                "current_state": args,
-                "response_instruction": f"The record for '{args.get('full_name')}' is UPDATED. "
-                                        f"STRICT: Do not ask for name again. "
-                                        f"Your next output MUST be a question asking for the {missing[0]}."
+                "status": "partial_success",
+                "current_state": final_args,
+                "message": f"Cannot save yet. The following fields are still required: {missing_str}.",
+                "response_instruction": f"CRITICAL: Data is missing. Do not confirm the save. Ask for {missing[0]} immediately."
             }
 
     return {"error": f"Tool {func_name} not recognized", "status": 404}
