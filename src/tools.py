@@ -5,7 +5,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "schedule_event",
-            "description": "Schedules a new calendar event. Use for specific times or all-day legal dates like holidays.",
+            "description": "Schedules or DRAFTS a calendar event. Call this IMMEDIATELY as soon as you have ANY detail (like just the title or just the time) to save progress to the database vault.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -16,8 +16,7 @@ TOOLS = [
                     "description": {"type": "string", "description": "Additional notes or case references"},
                     "isAllDay": {"type": "boolean", "description": "Set to true for all-day events or deadlines."},
                     "date": {"type": "string", "description": "Format YYYY-MM-DD. Use ONLY if isAllDay is true."}
-                },
-                "required": ["summary", "startTime"]
+                }
             }
         }
     },
@@ -166,7 +165,7 @@ TOOLS = [
       "type": "function",
       "function": {
           "name": "create_client_record",
-          "description": "Saves a new client to the database after conversational intake is complete.",
+          "description": "Saves or DRAFTS a new client record. Call this IMMEDIATELY as soon as you have ANY field (like just the first name) to ensure progress is persisted to the database vault.",
           "parameters": {
              "type": "object",
              "properties": {
@@ -175,8 +174,7 @@ TOOLS = [
                  "first_name": {"type": "string", "description": "The client's legal first name."},
                  "last_name": {"type": "string", "description": "The client's legal last name."},
                  "email": {"type": "string", "description": "The primary contact email address for the client."}
-             },
-            "required": ["client_number", "client_type", "first_name", "last_name", "email"]
+             }
           }
       }
    }
