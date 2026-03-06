@@ -37,18 +37,21 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
 
     # 3. SYNC TO DATABASE (Incremental Persistence)
     try:
+        # Debug: Log what we are trying to save
+        logger.info(f"[DB-SYNC] Prepared Args: {final_args}")
+        
         # Use the unified payload formatter
-        # We preserve any existing 'event_draft' during client intake
         sync_payload = format_sync_chat_payload(
             tenant_id=tenant_id,
             client_args=final_args,
             event_draft=db_metadata.get("event_draft"),
             history=history if history else db_history
         )
+        
         await services['calendar'].sync_client_session(sync_payload)
-        logger.info(f"[DB-SYNC] Incremental sync successful for client intake")
+        logger.info(f"[DB-SYNC] Success for tenant {tenant_id}. Metadata keys: {list(sync_payload['metadata'].keys())}")
     except Exception as e:
-        logger.error(f"[DB-SYNC] Failed to sync session: {e}")
+        logger.error(f"[DB-SYNC] Failed to sync session: {e}", exc_info=True)
 
     # 5. CHECK FOR COMPLETION
     missing = [f for f in REQUIRED_FIELDS if not final_args.get(f)]
