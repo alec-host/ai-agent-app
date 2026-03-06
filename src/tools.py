@@ -161,11 +161,11 @@ TOOLS = [
            }
       }
    },
-   {
+    {
       "type": "function",
       "function": {
           "name": "create_client_record",
-          "description": "Saves or DRAFTS a new client record. Call this IMMEDIATELY as soon as you have ANY field (like just the first name) to ensure progress is persisted to the database vault.",
+          "description": "Saves or DRAFTS a client record. Call this IMMEDIATELY as soon as you have ANY field. If you have multiple fields (e.g., First and Last name), you MUST pass them all in a SINGLE call.",
           "parameters": {
              "type": "object",
              "properties": {
