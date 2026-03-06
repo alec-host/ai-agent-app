@@ -3,8 +3,8 @@ import json
 from src.logger import logger
 from src.utils import format_sync_chat_payload
 
-# The full list of fields required for a complete client record
-REQUIRED_FIELDS = ["first_name", "last_name", "client_number", "client_type", "email"]
+# The full list of fields required for a complete client record - ORDERED BY PRIORITY
+REQUIRED_FIELDS = ["client_number", "client_type", "first_name", "last_name", "email"]
 
 async def handle_client_creation(func_name, args, services, tenant_id, history):
     """
@@ -26,12 +26,12 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
         logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
         db_history = []
 
-    # 2. INITIALIZE & SAFE MERGE
+    # 2. INITIALIZE & SAFE MERGE (Prioritize new args, fallback to DB)
     final_args = {
-        "first_name": args.get("first_name") or db_data.get("first_name"),
-        "last_name": args.get("last_name") or db_data.get("last_name"),
         "client_number": args.get("client_number") or db_data.get("client_number"),
         "client_type": args.get("client_type") or db_data.get("client_type"),
+        "first_name": args.get("first_name") or db_data.get("first_name"),
+        "last_name": args.get("last_name") or db_data.get("last_name"),
         "email": args.get("email") or db_data.get("email")          
     }
 
