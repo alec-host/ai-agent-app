@@ -1,25 +1,85 @@
-# agent_manager.py
+# src/agents/client_creation_agent.py
+import json
+from src.logger import logger
+from src.utils import format_sync_chat_payload
 
-async def handle_client_intake_partial(tenant_id, incoming_args, services):
+# The full list of fields required for a complete client record
+REQUIRED_FIELDS = ["first_name", "last_name", "client_number", "client_type", "email"]
+
+async def handle_client_creation(func_name, args, services, tenant_id, history):
     """
-    Handles the 'Partial Save' logic to prevent conversational loops.
-    Note: We pass 'services' in so it can access the calendar API.
+    Handles all logic related to client record creation and sequential conversation intake.
     """
-    # 1. Fetch current Vault state
-    resp = await services['calendar'].get_client_session(tenant_id)
-    
-    # Safe extraction (using our previous fix)
-    existing_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
-    existing_metadata = existing_data.get('metadata', {})
+    logger.info(f"[{tenant_id}] Handling Client Creation: {func_name}")
 
-    # 2. Merge data (Incremental Update)
-    updated_metadata = {**existing_metadata, **incoming_args}
+    # 1. FETCH FROM DATABASE (Session Recovery)
+    db_data = {}
+    db_metadata = {}
+    try:
+        resp = await services['calendar'].get_client_session(tenant_id)
+        db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
+        db_metadata = db_data.get("metadata", {})
+        
+        # Recover chat history from metadata if available
+        db_history = db_metadata.get("chat_history", [])
+    except Exception as e:
+        logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
+        db_history = []
 
-    # 3. Immediate Save to DB
-    await services['calendar'].sync_client_session(tenant_id, { ... })
-
-    # 4. Return formatted state for the AI
-    return {
-        "status": "partial_success",
-        "current_state": updated_metadata
+    # 2. INITIALIZE & SAFE MERGE
+    final_args = {
+        "first_name": args.get("first_name") or db_data.get("first_name"),
+        "last_name": args.get("last_name") or db_data.get("last_name"),
+        "client_number": args.get("client_number") or db_data.get("client_number"),
+        "client_type": args.get("client_type") or db_data.get("client_type"),
+        "email": args.get("email") or db_data.get("email")          
     }
+
+    # 3. SYNC TO DATABASE (Incremental Persistence)
+    try:
+        # Use the unified payload formatter
+        # We preserve any existing 'event_draft' during client intake
+        sync_payload = format_sync_chat_payload(
+            tenant_id=tenant_id,
+            client_args=final_args,
+            event_draft=db_metadata.get("event_draft"),
+            history=history if history else db_history
+        )
+        await services['calendar'].sync_client_session(sync_payload)
+        logger.info(f"[DB-SYNC] Incremental sync successful for client intake")
+    except Exception as e:
+        logger.error(f"[DB-SYNC] Failed to sync session: {e}")
+
+    # 5. CHECK FOR COMPLETION
+    missing = [f for f in REQUIRED_FIELDS if not final_args.get(f)]
+
+    if not missing:
+        # ALL FIELDS CAPTURED: Finalize the record
+        try:
+            save_result = await services['calendar'].save_new_client(final_args, tenant_id)
+            logger.info(f"Final record save result: {save_result}")
+            
+            # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
+            await services['calendar'].clear_client_session(tenant_id)
+
+            return {
+                "status": "success",
+                "message": f"RECORD COMPLETE: {final_args.get('first_name')} {final_args.get('last_name')} has been saved.",
+                "data": final_args,
+                "instructions": "Inform the user the client record is created. Ask if they want to schedule an appointment or create a matter."
+            }
+        except Exception as e:
+            logger.error(f"Final save failed: {e}")
+            return {"status": "error", "message": "The system encountered an error while saving the final record."}
+
+    else:
+        # PARTIAL PROGRESS: Lock progress and instruct the AI on exactly what to ask next
+        missing_str = ", ".join(missing)
+        logger.warning(f"[INTAKE-PROGRESS] Captured: {', '.join([k for k,v in final_args.items() if v])} | Missing: {missing_str}")
+
+        return {
+            "status": "partial_success",
+            "current_state": final_args,
+            "message": f"Progress saved. Required: {missing_str}.",
+            "response_instruction": f"CRITICAL: Data is missing. Do not confirm the save. Ask for {missing[0]} immediately."
+        }

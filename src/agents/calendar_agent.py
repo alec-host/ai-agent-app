@@ -1,86 +1,95 @@
 import json
-# 1. FIXED IMPORTS: Use this exact pattern to prevent 'datetime.datetime' errors
 from datetime import datetime, timedelta
 from src.logger import logger
+from src.utils import format_sync_chat_payload
 
-async def handle_calendar(func_name, args, calendar_service, user_role):
-    logger.info(f"[{calendar_service.correlation_id}] Handling: {func_name}")
+async def handle_calendar(func_name, args, calendar_service, user_role, history=None):
+    """
+    Specialist agent for all calendar operations.
+    Handles temporal logic, auth chaining, and persistent 'Drafting' to prevent amnesia.
+    """
+    tenant_id = calendar_service.tenant_id
+    logger.info(f"[{tenant_id}] Handling Calendar: {func_name}")
     
     # Extract temporal context injected by agent_manager
     sys_context = args.get("_system_context", {})
     ref_time = sys_context.get("current_time")
     
-    # --- 1. SCHEDULE & UPDATE (Time-Sensitive) ---
+    # 1. FETCH CURRENT SESSION (For Drafting Persistence)
+    db_data = {}
+    try:
+        resp = await calendar_service.get_client_session(tenant_id)
+        db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
+    except: pass
+    
+    db_metadata = db_data.get("metadata", {})
+    event_draft = db_metadata.get("event_draft", {})
+
+    # --- 2. THE DRAFTING SYNC (Amnesia Fix) ---
+    # Merge incoming args with the saved Draft
     if func_name in ["schedule_event", "update_event"]:
-        # Map summary to title for Node.js compatibility
-        input_title = args.get("title") or args.get("summary")
-        args["title"] = input_title if input_title else "Scheduled Meeting"
-        # Remove 'summary' to keep args clean
-        args.pop("summary", None)
-
-        if args.get("startTime"):
-            duration = int(args.get("duration_minutes", 60))
-            
-            # 2. SAFETY BLOCK: Prevent crash from breaking the API chain
-            try:
-                # Service now uses ref_time to resolve 'next 30 mins'
-                req_end_str = calendar_service.calculate_end_time(
-                    args["startTime"], duration, reference_time=ref_time
-                )
-                
-                if not req_end_str:
-                    # Return a clean error instead of crashing
-                    return {"error": "Invalid time format provided. Please use ISO format or clear relative time."}
-                
-                args["endTime"] = req_end_str
-
-            except Exception as e:
-                # Catch the datetime error here so we can log it and return a valid JSON response
-                # This prevents the "Tool Call without Tool Result" (400 Bad Request) error
-                logger.error(f"Time calculation crash: {str(e)}")
-                return {"error": f"Internal time calculation failed: {str(e)}"}
-
-            # Optional: Conflict Check could go here
-            # ...
-
-        endpoint = "/events" if func_name == "schedule_event" else f"/events/{args.get('event_id')}"
-        method = "POST" if func_name == "schedule_event" else "PATCH"
+        current_draft = {
+            "title": args.get("title") or args.get("summary") or event_draft.get("title"),
+            "startTime": args.get("startTime") or event_draft.get("startTime"),
+            "duration_minutes": args.get("duration_minutes") or event_draft.get("duration_minutes", 60)
+        }
         
-        # 3. SERVICE REQUEST
+        # Immediate Persistence: Lock in what we know so far
         try:
-            return await calendar_service.request(method, endpoint, args)
-        except Exception as e:
-             logger.error(f"Service request failed: {str(e)}")
-             return {"error": "Calendar service is currently unavailable."}
-
-    # --- 2. SESSION INITIALIZATION ---
-    if func_name == "initialize_calendar_session":
-        # Note: tenant_id is pulled from args
-        result = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={args.get('tenant_id')}")
-        
-        if isinstance(result, dict) and result.get("status") == "ready":
-            # Extract what the AI sent to "lock" it in
-            p_title = args.get("title") or args.get("summary")
-            p_start = args.get("startTime")
-            
-            # IMPROVEMENT: Only mention facts we actually have. 
-            # This prevents the AI from seeing 'StartTime=None' and getting confused.
-            found_facts = []
-            if p_title: found_facts.append(f"Title='{p_title}'")
-            if p_start: found_facts.append(f"StartTime='{p_start}'")
-            
-            fact_block = f" [FACTS RECOVERED: {', '.join(found_facts)}]" if found_facts else ""
-
-            result["message"] = (
-                f"SUCCESS: Session ready.{fact_block} "
-                "INSTRUCTION: You are now authorized. Check the PENDING DATA in your system prompt. "
-                "If you have both a Title and Time, call 'schedule_event' IMMEDIATELY."
+            sync_payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=db_data, # Keep existing client data
+                event_draft=current_draft,
+                history=history
             )
-            result["_continue_chaining"] = True
-            
+            await calendar_service.sync_client_session(sync_payload)
+            logger.info(f"[CAL-DRAFT] Sync successful for '{current_draft.get('title')}'")
+        except Exception as e:
+            logger.error(f"[CAL-DRAFT] Sync failed: {e}")
+
+        # --- 3. EXECUTION BLOCK ---
+        if func_name == "schedule_event":
+            # Validation
+            if not current_draft.get("startTime"):
+                return {
+                    "status": "partial_success",
+                    "message": "Title captured. Need a start time.",
+                    "response_instruction": "You have the title saved. Ask the user for the specific date and time for this meeting."
+                }
+
+            # Time Normalization
+            duration = int(current_draft.get("duration_minutes", 60))
+            try:
+                end_time = calendar_service.calculate_end_time(current_draft["startTime"], duration, reference_time=ref_time)
+                current_draft["endTime"] = end_time
+            except Exception as e:
+                return {"status": "error", "message": f"Invalid time format: {e}"}
+
+            # Execute save to actual calendar
+            try:
+                result = await calendar_service.request("POST", "/events", current_draft)
+                
+                if result.get("status") == "success" or "id" in result:
+                    # SUCCESS: Clear the draft so it doesn't haunt future conversations
+                    await calendar_service.sync_client_session(format_sync_chat_payload(tenant_id, db_data, {}, history))
+                    return {
+                        "status": "success",
+                        "message": f"Event '{current_draft['title']}' scheduled successfully.",
+                        "data": result
+                    }
+                return result
+            except Exception as e:
+                return {"status": "error", "message": f"Calendar service error: {e}"}
+
+    # --- 4. SESSION INITIALIZATION ---
+    if func_name == "initialize_calendar_session":
+        result = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        if isinstance(result, dict) and result.get("status") == "ready":
+             result["message"] = "SUCCESS: Session ready. You are authorized to manage the calendar."
+             result["_continue_chaining"] = True
         return result
 
-    # --- 3. RETRIEVAL & DELETION ---
+    # --- 5. RETRIEVAL & DELETION ---
     if func_name == "get_all_events":
         return await calendar_service.request("GET", "/events")
 

@@ -76,19 +76,15 @@ async def get_rehydration_context(tenant_id, services):
     a system-ready injection string for the AI.
     """
     try:
-        # Access the service exactly how your main.py does
         calendar_service = services.get("calendar")
         if not calendar_service:
             return ""
 
-        # Make the request to your Node.js endpoint
         resp = await calendar_service.request("GET", f"/chat/session?tenantId={tenant_id}")
-        
-        # Check if we actually got a valid session
         if not resp or not isinstance(resp, dict):
             return ""
 
-        # Extract the key fields
+        # 1. CLIENT VAULT
         vault_state = {k: v for k, v in {
             "client_number": resp.get("client_number"),
             "client_type": resp.get("client_type"),
@@ -97,41 +93,52 @@ async def get_rehydration_context(tenant_id, services):
             "email": resp.get("email")
         }.items() if v}
 
-        if not vault_state:
+        # 2. EVENT DRAFT (from metadata)
+        metadata = resp.get("metadata", {})
+        event_draft = metadata.get("event_draft", {})
+
+        if not vault_state and not event_draft:
             return ""
 
-        # Determine the guidance for the AI
-        all_required = ["client_number", "client_type", "first_name", "last_name", "email"]
-        missing = [f for f in all_required if f not in vault_state]
-        
-        guidance = f"Ask for {missing[0]} next." if missing else "Intake complete. Proceed to next task."
+        # Construct segments
+        blocks = []
+        if vault_state:
+            blocks.append(f"CLIENT PROFILE:\n{json.dumps(vault_state, indent=2)}")
+        if event_draft:
+            # Mask sensitive internal fields
+            clean_draft = {k: v for k, v in event_draft.items() if not k.startswith("_")}
+            blocks.append(f"PENDING CALENDAR EVENT:\n{json.dumps(clean_draft, indent=2)}")
 
         # Return the structured block
+        content = "\n\n".join(blocks)
         return (
             f"\n\n### DATABASE VAULT (RECOVERED STATE)\n"
-            f"The following client data is already saved. DO NOT ask for these:\n"
-            f"```json\n{json.dumps(vault_state, indent=2)}\n```\n"
-            f"TARGET: {guidance}\n"
+            f"The following data is ALREADY SYNCED. Use it to proceed:\n"
+            f"```json\n{content}\n```\n"
         )
     except Exception as e:
         logger.error(f"[REHYDRATION-ERROR] {e}")
         return ""
 
-def format_sync_client_payload(tenant_id, args, history):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None):
     """
-    Transforms merged AI args into the structure 
-    the Node.js 'syncChatSession' controller expects.
+    Unified transformer for the Node.js 'chatsessions' model.
+    Maps client fields to top-level columns and events to 'metadata'.
     """
-    # Ensure args is a dictionary to prevent .get() crashes
-    data = args if args is not None else {}
+    client_data = client_args or {}
+    
+    # We maintain the existing schema while using 'metadata' for flexible storage
+    metadata = {
+        "chat_history": history if history else [],
+        "event_draft": event_draft if event_draft else {}
+    }
     
     return {
         "tenantId": tenant_id,
-        "first_name": data.get("first_name"),
-        "last_name": data.get("last_name"),
-        "client_number": data.get("client_number"),
-        "client_type": data.get("client_type"),
-        "email": data.get("email"),
-        # Matches the 'chat_history' destructuring in Node.js
-        "chat_history": history if history else []
+        "first_name": client_data.get("first_name"),
+        "last_name": client_data.get("last_name"),
+        "client_number": client_data.get("client_number"),
+        "client_type": client_data.get("client_type"),
+        "email": client_data.get("email"),
+        "metadata": metadata
     }

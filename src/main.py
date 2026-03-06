@@ -337,192 +337,108 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         elif error_type == "no_wallet":
              return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
     '''
-    # --- 1. HISTORY REPAIR STEP (CRITICAL FIX FOR 400 ERROR) ---
-    cleaned_history = [m.dict() for m in req.history]
-    '''
-    while cleaned_history and cleaned_history[-1].get("role") == "assistant" and cleaned_history[-1].get("tool_calls"):
-        cleaned_history.pop()
-    '''
-
-    # REPLACE THE 'while' BLOCK WITH THIS:
-    if cleaned_history and len(cleaned_history) > 0:
-        last_msg = cleaned_history[-1]
-        # Only pop if the AI made a tool call but we haven't received the tool result yet
-        # This prevents the 'must be followed by tool role' error without wiping memory
-        if last_msg.get("role") == "assistant" and last_msg.get("tool_calls") and i == 0:
-            # Check if the message before it was also an assistant (rare)
-            pass
-
-    # --- PROACTIVE PARAMETER LOCK-IN ---
-    locked_params = {"title": None, "startTime": None}
-    for msg_dict in cleaned_history:
-        content = str(msg_dict.get("content") or "")
-        t_match = re.search(r"(?:title|subject|summary)(?:\s+is|:)?\s+['\"]?([^'\"\n]+)['\"]?", content, re.IGNORECASE)
-        if t_match: locked_params["title"] = t_match.group(1)
-        if msg_dict.get("tool_calls"):
-            for tc in msg_dict["tool_calls"]:
-                try:
-                    tc_args_raw = tc.get("function", {}).get("arguments") if isinstance(tc, dict) else tc.function.arguments
-                    p_args = json.loads(tc_args_raw)
-                    if p_args.get("title"): locked_params["title"] = p_args["title"]
-                    if p_args.get("startTime"): locked_params["startTime"] = p_args["startTime"]
-                except: continue
-
-    # Session Recovery
-    for msg_dict in reversed(cleaned_history):
-        content = msg_dict.get("content") or ""
+    # --- 1. HISTORY CLEANUP ---
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    
+    # Session Recovery: Restore JWT from history if present
+    for msg in reversed(cleaned_history):
+        content = msg.get("content") or ""
         if '"jwtToken":' in content:
             try:
-                calendar_service.set_auth_token(json.loads(content).get("jwtToken"))
-                break
+                data = json.loads(content)
+                if data.get("jwtToken"):
+                    calendar_service.set_auth_token(data["jwtToken"])
+                    break
             except: continue
 
     services = {"calendar": calendar_service}
 
-    # --- START DROP-IN REHYDRATION ---
+    # --- 2. CONTEXT REHYDRATION (Source of Truth) ---
+    # This fetches the latest saved state from the DB to prevent looping
     rehydration_block = await get_rehydration_context(tenant_id, services)
-    # --- END DROP-IN REHYDRATION ---
-
+    
     messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
-
-    # OPTIONAL: If you want the rehydration to be part of the base system prompt:
     if rehydration_block:
-        messages[0]["content"] += rehydration_block
+        messages[0]["content"] += f"\n\n{rehydration_block}"
 
     messages.extend(sanitize_history(cleaned_history))
     messages.append({"role": "user", "content": req.prompt})
 
     ai_client = request.app.state.ai_client
     last_action = "Waiting for input"
-
-    # --- 4. AGENTIC LOOP ---
     user_tz = auth.get("timezone", "UTC")
+
+    # --- 3. AGENTIC REASONING LOOP ---
     for i in range(5):
-        # --- REINFORCED VAULT SCANNER ---
-        # 1. Start with the data we recovered from the DB at the very beginning
-        # We parse the db_session again or use the vault_state from our helper
+        # Fetch current session state for precise injection
         db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
-        # --- NEW: VAULT SCANNER (Non-destructive) --- 
-        vault_data = {
+        
+        # Segment 1: Client Fields
+        client_vault = {k: v for k, v in {
             "client_number": db_session.get("client_number"),
             "client_type": db_session.get("client_type"),
             "first_name": db_session.get("first_name"),
             "last_name": db_session.get("last_name"),
             "email": db_session.get("email")
-        }
-        for m in reversed(messages):
-            if m.get("role") == "tool":
-                try:
-                    content = json.loads(m.get("content", "{}"))
-                    if content.get("status") == "partial_success":
-                        new_stuff = content.get("current_state", {})
-                        # Only update if the field actually has a value
-                        for k, v in new_stuff.items():
-                            if v: vault_data[k] = v
-                        break
-                except: continue
-
+        }.items() if v}
+        
+        # Segment 2: Event Draft (from metadata)
+        metadata = db_session.get("metadata", {})
+        event_draft = metadata.get("event_draft", {})
+        
+        # Build unified vault string for prompt
+        vault_segments = []
+        if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
+        if event_draft: vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+        vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
         current_now_utc = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
-        lock_str = ", ".join([f"{k}: {v}" for k, v in locked_params.items() if v])
 
-        # Add the VAULT_DATA to the prompt
-        vault_str = ", ".join([f"{k}: {v}" for k, v in vault_data.items() if v])
-
-        
         state_injection = {
             "role": "system", 
             "content": (
-                f"STATE: {last_action} | NOW (UTC): {current_now_utc} | "
-                f"LOCKED_PARAMETERS (Calendar): {lock_str or 'None'}. |"
-                f"VAULT_DATA (Client Intake): {vault_str or 'None'}. "
-                "\n--- EXECUTION RULES ---\n"
-                "1. VAULT IS SUPREME: If a name is in VAULT_DATA, it is 'Locked.' You are FORBIDDEN from asking for it again, even if a protocol search fails.\n"
-                "2. IGNORE RAG FAILURES: If a protocol lookup returns 'not found', do NOT apologize or explain. Simply look at VAULT_DATA and ask for the next MISSING field.\n"
-                f"3. CALENDAR: If user says 'tomorrow', use {user_tz}. Do not ask for LOCKED_PARAMETERS."
+                f"### SYSTEM STATE ###\n"
+                f"NOW (UTC): {current_now_utc} | USER_TIMEZONE: {user_tz}\n"
+                f"DATABASE VAULT (SAVED): {vault_str}\n"
+                f"LAST_SYSTEM_ACTION: {last_action}\n"
+                "--- RULES ---\n"
+                "1. VAULT IS SUPREME: If a field is in VAULT, you ARE FORBIDDEN from asking for it. Move to the next task.\n"
+                "2. PERSISTENCE: Data in VAULT is already in the database. Continue until the task is success.\n"
             )
         }
         
-        if messages[-1]["role"] == "assistant" and messages[-1].get("tool_calls"):
-            loop_messages = messages 
-        else:
-            reminder = {
-               "role": "system",
-               "content": (
-                   f"CURRENT REGISTERED DATA: {vault_str or 'None'}. "
-                   "If a client_number,client_type,first_name,last_name,email is listed above, you are FORBIDDEN from asking for it. "
-                   "Move to the next missing field immediately."
-                )
-            }
+        # Combine messages with dynamic state injection
+        loop_messages = [messages[0], state_injection] + messages[1:]
 
-            loop_messages = [messages[0]] + [state_injection] + messages[1:] + [reminder]
-
-        logger.info(f"[DEBUG-INTAKE] Iteration {i} | Last Action: {last_action}")
-        logger.info(f"[DEBUG-INTAKE] Vault Content: {vault_str}")
+        logger.info(f"[AGENT-LOOP] Iteration {i} | Vault: {vault_str}")
 
         response = await ai_client.chat.completions.create(
             model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto"
         )
         
         assistant_msg = response.choices[0].message
-
-        # TRACK TOKENS - usage tracking
-        if(hasattr(response, 'usage')):
+        
+        # Track token usage asynchronously
+        if hasattr(response, 'usage'):
             import asyncio 
             asyncio.create_task(update_tenant_wallet(tenant_id, response.usage, calendar_service))
         
-        # PROACTIVE ARGUMENT INJECTION
-        if assistant_msg.tool_calls:
-            for tool_call in assistant_msg.tool_calls:
-                if tool_call.function.name == "schedule_event":
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                        if (not args.get("title") or args.get("title").lower() in ["unknown", "string", ""]) and locked_params.get("title"):
-                            args["title"] = locked_params["title"]
-                            tool_call.function.arguments = json.dumps(args)
-                    except: pass
-
         assistant_dict = assistant_msg.model_dump(exclude_none=True)
         messages.append(assistant_dict)
 
         if not assistant_msg.tool_calls:
             return {"response": assistant_msg.content, "history": messages[1:]}
 
-        # --- 5. EXECUTE TOOL CALLS ---
+        # --- 4. EXECUTE TOOL CALLS ---
         for tool_call in assistant_msg.tool_calls:
-            # --- CONFLICT CHECK INTERCEPTION ---
-            if tool_call.function.name == "schedule_event":
-                try:
-                    args = json.loads(tool_call.function.arguments)
-                    start = args.get("startTime")
-                    duration = args.get("duration", 60)
-                    end = calendar_service.calculate_end_time(start, duration)
-                    
-                    if start and end and await calendar_service.check_conflicts(start, end):
-                        result = {
-                            "status": "error",
-                            "message": f"CONFLICT: There is already an event at {start}. Suggest a different time to the user."
-                        }
-                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
-                        last_action = "Blocked by scheduling conflict"
-                        continue # Skip to next tool call or loop iteration
-                except Exception as e:
-                    logger.error(f"Conflict check logic error: {e}")
-
-            # Normal Tool Execution
-            #--.result = await execute_tool_call(tool_call, services, user_role, tenant_id, cleaned_history)
+            # Dispatch directly to Agent Manager
             result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages)
-
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
-            if tool_call.function.name == "schedule_event":
-                try:
-                    new_args = json.loads(tool_call.function.arguments)
-                    if new_args.get("title"): locked_params["title"] = new_args["title"]
-                except: pass
-
-            if isinstance(result, dict) and (result.get("status") == "ready" or result.get("_continue_chaining")):
-                last_action = f"System Ready after {tool_call.function.name}"
+            if isinstance(result, dict) and (result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining")):
+                last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
+            else:
+                last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
 
     return {"response": messages[-1].get("content"), "history": messages[1:]}
 
