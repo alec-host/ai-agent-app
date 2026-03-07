@@ -23,7 +23,7 @@ from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
 from src.agent_manager import execute_tool_call
 
-from src.utils import sanitize_history, retry_with_backoff, get_rehydration_context
+from src.utils import sanitize_history, retry_with_backoff, get_rehydration_context, get_starter_chips
 
 from src.config import settings
 from src.logger import logger
@@ -383,11 +383,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
     # --- 2. CONTEXT REHYDRATION (Source of Truth) ---
     # This fetches the latest saved state from the DB to prevent looping
-    rehydration_block = await get_rehydration_context(tenant_id, services)
+    rehydration_data = await get_rehydration_context(tenant_id, services)
     
     messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
-    if rehydration_block:
-        messages[0]["content"] += f"\n\n{rehydration_block}"
+    
+    if rehydration_data:
+        messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
 
     messages.extend(sanitize_history(cleaned_history))
     messages.append({"role": "user", "content": req.prompt})
@@ -455,7 +456,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         messages.append(assistant_dict)
 
         if not assistant_msg.tool_calls:
-            return {"response": assistant_msg.content, "history": messages[1:]}
+            # --- FINAL RESPONSE DECORATION ---
+            final_payload = {"response": assistant_msg.content, "history": messages[1:]}
+            
+            # If this is the start of a conversation and no data exists, suggest actions
+            if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
+                final_payload["suggested_actions"] = get_starter_chips()
+            
+            return final_payload
 
         # --- 4. EXECUTE TOOL CALLS ---
         for tool_call in assistant_msg.tool_calls:
