@@ -203,7 +203,7 @@ class CalendarServiceClient:
             logger.error(f"Time calculation error: {e}")
             return None            
             
-    async def request(self, method: str, path: str, json_data: dict = None):
+    async def request(self, method: str, path: str, json_data: dict = None, _retry_on_auth: bool = True):
         url = f"{settings.NODE_SERVICE_URL}{path}"
         if json_data and isinstance(json_data, dict):
             for field in ["startTime", "endTime"]:
@@ -214,10 +214,27 @@ class CalendarServiceClient:
         try:
             response = await self._do_request(method, url, json_data)
             
-            # --- AUTH RECOVERY INTERCEPTION ---
-            # 401 (Expired) or 403 (No Consent) from the Node.js backend
+            # --- SILENT AUTH HEALING ---
+            # If 401/403, try to recover the token from Node.js before giving up
+            if response.status_code in [401, 403] and _retry_on_auth:
+                logger.info(f"[AUTH-HEAL] Received {response.status_code} for {path}. Attempting token recovery...")
+                
+                # Call the internal auth check
+                auth_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
+                auth_check = await self.client.get(auth_url, headers=self.headers)
+                
+                if auth_check.status_code == 200:
+                    auth_data = auth_check.json()
+                    if auth_data.get("status") == "ready" and auth_data.get("jwtToken"):
+                        new_token = auth_data["jwtToken"]
+                        logger.info(f"[AUTH-HEAL] Success! Recovered fresh token. Retrying {path}...")
+                        self.set_auth_token(new_token)
+                        # Retry original request EXACTLY once
+                        return await self.request(method, path, json_data, _retry_on_auth=False)
+
+            # --- AUTH RECOVERY INTERCEPTION (IF HEALING FAILED) ---
             if response.status_code in [401, 403]:
-                logger.warning(f"[AUTH-GUARD] {response.status_code} received for {path}. Redirecting to OAuth.")
+                logger.warning(f"[AUTH-GUARD] Persistent {response.status_code} for {path}. Redirecting to OAuth.")
                 return {
                     "status": "auth_required",
                     "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
