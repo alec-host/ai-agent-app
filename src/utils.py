@@ -95,6 +95,9 @@ async def get_rehydration_context(tenant_id, services):
 
         # 3. OAUTH RE-HYDRATION DETECTION
         # Check if we just returned from OAuth (Status Ready + Existing Draft)
+        metadata = resp.get("metadata", {})
+        event_draft = metadata.get("event_draft", {})
+        
         auth_status = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
         is_newly_ready = isinstance(auth_status, dict) and auth_status.get("status") == "ready"
         
