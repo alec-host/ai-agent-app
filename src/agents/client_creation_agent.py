@@ -65,7 +65,6 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
             try:
-                from src.utils import format_sync_chat_payload
                 wipe_payload = format_sync_chat_payload(
                     tenant_id=tenant_id,
                     client_args={}, # Wiping client fields as well since the save is complete

@@ -93,7 +93,6 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     # SUCCESS: Perform the "Clean Exit"
                     # Wiping the session clears the 'active_workflow' and the draft
                     try:
-                        from src.utils import format_sync_chat_payload
                         wipe_payload = format_sync_chat_payload(
                             tenant_id=tenant_id,
                             client_args=db_data,
