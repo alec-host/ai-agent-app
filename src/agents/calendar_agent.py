@@ -95,9 +95,20 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     await calendar_service.clear_client_session(tenant_id)
                     logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
                     
+                    # Format the success message with a structured Markdown table for HTML rendering
+                    summary_table = (
+                        "### FINAL SUMMARY: EVENT SCHEDULED\n\n"
+                        "| Detail | Information |\n"
+                        "| :--- | :--- |\n"
+                        f"| **Title** | {current_draft.get('title')} |\n"
+                        f"| **Start Time** | {current_draft.get('startTime')} |\n"
+                        f"| **End Time** | {current_draft.get('endTime', 'N/A')} |\n"
+                        f"| **Meeting Type** | {current_draft.get('meetingType', 'Consultation')} |\n"
+                    )
+
                     return {
                         "status": "success",
-                        "message": f"Event '{current_draft['title']}' scheduled successfully.",
+                        "message": summary_table,
                         "data": result
                     }
                 

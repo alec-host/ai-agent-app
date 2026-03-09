@@ -66,11 +66,23 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
             await services['calendar'].clear_client_session(tenant_id)
 
+            # Format the success message with a structured Markdown table for HTML rendering
+            summary_table = (
+                "### FINAL SUMMARY: CLIENT REGISTERED\n\n"
+                "| Field | Value |\n"
+                "| :--- | :--- |\n"
+                f"| **First Name** | {final_args.get('first_name')} |\n"
+                f"| **Last Name** | {final_args.get('last_name')} |\n"
+                f"| **ID Number** | {final_args.get('client_number', 'N/A')} |\n"
+                f"| **Type** | {final_args.get('client_type', 'N/A')} |\n"
+                f"| **Email** | {final_args.get('email', 'N/A')} |\n"
+            )
+
             return {
                 "status": "success",
-                "message": f"RECORD COMPLETE: {final_args.get('first_name')} {final_args.get('last_name')} has been saved.",
+                "message": summary_table,
                 "data": final_args,
-                "instructions": "Inform the user the client record is created. Ask if they want to schedule an appointment or create a matter."
+                "instructions": "Display the table to the user. Ask if they want to schedule an appointment or create a matter."
             }
         except Exception as e:
             logger.error(f"Final save failed: {e}")

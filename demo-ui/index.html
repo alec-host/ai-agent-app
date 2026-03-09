@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nuru | Legal AI Operations Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-scale-balanced"></i>
+                    <span>Nuru AI</span>
+                </div>
+                <button class="mobile-close" id="mobileClose"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div class="nav-section">
+                    <button class="new-chat-btn" id="newChatBtn">
+                        <i class="fas fa-plus"></i>
+                        <span>New Chat</span>
+                    </button>
+                </div>
+
+                <div class="nav-section">
+                    <h3 class="section-title">Quick Access</h3>
+                    <ul class="nav-list">
+                        <li><a href="#" class="nav-link"><i class="fas fa-users"></i> <span>Client List</span></a></li>
+                        <li><a href="#" class="nav-link"><i class="fas fa-briefcase"></i> <span>Recent Matters</span></a></li>
+                    </ul>
+                </div>
+
+                <div class="nav-section history-section">
+                    <h3 class="section-title">Chat History</h3>
+                    <div class="history-list" id="historyList">
+                        <!-- History items will be injected here -->
+                        <div class="history-item active">
+                            <i class="far fa-message"></i>
+                            <span>Current Consultation</span>
+                        </div>
+                        <div class="history-item">
+                            <i class="far fa-message"></i>
+                            <span>Property Matter Sync</span>
+                        </div>
+                        <div class="history-item">
+                            <i class="far fa-message"></i>
+                            <span>Intake: John Doe</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">JD</div>
+                    <div class="user-info">
+                        <span class="user-name">John Doe</span>
+                        <span class="user-role">Associate Attorney</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+                <div class="header-title">MatterMiner Operations</div>
+                <div class="header-actions">
+                    <button class="icon-btn"><i class="far fa-bell"></i></button>
+                    <button class="icon-btn"><i class="fas fa-cog"></i></button>
+                </div>
+            </header>
+
+            <div class="chat-viewport" id="chatViewport">
+                <!-- Messages will be injected here -->
+                <div class="welcome-screen" id="welcomeScreen">
+                    <div class="welcome-header">
+                        <h1>How can I assist your practice today?</h1>
+                        <p>Streamline your legal workflows with automated intake and scheduling.</p>
+                    </div>
+                    
+                    <div class="starter-chips-container">
+                        <div class="chip" data-prompt="Schedule a new consultation">
+                            <div class="chip-icon"><i class="fas fa-calendar-plus"></i></div>
+                            <div class="chip-text">Schedule Consultation</div>
+                        </div>
+                        <div class="chip" data-prompt="Register a new client">
+                            <div class="chip-icon"><i class="fas fa-user-plus"></i></div>
+                            <div class="chip-text">Register New Client</div>
+                        </div>
+                        <div class="chip" data-prompt="Show me recent matters">
+                            <div class="chip-icon"><i class="fas fa-folder-open"></i></div>
+                            <div class="chip-text">View Recent Matters</div>
+                        </div>
+                        <div class="chip" data-prompt="View my client list">
+                            <div class="chip-icon"><i class="fas fa-list-ul"></i></div>
+                            <div class="chip-text">View Client List</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="input-container">
+                <div class="input-wrapper">
+                    <textarea id="chatInput" placeholder="Enter instructions or ask a question..." rows="1"></textarea>
+                    <div class="input-actions">
+                        <button class="attach-btn"><i class="fas fa-paperclip"></i></button>
+                        <button class="send-btn" id="sendBtn"><i class="fas fa-arrow-up"></i></button>
+                    </div>
+                </div>
+                <div class="input-footer">
+                    Nuru can make mistakes. Check important information.
+                </div>
+            </footer>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
