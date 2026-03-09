@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function initSettingsModal() {
         const modal = document.getElementById('settingsModal');
         const openBtn = document.getElementById('openSettingsBtn');
+        const sidebarOpenBtn = document.getElementById('sidebarSettingsBtn');
         const saveBtn = document.getElementById('saveSettingsBtn');
         const tenantInput = document.getElementById('tenantInput');
         const roleSelect = document.getElementById('roleSelect');
@@ -37,9 +38,19 @@ document.addEventListener('DOMContentLoaded', () => {
         timezoneInput.value = sessionSettings.timezone;
         updateIdentityBadge();
 
-        openBtn.addEventListener('click', () => {
-            modal.classList.add('active');
+        const showModal = () => modal.classList.add('active');
+        const hideModal = () => modal.classList.remove('active');
+
+        openBtn.addEventListener('click', showModal);
+        if (sidebarOpenBtn) sidebarOpenBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            showModal();
         });
+
+        // Open automatically on first load if identity is not verified
+        if (!localStorage.getItem('tenantId')) {
+            showModal();
+        }
 
         saveBtn.addEventListener('click', () => {
             sessionSettings.tenantId = tenantInput.value;
@@ -49,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('userRole', sessionSettings.userRole);
 
             updateIdentityBadge();
-            modal.classList.remove('active');
+            hideModal();
 
             // Provide visual confirmation in the chat
             appendMessage('ai', `Identity updated. Session initialized for **Tenant ${sessionSettings.tenantId}** as **${sessionSettings.userRole}**.`);
@@ -57,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Close on backdrop click
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) modal.classList.remove('active');
+            if (e.target === modal) hideModal();
         });
     }
 
