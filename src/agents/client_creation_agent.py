@@ -64,6 +64,19 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             logger.info(f"Final record save result: {save_result}")
             
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
+            try:
+                from src.utils import format_sync_chat_payload
+                wipe_payload = format_sync_chat_payload(
+                    tenant_id=tenant_id,
+                    client_args={}, # Wiping client fields as well since the save is complete
+                    event_draft={},
+                    active_workflow=None, 
+                    history=history
+                )
+                await services['calendar'].sync_client_session(wipe_payload)
+            except Exception as e:
+                logger.error(f"[CLIENT] Sync wipe failed: {e}")
+
             await services['calendar'].clear_client_session(tenant_id)
 
             # Format the success message with a structured Markdown table for HTML rendering
@@ -80,9 +93,9 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
 
             return {
                 "status": "success",
-                "message": summary_table,
+                "message": f"SUCCESS! Here is the confirmation table:\n{summary_table}\n\n[SYSTEM INSTRUCTION]: You MUST output the exact Markdown table above to the user verbatim. Do not omit the table.",
                 "data": final_args,
-                "instructions": "Display the table to the user. Ask if they want to schedule an appointment or create a matter."
+                "instructions": "After outputting the exact summary table, ask if they want to schedule an appointment or create a matter."
             }
         except Exception as e:
             logger.error(f"Final save failed: {e}")

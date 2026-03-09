@@ -92,6 +92,19 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 if result.get("status") == "success" or "id" in result:
                     # SUCCESS: Perform the "Clean Exit"
                     # Wiping the session clears the 'active_workflow' and the draft
+                    try:
+                        from src.utils import format_sync_chat_payload
+                        wipe_payload = format_sync_chat_payload(
+                            tenant_id=tenant_id,
+                            client_args=db_data,
+                            event_draft={},
+                            active_workflow=None,
+                            history=history
+                        )
+                        await calendar_service.sync_client_session(wipe_payload)
+                    except Exception as e:
+                        logger.error(f"[CAL] Sync wipe failed: {e}")
+                    
                     await calendar_service.clear_client_session(tenant_id)
                     logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
                     
@@ -108,7 +121,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
                     return {
                         "status": "success",
-                        "message": summary_table,
+                        "message": f"SUCCESS! Here is the confirmation table:\n{summary_table}\n\n[SYSTEM INSTRUCTION]: You MUST output the exact Markdown table above to the user verbatim. Do not omit the table.",
                         "data": result
                     }
                 
