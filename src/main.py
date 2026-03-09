@@ -418,8 +418,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         # Segment 2: Event Draft (from metadata)
         metadata = db_session.get("metadata", {})
+        metadata = db_session.get("metadata", {})
         dirty_event_draft = metadata.get("event_draft", {})
+        # Only include if we have at least one truthy value besides the control flag
         event_draft = {k: v for k, v in dirty_event_draft.items() if v is not None}
+        has_real_data = any(v for k, v in event_draft.items() if k != "optional_fields_requested")
+        if not has_real_data: event_draft = {}
         
         # Build unified vault string for prompt
         vault_segments = []

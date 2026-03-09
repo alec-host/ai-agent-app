@@ -197,6 +197,14 @@ async def test_advanced_event_creation_flow():
                 assert evt_payload["location"] == "room 5"
                 assert "bob@test.com" in evt_payload["attendees"]
 
+                # CRITICAL: Verify the final response contains the confirmation table
+                resp_data = response.json()
+                final_text = resp_data["response"]
+                assert "EVENT SCHEDULED SUCCESSFULLY" in final_text
+                assert "| Detail | Information |" in final_text
+                assert "Strategy Meeting" in final_text
+                assert "q2 planning" in final_text
+
                 # CRITICAL: Verify the WIPE payload (Explicit None values)
                 last_sync = json.loads(sync_mock.calls[-1].request.content)
                 wipe_draft = last_sync["metadata"]["event_draft"]
@@ -209,3 +217,65 @@ async def test_advanced_event_creation_flow():
                 assert clear_mock.called
 
     print("\n✅ PRODUCTION EVENT CREATION TEST PASSED!")
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_session_recovery_after_wipe():
+    """
+    Ensures that once a session is wiped (all None), 
+    the rehydration logic returns Empty and the AI starts fresh.
+    """
+    tenant_id = "wipe-test-tenant"
+    headers = {"X-Tenant-ID": tenant_id, "X-User-Timezone": "UTC", "User-Role": "Associate"}
+    
+    # Mock Token & Wallet
+    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    
+    # CASE: EVERYTHING IS NULL (The aftermath of a successful booking)
+    wiped_session = {
+        "tenantId": tenant_id,
+        "metadata": {
+            "active_workflow": None,
+            "event_draft": {
+                "title": None,
+                "startTime": None,
+                "summary": None,
+                "optional_fields_requested": False
+            }
+        }
+    }
+    
+    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+        return_value=Response(200, json=wiped_session)
+    )
+
+    transport = ASGITransport(app=app)
+    from asgi_lifespan import LifespanManager
+    async with LifespanManager(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            
+            mock_ai_resp = MagicMock()
+            mock_ai_resp.choices = [MagicMock()]
+            message_mock = MagicMock()
+            message_mock.content = "How can I help you today?"
+            message_mock.role = "assistant"
+            message_mock.model_dump.return_value = {"role": "assistant", "content": message_mock.content}
+            mock_ai_resp.choices[0].message = message_mock
+
+            with patch("openai.resources.chat.completions.AsyncCompletions.create", new_callable=AsyncMock) as mock_create:
+                mock_create.return_value = mock_ai_resp
+                
+                await ac.post("/ai/chat", json={"prompt": "Hello", "history": []}, headers=headers)
+                
+                # Verify what was sent to OpenAI
+                call_args = mock_create.call_args[1]
+                messages = call_args["messages"]
+                
+                # Find the System State Injection
+                state_msg = next(m for m in messages if "### SYSTEM STATE ###" in m["content"])
+                
+                # CRITICAL ASSERTION: The vault must be 'Empty' despite having the keys in JSON
+                assert "DATABASE VAULT (SAVED): Empty" in state_msg["content"]
+                
+    print("\n✅ SESSION WIPE RECOVERY TEST PASSED!")
