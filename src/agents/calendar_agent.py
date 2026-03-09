@@ -29,10 +29,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     # Merge incoming args with the saved Draft
     if func_name in ["schedule_event", "update_event"]:
         current_draft = {
-            "title": args.get("title") or args.get("summary") or event_draft.get("title"),
+            "title": args.get("title") or event_draft.get("title"),
             "startTime": args.get("startTime") or event_draft.get("startTime"),
             "duration_minutes": args.get("duration_minutes") or event_draft.get("duration_minutes", 60),
-            "summary": args.get("description") or args.get("summary") or event_draft.get("summary"),
+            "summary": args.get("description") or event_draft.get("summary"),
             "location": args.get("location") or event_draft.get("location"),
             "attendees": args.get("attendees") or event_draft.get("attendees", [])
         }
@@ -54,15 +54,19 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         # --- 3. EXECUTION BLOCK ---
         if func_name == "schedule_event":
             # Validation
-            if not current_draft.get("startTime"):
+            if not current_draft.get("startTime") or not current_draft.get("title"):
                 # Progress sync: lock into 'calendar' workflow
                 await calendar_service.sync_client_session(
                     format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
                 )
+                missing = []
+                if not current_draft.get("title"): missing.append("an Event Title")
+                if not current_draft.get("startTime"): missing.append("a specific Date and Time")
+                
                 return {
                     "status": "partial_success",
-                    "message": "Title captured. Need a start time.",
-                    "response_instruction": "You have the title saved in the database. Ask the user for the specific date and time."
+                    "message": f"Captured partial details. Still need: {', '.join(missing)}.",
+                    "response_instruction": f"You have some details saved, but you are missing {', '.join(missing)}. Explicitly ask the user for them. DO NOT ASSUME DEFAULTS like 'Consultation'."
                 }
 
             # Enforce Optional Fields Check
@@ -112,8 +116,13 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         wipe_payload = format_sync_chat_payload(
                             tenant_id=tenant_id,
                             client_args=db_data,
-                            event_draft={},
-                            active_workflow=None,
+                            event_draft={
+                                "title": None, 
+                                "startTime": None,
+                                "summary": None,
+                                "optional_fields_requested": False
+                            },
+                            active_workflow="cleared",
                             history=history
                         )
                         await calendar_service.sync_client_session(wipe_payload)

@@ -67,9 +67,20 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             try:
                 wipe_payload = format_sync_chat_payload(
                     tenant_id=tenant_id,
-                    client_args={}, # Wiping client fields as well since the save is complete
-                    event_draft={},
-                    active_workflow=None, 
+                    client_args={
+                        "first_name": None,
+                        "last_name": None,
+                        "client_number": None,
+                        "client_type": None,
+                        "email": None
+                    },
+                    event_draft={
+                        "title": None, 
+                        "startTime": None,
+                        "summary": None,
+                        "optional_fields_requested": False
+                    },
+                    active_workflow="cleared", 
                     history=history
                 )
                 await services['calendar'].sync_client_session(wipe_payload)

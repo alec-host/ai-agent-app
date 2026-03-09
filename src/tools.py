@@ -9,7 +9,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "summary": {"type": "string", "description": "Title of the event (e.g., Deposition of John Doe)"},
+                    "title": {"type": "string", "description": "Title of the event (e.g., Deposition of John Doe). NEVER assume 'Consultation', if unknown, ask the user."},
                     "startTime": {"type": "string", "description": "ISO 8601 formatted start time (e.g., 2026-02-10T14:00:00Z)"},
                     "endTime": {"type": "string", "description": "ISO 8601 formatted end time. Optional if duration_minutes is provided."},
                     "duration_minutes": {"type": "integer", "description": "Duration of the event in minutes."},
