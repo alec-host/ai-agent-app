@@ -51,7 +51,7 @@
                     <h3 class="section-title">Integrations</h3>
                     <ul class="nav-list">
                         <li><a href="#" class="nav-link chip" data-prompt="Extend my google calendar consent"><i
-                                    class="fab fa-google"></i> <span>Google Calendar</span></a></li>
+                                    class="fab fa-google"></i> <span>Google Calendar Consent</span></a></li>
                     </ul>
                 </div>
 
@@ -92,6 +92,12 @@
                 <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-bars"></i></button>
                 <div class="header-title">MatterMiner Operations</div>
                 <div class="header-actions">
+                    <div class="identity-badge" id="identityBadge">
+                        <div class="status-indicator"></div>
+                        <div class="badge-text">Tenant: <span id="badgeTenant">None</span></div>
+                    </div>
+                    <button class="icon-btn" id="openSettingsBtn" title="Session Settings"><i
+                            class="fas fa-id-card"></i></button>
                     <button class="icon-btn"><i class="far fa-bell"></i></button>
                     <button class="icon-btn"><i class="fas fa-cog"></i></button>
                 </div>
@@ -120,7 +126,7 @@
                         </div>
                         <div class="chip" data-prompt="Extend my google calendar consent">
                             <div class="chip-icon"><i class="fab fa-google"></i></div>
-                            <div class="chip-text">Extend Google Consent</div>
+                            <div class="chip-text">Google Calendar Consent</div>
                         </div>
                     </div>
                 </div>
@@ -139,6 +145,36 @@
                 </div>
             </footer>
         </main>
+    </div>
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-id-card"></i> Session Identity</h2>
+                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 8px;">Configure the identity
+                    passed to backend services.</p>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Tenant ID (MatterMiner Engine)</label>
+                    <input type="text" id="tenantInput" placeholder="e.g. 12345678" value="12345678">
+                </div>
+                <div class="form-group">
+                    <label>User Role</label>
+                    <select id="roleSelect">
+                        <option value="Associate">Associate Attorney</option>
+                        <option value="Partner">Partner</option>
+                        <option value="Admin">System Admin</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Detected Timezone</label>
+                    <input type="text" id="timezoneInput" readonly>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="primary-btn" id="saveSettingsBtn">Save & Initialize</button>
+            </div>
+        </div>
     </div>
     <script src="app.js"></script>
 </body>

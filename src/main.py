@@ -13,6 +13,8 @@ import sentry_sdk
 from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status, APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 # FIX 1 (cont): This is the preferred way to handle datetime in this file
 from datetime import datetime, timedelta, timezone
@@ -58,25 +60,22 @@ logger = logging.getLogger("legal-agentic-ai")
 
 # --- 1. Health Check Endpoint ---
 @app.get("/health", status_code=status.HTTP_200_OK)
-async def health_check():
+async def health_check(request: Request):
     health_status = {
         "service": settings.APP_NAME,
         "status": "online",
-        "dependencies": {
-            "node_backend": "unknown",
-            "openai_api": "connected" 
-        }
+        "timestamp": datetime.now().isoformat()
     }
+    
+    # Try connecting to Node.js backend
     try:
-        response = await app.state.http_client.get("/", timeout=5.0)
-        if response.status_code < 500:
-            health_status["dependencies"]["node_backend"] = "reachable"
-        else:
-            health_status["dependencies"]["node_backend"] = "error_response"
-    except Exception as e:
-        logger.error(f"Health check failed to reach Node: {str(e)}") 
-        health_status["status"] = "degraded"
-        health_status["dependencies"]["node_backend"] = f"unreachable: {str(e)}"
+        url = f"{settings.NODE_SERVICE_URL}/"
+        response = await request.app.state.http_client.get(url)
+        health_status["backend"] = "online" if response.status_code == 200 else "degraded"
+    except Exception:
+        health_status["backend"] = "unreachable"
+    
+    return health_status
 
     return health_status
 
@@ -521,3 +520,6 @@ async def add_correlation_id(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = cid
     return response
+
+# --- Demo UI fallback ---
+app.mount("/", StaticFiles(directory="demo-ui", html=True), name="ui")
