@@ -31,7 +31,17 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                 for tc in raw_calls
             ]
         
-        # 3. SMART TRUNCATION
+        # 3. Explicitly preserve Tool identity fields
+        if msg_dict.get("role") == "tool":
+            # Ensure tool_call_id and name are present if they were in the original msg
+            if not msg_dict.get("tool_call_id") and "tool_call_id" in msg_dict:
+                 pass # model_dump with exclude_none might have removed it if it was None, but for tools it shouldn't be None
+            
+            # OpenAI requires 'content' to be a string (even empty) for tool role
+            if msg_dict.get("content") is None:
+                msg_dict["content"] = ""
+
+        # 4. SMART TRUNCATION
         # We NEVER truncate the last 'n' messages. 
         # This ensures the AI always sees the full "Pending Task" injection and the User's latest prompt.
         is_recent = i >= (total_msgs - keep_last_n)
