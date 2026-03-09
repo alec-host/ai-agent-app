@@ -65,6 +65,19 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     "response_instruction": "You have the title saved in the database. Ask the user for the specific date and time."
                 }
 
+            # Enforce Optional Fields Check
+            optional_fields_requested = event_draft.get("optional_fields_requested", False)
+            if not optional_fields_requested:
+                current_draft["optional_fields_requested"] = True
+                await calendar_service.sync_client_session(
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                )
+                return {
+                    "status": "partial_success",
+                    "message": "Title and Time captured. Need to ask for optional details.",
+                    "response_instruction": "You have the Title and Time saved. You MUST explicitly ask the user: 'Would you like to provide a meeting summary, add any attendees' emails, or specify a location/venue before I finalize this booking?' Do NOT schedule the event yet."
+                }
+
             # Time Normalization
             duration = int(current_draft.get("duration_minutes", 60))
             try:
