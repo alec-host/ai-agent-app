@@ -31,7 +31,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         current_draft = {
             "title": args.get("title") or args.get("summary") or event_draft.get("title"),
             "startTime": args.get("startTime") or event_draft.get("startTime"),
-            "duration_minutes": args.get("duration_minutes") or event_draft.get("duration_minutes", 60)
+            "duration_minutes": args.get("duration_minutes") or event_draft.get("duration_minutes", 60),
+            "summary": args.get("description") or args.get("summary") or event_draft.get("summary"),
+            "location": args.get("location") or event_draft.get("location"),
+            "attendees": args.get("attendees") or event_draft.get("attendees", [])
         }
         
         # Immediate Persistence: Lock in what we know so far
@@ -108,6 +111,9 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
                     
                     # Format the success message with a structured Markdown table for HTML rendering
+                    attendees_list = current_draft.get('attendees', [])
+                    attendees_str = ", ".join(attendees_list) if attendees_list else "None"
+                    
                     summary_table = (
                         "### FINAL SUMMARY: EVENT SCHEDULED\n\n"
                         "| Detail | Information |\n"
@@ -115,7 +121,9 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         f"| **Title** | {current_draft.get('title')} |\n"
                         f"| **Start Time** | {current_draft.get('startTime')} |\n"
                         f"| **End Time** | {current_draft.get('endTime', 'N/A')} |\n"
-                        f"| **Meeting Type** | {current_draft.get('meetingType', 'Consultation')} |\n"
+                        f"| **Summary** | {current_draft.get('summary', 'None')} |\n"
+                        f"| **Location** | {current_draft.get('location', 'None')} |\n"
+                        f"| **Attendees** | {attendees_str} |\n"
                     )
 
                     return {

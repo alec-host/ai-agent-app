@@ -13,7 +13,13 @@ TOOLS = [
                     "startTime": {"type": "string", "description": "ISO 8601 formatted start time (e.g., 2026-02-10T14:00:00Z)"},
                     "endTime": {"type": "string", "description": "ISO 8601 formatted end time. Optional if duration_minutes is provided."},
                     "duration_minutes": {"type": "integer", "description": "Duration of the event in minutes."},
-                    "description": {"type": "string", "description": "Additional notes or case references"},
+                    "description": {"type": "string", "description": "The agenda or detailed summary of the event."},
+                    "location": {"type": "string", "description": "The physical or virtual venue for the meeting."},
+                    "attendees": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "A JSON array of valid email addresses representing the guests to invite."
+                    },
                     "isAllDay": {"type": "boolean", "description": "Set to true for all-day events or deadlines."},
                     "date": {"type": "string", "description": "Format YYYY-MM-DD. Use ONLY if isAllDay is true."}
                 }
