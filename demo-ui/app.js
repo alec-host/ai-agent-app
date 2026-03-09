@@ -1,158 +1,117 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const chatViewport = document.getElementById('chatViewport');
-    const welcomeScreen = document.getElementById('welcomeScreen');
-    const chatInput = document.getElementById('chatInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarToggle = document.getElementById('sidebarToggle');
-    const mobileClose = document.getElementById('mobileClose');
-    const starterChips = document.querySelectorAll('.chip, .nav-link[data-prompt]');
-    const newChatBtn = document.getElementById('newChatBtn');
+/**
+ * Nuru Legal AI Operations Assistant - Demo UI Controller
+ * Robust Implementation with Global Fallbacks
+ */
 
-    // --- 1. SESSION IDENTITY LOGIC ---
+const safeStorage = {
+    get: (key, fallback) => {
+        try {
+            return localStorage.getItem(key) || fallback;
+        } catch (e) {
+            console.warn(`Storage access blocked for ${key}`);
+            return fallback;
+        }
+    },
+    set: (key, val) => {
+        try {
+            localStorage.setItem(key, val);
+        } catch (e) {
+            console.error(`Failed to save ${key} to storage`);
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    // DOM CACHE
+    const nodes = {
+        chatViewport: document.getElementById('chatViewport'),
+        welcomeScreen: document.getElementById('welcomeScreen'),
+        chatInput: document.getElementById('chatInput'),
+        sendBtn: document.getElementById('sendBtn'),
+        sidebar: document.getElementById('sidebar'),
+        sidebarToggle: document.getElementById('sidebarToggle'),
+        mobileClose: document.getElementById('mobileClose'),
+        starterChips: document.querySelectorAll('.chip, .nav-link[data-prompt]'),
+        newChatBtn: document.getElementById('newChatBtn'),
+        badgeTenant: document.getElementById('badgeTenant'),
+        modal: document.getElementById('settingsModal'),
+        tenantInput: document.getElementById('tenantInput'),
+        roleSelect: document.getElementById('roleSelect'),
+        timezoneInput: document.getElementById('timezoneInput'),
+        saveBtn: document.getElementById('saveSettingsBtn')
+    };
+
+    // --- SESSION IDENTITY STATE ---
     const sessionSettings = {
-        tenantId: localStorage.getItem('tenantId') || '12345678',
-        userRole: localStorage.getItem('userRole') || 'Associate',
+        tenantId: safeStorage.get('tenantId', '12345678'),
+        userRole: safeStorage.get('userRole', 'Associate'),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     };
 
-    function updateIdentityBadge() {
-        const badgeTenant = document.getElementById('badgeTenant');
-        if (badgeTenant) {
-            badgeTenant.textContent = sessionSettings.tenantId;
-        }
-    }
-
-    function initSettingsModal() {
-        const modal = document.getElementById('settingsModal');
-        const openBtn = document.getElementById('openSettingsBtn');
-        const sidebarOpenBtn = document.getElementById('sidebarSettingsBtn');
-        const saveBtn = document.getElementById('saveSettingsBtn');
-        const tenantInput = document.getElementById('tenantInput');
-        const roleSelect = document.getElementById('roleSelect');
-        const timezoneInput = document.getElementById('timezoneInput');
-
-        // Pre-fill
-        tenantInput.value = sessionSettings.tenantId;
-        roleSelect.value = sessionSettings.userRole;
-        timezoneInput.value = sessionSettings.timezone;
-        updateIdentityBadge();
-
-        const showModal = () => modal.classList.add('active');
-        const hideModal = () => modal.classList.remove('active');
-
-        openBtn.addEventListener('click', showModal);
-        if (sidebarOpenBtn) sidebarOpenBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            showModal();
-        });
-
-        // Open automatically on first load if identity is not verified
-        if (!localStorage.getItem('tenantId')) {
-            showModal();
-        }
-
-        saveBtn.addEventListener('click', () => {
-            sessionSettings.tenantId = tenantInput.value;
-            sessionSettings.userRole = roleSelect.value;
-
-            localStorage.setItem('tenantId', sessionSettings.tenantId);
-            localStorage.setItem('userRole', sessionSettings.userRole);
-
-            updateIdentityBadge();
-            hideModal();
-
-            // Provide visual confirmation in the chat
-            appendMessage('ai', `Identity updated. Session initialized for **Tenant ${sessionSettings.tenantId}** as **${sessionSettings.userRole}**.`);
-        });
-
-        // Close on backdrop click
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) hideModal();
-        });
-    }
-
-    initSettingsModal();
-
     let history = [];
 
-    // --- 2. UI Interactions ---
+    function updateUIIdentity() {
+        if (nodes.badgeTenant) nodes.badgeTenant.textContent = sessionSettings.tenantId;
+        if (nodes.tenantInput) nodes.tenantInput.value = sessionSettings.tenantId;
+        if (nodes.roleSelect) nodes.roleSelect.value = sessionSettings.userRole;
+        if (nodes.timezoneInput) nodes.timezoneInput.value = sessionSettings.timezone;
+    }
 
-    // Auto-resize textarea
-    chatInput.addEventListener('input', function () {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-    });
+    function initIdentityWorkflow() {
+        if (!nodes.modal) return;
 
-    // Toggle Sidebar
-    sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-    mobileClose.addEventListener('click', () => sidebar.classList.remove('open'));
+        // Auto-open if never set
+        if (!localStorage.getItem('tenantId')) {
+            setTimeout(() => window.toggleIdentityModal(true), 1000);
+        }
 
-    // New Chat
-    newChatBtn.addEventListener('click', () => {
-        chatViewport.innerHTML = '';
-        chatViewport.appendChild(welcomeScreen);
-        history = [];
-        chatInput.value = '';
-        chatInput.style.height = 'auto';
-    });
+        nodes.saveBtn.addEventListener('click', () => {
+            sessionSettings.tenantId = nodes.tenantInput.value;
+            sessionSettings.userRole = nodes.roleSelect.value;
 
-    // Starter Chips & Sidebar Links
-    starterChips.forEach(chip => {
-        chip.addEventListener('click', (e) => {
-            e.preventDefault();
-            const prompt = chip.getAttribute('data-prompt');
-            if (prompt) {
-                sendMessage(prompt);
-                if (window.innerWidth <= 768) {
-                    sidebar.classList.remove('open');
-                }
-            }
+            safeStorage.set('tenantId', sessionSettings.tenantId);
+            safeStorage.set('userRole', sessionSettings.userRole);
+
+            updateUIIdentity();
+            window.toggleIdentityModal(false);
+
+            appendMessage('ai', `Identity updated. Ready to assist **Tenant ${sessionSettings.tenantId}** as **${sessionSettings.userRole}**.`);
         });
-    });
 
-    // Send on Enter (but not Shift+Enter)
-    chatInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            const text = chatInput.value.trim();
-            if (text) sendMessage(text);
-        }
-    });
+        // Close on backdrop
+        nodes.modal.addEventListener('click', (e) => {
+            if (e.target === nodes.modal) window.toggleIdentityModal(false);
+        });
+    }
 
-    sendBtn.addEventListener('click', () => {
-        const text = chatInput.value.trim();
-        if (text) sendMessage(text);
-    });
-
-    // --- 3. Core Messaging Logic ---
-
+    // --- MESSAGING ENGINE ---
     async function sendMessage(prompt) {
-        if (!prompt.trim()) return;
+        if (!prompt || !prompt.trim()) return;
 
-        // Hide welcome screen if visible
-        if (chatViewport.contains(welcomeScreen)) {
-            chatViewport.innerHTML = '<div class="message-thread" id="messageThread"></div>';
+        const text = prompt.trim();
+
+        // Screen transition
+        if (nodes.chatViewport.contains(nodes.welcomeScreen)) {
+            nodes.chatViewport.innerHTML = '<div class="message-thread" id="messageThread"></div>';
         }
 
-        const messageThread = document.getElementById('messageThread');
+        const thread = document.getElementById('messageThread');
+        if (!thread) return;
 
-        appendMessage('user', prompt);
-        chatInput.value = '';
-        chatInput.style.height = 'auto';
+        appendMessage('user', text);
+        nodes.chatInput.value = '';
+        nodes.chatInput.style.height = 'auto';
 
-        const loadingId = 'loading-' + Date.now();
-        const indicator = document.createElement('div');
-        indicator.className = 'message ai loading';
-        indicator.id = loadingId;
-        indicator.innerHTML = `
+        const loadingId = `load-${Date.now()}`;
+        const loader = document.createElement('div');
+        loader.className = 'message ai loading';
+        loader.id = loadingId;
+        loader.innerHTML = `
             <div class="message-icon"><i class="fas fa-robot"></i></div>
-            <div class="message-content">
-                <div class="typing-dots"><span></span><span></span><span></span></div>
-            </div>
+            <div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
         `;
-        messageThread.appendChild(indicator);
-        chatViewport.scrollTo({ top: chatViewport.scrollHeight, behavior: 'smooth' });
+        thread.appendChild(loader);
+        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
 
         try {
             const response = await fetch('/ai/chat', {
@@ -163,59 +122,94 @@ document.addEventListener('DOMContentLoaded', () => {
                     'X-User-Timezone': sessionSettings.timezone,
                     'User-Role': sessionSettings.userRole
                 },
-                body: JSON.stringify({ prompt, history })
+                body: JSON.stringify({ prompt: text, history })
             });
 
             const data = await response.json();
-            const loadingEl = document.getElementById(loadingId);
-            if (loadingEl) loadingEl.remove();
+            const currentLoader = document.getElementById(loadingId);
+            if (currentLoader) currentLoader.remove();
 
             if (data.response) {
                 appendMessage('ai', data.response);
                 history = data.history || [];
             } else if (data.status === 'auth_required') {
-                const authMsg = `
+                const box = `
                     <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color);">
-                        <p><strong><i class="fab fa-google"></i> Google Calendar Access Required</strong></p>
+                        <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
                         <p style="margin: 8px 0; font-size: 0.875rem;">${data.message}</p>
-                        <a href="${data.auth_url}" target="_blank" class="primary-btn" style="display:inline-block; width:auto; margin-top:10px; text-decoration:none; text-align:center;">Authorize Google Connection</a>
-                    </div>
-                `;
-                appendMessage('ai', authMsg);
+                        <a href="${data.auth_url}" target="_blank" class="primary-btn" style="display:inline-block; width:auto; text-decoration:none;">Authorize Connection</a>
+                    </div>`;
+                appendMessage('ai', box);
             } else {
-                appendMessage('ai', 'Something went wrong. Please try again.');
+                appendMessage('ai', 'Something went wrong. Please check your connection.');
             }
-        } catch (error) {
-            console.error('Fetch error:', error);
-            const loadingEl = document.getElementById(loadingId);
-            if (loadingEl) loadingEl.remove();
-            appendMessage('ai', 'The AI service is currently unavailable. Please check your connection.');
+        } catch (e) {
+            console.error('Fetch error:', e);
+            const currentLoader = document.getElementById(loadingId);
+            if (currentLoader) currentLoader.remove();
+            appendMessage('ai', 'Service unavailable. Please try again later.');
         }
     }
 
     function appendMessage(role, content) {
-        let messageThread = document.getElementById('messageThread');
-
-        // Transition from welcome screen if needed
-        if (!messageThread) {
-            chatViewport.innerHTML = '<div class="message-thread" id="messageThread"></div>';
-            messageThread = document.getElementById('messageThread');
+        let thread = document.getElementById('messageThread');
+        if (!thread) {
+            nodes.chatViewport.innerHTML = '<div class="message-thread" id="messageThread"></div>';
+            thread = document.getElementById('messageThread');
         }
 
         const div = document.createElement('div');
         div.className = `message ${role}`;
 
         const icon = role === 'ai' ? '<i class="fas fa-robot"></i>' : '<i class="fas fa-user"></i>';
-
-        // Use marked.js for AI responses
-        const formattedContent = role === 'ai' ? marked.parse(content) : content;
+        const formatted = role === 'ai' ? (typeof marked !== 'undefined' ? marked.parse(content) : content) : content;
 
         div.innerHTML = `
             <div class="message-icon">${icon}</div>
-            <div class="message-content">${formattedContent}</div>
+            <div class="message-content">${formatted}</div>
         `;
 
-        messageThread.appendChild(div);
-        chatViewport.scrollTo({ top: chatViewport.scrollHeight, behavior: 'smooth' });
+        thread.appendChild(div);
+        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
     }
+
+    // --- EVENT REGISTRATION ---
+    nodes.chatInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = `${this.scrollHeight}px`;
+    });
+
+    nodes.sidebarToggle.addEventListener('click', () => nodes.sidebar.classList.toggle('open'));
+    nodes.mobileClose.addEventListener('click', () => nodes.sidebar.classList.remove('open'));
+
+    nodes.newChatBtn.addEventListener('click', () => {
+        nodes.chatViewport.innerHTML = '';
+        nodes.chatViewport.appendChild(nodes.welcomeScreen);
+        history = [];
+        nodes.chatInput.value = '';
+    });
+
+    nodes.starterChips.forEach(chip => {
+        chip.addEventListener('click', (e) => {
+            e.preventDefault();
+            const prompt = chip.getAttribute('data-prompt');
+            if (prompt) {
+                sendMessage(prompt);
+                nodes.sidebar.classList.remove('open');
+            }
+        });
+    });
+
+    nodes.chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage(nodes.chatInput.value);
+        }
+    });
+
+    nodes.sendBtn.addEventListener('click', () => sendMessage(nodes.chatInput.value));
+
+    // INITIALIZE
+    updateUIIdentity();
+    initIdentityWorkflow();
 });

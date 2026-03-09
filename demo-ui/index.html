@@ -16,6 +16,16 @@
 </head>
 
 <body>
+    <script>
+        // High-priority global helper
+        window.toggleIdentityModal = (show) => {
+            const modal = document.getElementById('settingsModal');
+            if (modal) {
+                if (show) modal.classList.add('active');
+                else modal.classList.remove('active');
+            }
+        };
+    </script>
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
@@ -52,7 +62,8 @@
                     <ul class="nav-list">
                         <li><a href="#" class="nav-link chip" data-prompt="Extend my google calendar consent"><i
                                     class="fab fa-google"></i> <span>Google Calendar Consent</span></a></li>
-                        <li><a href="#" class="nav-link" id="sidebarSettingsBtn"><i class="fas fa-id-card"></i>
+                        <li><a href="#" class="nav-link" id="sidebarSettingsBtn" onclick="toggleIdentityModal(true)"><i
+                                    class="fas fa-id-card"></i>
                                 <span>Configure Identity</span></a></li>
                     </ul>
                 </div>
@@ -98,8 +109,8 @@
                         <div class="status-indicator"></div>
                         <div class="badge-text">Tenant: <span id="badgeTenant">None</span></div>
                     </div>
-                    <button class="icon-btn" id="openSettingsBtn" title="Session Settings"><i
-                            class="fas fa-id-card"></i></button>
+                    <button class="icon-btn" id="openSettingsBtn" title="Session Settings"
+                        onclick="toggleIdentityModal(true)"><i class="fas fa-id-card"></i></button>
                     <button class="icon-btn"><i class="far fa-bell"></i></button>
                     <button class="icon-btn"><i class="fas fa-cog"></i></button>
                 </div>
