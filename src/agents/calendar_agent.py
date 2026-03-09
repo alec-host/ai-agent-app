@@ -122,7 +122,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                                 "summary": None,
                                 "optional_fields_requested": False
                             },
-                            active_workflow="cleared",
+                            active_workflow=None, # Explicitly nullify the workflow
                             history=history
                         )
                         await calendar_service.sync_client_session(wipe_payload)
@@ -137,7 +137,6 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     attendees_str = ", ".join(attendees_list) if attendees_list else "None"
                     
                     summary_table = (
-                        "### FINAL SUMMARY: EVENT SCHEDULED\n\n"
                         "| Detail | Information |\n"
                         "| :--- | :--- |\n"
                         f"| **Title** | {current_draft.get('title')} |\n"
@@ -150,8 +149,9 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
                     return {
                         "status": "success",
-                        "message": f"SUCCESS! Here is the confirmation table:\n{summary_table}\n\n[SYSTEM INSTRUCTION]: You MUST output the exact Markdown table above to the user verbatim. Do not omit the table.",
-                        "data": result
+                        "message": f"### ✅ EVENT SCHEDULED SUCCESSFULLY\n\n{summary_table}\n\n**The session has been cleared.**",
+                        "data": result,
+                        "_exit_loop": True
                     }
                 
                 return result

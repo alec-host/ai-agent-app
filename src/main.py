@@ -418,12 +418,16 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         # Segment 2: Event Draft (from metadata)
         metadata = db_session.get("metadata", {})
-        event_draft = metadata.get("event_draft", {})
+        dirty_event_draft = metadata.get("event_draft", {})
+        event_draft = {k: v for k, v in dirty_event_draft.items() if v is not None}
         
         # Build unified vault string for prompt
         vault_segments = []
-        if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
-        if event_draft: vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+        if client_vault: 
+            clean_client = {k: v for k, v in client_vault.items() if v is not None}
+            if clean_client: vault_segments.append(f"CLIENT: {clean_client}")
+        if event_draft: 
+            vault_segments.append(f"EVENT_DRAFT: {event_draft}")
         vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
         current_now_utc = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
@@ -471,23 +475,32 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             return final_payload
 
         # --- 4. EXECUTE TOOL CALLS ---
+        terminal_success_msg = None
         for tool_call in assistant_msg.tool_calls:
             # Dispatch directly to Agent Manager
             result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages)
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
             if isinstance(result, dict):
-                # SUCCESS / PROGRESS
+                # Detect Terminal Success (Gives us direct control over the final output)
+                if result.get("_exit_loop") and result.get("status") == "success":
+                    terminal_success_msg = result.get("message")
+
+                # SUCCESS / PROGRESS LOGGING
                 if result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
                     last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
-                
-                # AUTH EXPIRED
                 elif result.get("status") == "auth_required":
                     last_action = "Google session expired. Presenting Auth link."
-                
-                # ERROR
                 else:
                     last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
+
+        # If a tool marked itself as terminal success, we break the loop and return its message directly
+        if terminal_success_msg and not assistant_msg.content:
+             return {"response": terminal_success_msg, "history": messages[1:]}
+        elif terminal_success_msg:
+             # If assistant already had words, append the success table to it
+             final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
+             return {"response": final_resp, "history": messages[1:]}
 
     return {"response": messages[-1].get("content"), "history": messages[1:]}
 

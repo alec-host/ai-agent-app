@@ -103,9 +103,9 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
 
             return {
                 "status": "success",
-                "message": f"SUCCESS! Here is the confirmation table:\n{summary_table}\n\n[SYSTEM INSTRUCTION]: You MUST output the exact Markdown table above to the user verbatim. Do not omit the table.",
+                "message": f"### ✅ CLIENT REGISTERED SUCCESSFULLY\n\n{summary_table}\n\n**The session has been cleared.**",
                 "data": final_args,
-                "instructions": "After outputting the exact summary table, ask if they want to schedule an appointment or create a matter."
+                "_exit_loop": True
             }
         except Exception as e:
             logger.error(f"Final save failed: {e}")

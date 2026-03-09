@@ -130,18 +130,20 @@ async def get_rehydration_context(tenant_id, services):
             
             blocks.append(f"CLIENT PROFILE:\n{json.dumps(vault_state, indent=2)}")
 
-        if event_draft:
+        if event_draft and any(v is not None for v in event_draft.values()):
             # Mask sensitive internal fields
             clean_draft = {k: v for k, v in event_draft.items() if not k.startswith("_")}
-            blocks.append(f"PENDING CALENDAR EVENT:\n{json.dumps(clean_draft, indent=2)}")
-            
-            if is_newly_ready:
-                recovery_instruction = (
-                    "### OAUTH SUCCESS: RE-HYDRATION MODE ###\n"
-                    "The user has JUST authorized their calendar. You have 'Legal Bugs' (or the draft title) ready to finalize. "
-                    "In your first message, say: 'Great! I've confirmed your calendar access. Should I finalize the scheduling for "
-                    f"\"{clean_draft.get('title', 'your meeting')}\" now?'"
-                )
+            # Additional check: only append if we have actual data (not just nulls/False)
+            if any(v for v in clean_draft.values()):
+                blocks.append(f"PENDING CALENDAR EVENT:\n{json.dumps(clean_draft, indent=2)}")
+                
+                if is_newly_ready:
+                    recovery_instruction = (
+                        "### OAUTH SUCCESS: RE-HYDRATION MODE ###\n"
+                        "The user has JUST authorized their calendar. You have 'Legal Bugs' (or the draft title) ready to finalize. "
+                        "In your first message, say: 'Great! I've confirmed your calendar access. Should I finalize the scheduling for "
+                        f"\"{clean_draft.get('title', 'your meeting')}\" now?'"
+                    )
 
         # Return the structured block
         if not blocks:
