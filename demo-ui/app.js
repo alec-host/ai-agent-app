@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.getElementById('sidebarToggle');
     const mobileClose = document.getElementById('mobileClose');
-    const starterChips = document.querySelectorAll('.chip');
+    const starterChips = document.querySelectorAll('.chip, .nav-link[data-prompt]');
     const newChatBtn = document.getElementById('newChatBtn');
 
     let history = [];

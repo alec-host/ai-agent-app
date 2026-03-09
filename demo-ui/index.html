@@ -1,16 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nuru | Legal AI Operations Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body>
     <div class="app-container">
         <!-- Sidebar -->
@@ -22,7 +26,7 @@
                 </div>
                 <button class="mobile-close" id="mobileClose"><i class="fas fa-times"></i></button>
             </div>
-            
+
             <div class="sidebar-content">
                 <div class="nav-section">
                     <button class="new-chat-btn" id="newChatBtn">
@@ -34,8 +38,20 @@
                 <div class="nav-section">
                     <h3 class="section-title">Quick Access</h3>
                     <ul class="nav-list">
-                        <li><a href="#" class="nav-link"><i class="fas fa-users"></i> <span>Client List</span></a></li>
-                        <li><a href="#" class="nav-link"><i class="fas fa-briefcase"></i> <span>Recent Matters</span></a></li>
+                        <li><a href="#" class="nav-link chip" data-prompt="View my client list"><i
+                                    class="fas fa-users"></i> <span>Client List</span></a></li>
+                        <li><a href="#" class="nav-link chip" data-prompt="Show me recent matters"><i
+                                    class="fas fa-briefcase"></i> <span>Recent Matters</span></a></li>
+                        <li><a href="#" class="nav-link chip" data-prompt="Show my scheduled events"><i
+                                    class="fas fa-calendar-check"></i> <span>Scheduled Events</span></a></li>
+                    </ul>
+                </div>
+
+                <div class="nav-section">
+                    <h3 class="section-title">Integrations</h3>
+                    <ul class="nav-list">
+                        <li><a href="#" class="nav-link chip" data-prompt="Extend my google calendar consent"><i
+                                    class="fab fa-google"></i> <span>Google Calendar</span></a></li>
                     </ul>
                 </div>
 
@@ -88,23 +104,23 @@
                         <h1>How can I assist your practice today?</h1>
                         <p>Streamline your legal workflows with automated intake and scheduling.</p>
                     </div>
-                    
+
                     <div class="starter-chips-container">
-                        <div class="chip" data-prompt="Schedule a new consultation">
+                        <div class="chip" data-prompt="Schedule a new event">
                             <div class="chip-icon"><i class="fas fa-calendar-plus"></i></div>
-                            <div class="chip-text">Schedule Consultation</div>
+                            <div class="chip-text">Schedule Event</div>
                         </div>
                         <div class="chip" data-prompt="Register a new client">
                             <div class="chip-icon"><i class="fas fa-user-plus"></i></div>
                             <div class="chip-text">Register New Client</div>
                         </div>
-                        <div class="chip" data-prompt="Show me recent matters">
-                            <div class="chip-icon"><i class="fas fa-folder-open"></i></div>
-                            <div class="chip-text">View Recent Matters</div>
+                        <div class="chip" data-prompt="Show my scheduled events">
+                            <div class="chip-icon"><i class="fas fa-calendar-check"></i></div>
+                            <div class="chip-text">View Scheduled Events</div>
                         </div>
-                        <div class="chip" data-prompt="View my client list">
-                            <div class="chip-icon"><i class="fas fa-list-ul"></i></div>
-                            <div class="chip-text">View Client List</div>
+                        <div class="chip" data-prompt="Extend my google calendar consent">
+                            <div class="chip-icon"><i class="fab fa-google"></i></div>
+                            <div class="chip-text">Extend Google Consent</div>
                         </div>
                     </div>
                 </div>
@@ -126,4 +142,5 @@
     </div>
     <script src="app.js"></script>
 </body>
+
 </html>
