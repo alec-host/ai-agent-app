@@ -1,23 +1,34 @@
-/**
- * Nuru Legal AI Operations Assistant - Demo UI Controller
- * Robust Implementation with Global Fallbacks
- */
+const SESSION_EXPIRY_MS = 60 * 60 * 1000; // 1 Hour
 
 const safeStorage = {
     get: (key, fallback) => {
         try {
+            const lastActivity = localStorage.getItem('lastActivity');
+            const tenantId = localStorage.getItem('tenantId');
+
+            // If expired, consider it empty
+            if (lastActivity && (Date.now() - parseInt(lastActivity)) > SESSION_EXPIRY_MS) {
+                return fallback;
+            }
             return localStorage.getItem(key) || fallback;
         } catch (e) {
-            console.warn(`Storage access blocked for ${key}`);
             return fallback;
         }
     },
     set: (key, val) => {
         try {
             localStorage.setItem(key, val);
+            localStorage.setItem('lastActivity', Date.now());
         } catch (e) {
-            console.error(`Failed to save ${key} to storage`);
+            console.error(`Failed to save ${key}`);
         }
+    },
+    updateActivity: () => {
+        try {
+            if (localStorage.getItem('tenantId')) {
+                localStorage.setItem('lastActivity', Date.now());
+            }
+        } catch (e) { }
     }
 };
 
@@ -44,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- SESSION IDENTITY STATE ---
     const sessionSettings = {
-        tenantId: safeStorage.get('tenantId', '12345678'),
+        tenantId: safeStorage.get('tenantId', null),
         userRole: safeStorage.get('userRole', 'Associate'),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     };
@@ -58,16 +69,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (nodes.timezoneInput) nodes.timezoneInput.value = sessionSettings.timezone;
     }
 
+    function isSessionValid() {
+        const tenantId = localStorage.getItem('tenantId');
+        const lastActivity = localStorage.getItem('lastActivity');
+        if (!tenantId || !lastActivity) return false;
+
+        const expired = (Date.now() - parseInt(lastActivity)) > SESSION_EXPIRY_MS;
+        if (expired) {
+            localStorage.removeItem('tenantId'); // Clear to force re-entry
+            return false;
+        }
+        return true;
+    }
+
     function initIdentityWorkflow() {
         if (!nodes.modal) return;
 
-        // Auto-open if never set
-        if (!localStorage.getItem('tenantId')) {
-            setTimeout(() => window.toggleIdentityModal(true), 1000);
+        // Force entry modal if session is invalid or missing
+        if (!isSessionValid()) {
+            window.toggleIdentityModal(true);
         }
 
         nodes.saveBtn.addEventListener('click', () => {
-            sessionSettings.tenantId = nodes.tenantInput.value;
+            const newTenant = nodes.tenantInput.value.trim();
+            if (!newTenant) {
+                alert('A valid Tenant ID is required to access the platform.');
+                return;
+            }
+
+            sessionSettings.tenantId = newTenant;
             sessionSettings.userRole = nodes.roleSelect.value;
 
             safeStorage.set('tenantId', sessionSettings.tenantId);
@@ -76,12 +106,21 @@ document.addEventListener('DOMContentLoaded', () => {
             updateUIIdentity();
             window.toggleIdentityModal(false);
 
-            appendMessage('ai', `Identity updated. Ready to assist **Tenant ${sessionSettings.tenantId}** as **${sessionSettings.userRole}**.`);
+            if (history.length === 0) {
+                appendMessage('ai', `Welcome back. Session initialized for **Tenant ${sessionSettings.tenantId}**. How can I help you?`);
+            }
         });
 
-        // Close on backdrop
+        // Only allow closing on backdrop IF a valid session already exists
         nodes.modal.addEventListener('click', (e) => {
-            if (e.target === nodes.modal) window.toggleIdentityModal(false);
+            if (e.target === nodes.modal && isSessionValid()) {
+                window.toggleIdentityModal(false);
+            }
+        });
+
+        // Activity Monitor: Reset the 1-hour timer on user interaction
+        ['mousedown', 'keydown', 'scroll', 'touchstart'].forEach(type => {
+            document.addEventListener(type, () => safeStorage.updateActivity(), { passive: true });
         });
     }
 
