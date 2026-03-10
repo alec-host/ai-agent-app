@@ -15,14 +15,22 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     sys_context = args.get("_system_context", {})
     ref_time = sys_context.get("current_time")
 
-    # 0. PRE-FLIGHT AUTH CHECK (Enforced Gatekeeper)
-    # Perform a LIGHTWEIGHT REAL CHECK to trigger silent healing in main.py if needed.
+    # 0. PRE-FLIGHT AUTH HANDSHAKE (Enhanced Gatekeeper)
+    # 1. Internal check for token existence in Redis/DB
+    # 2. Real API check to trigger silent healing if expired
     if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event", "initialize_calendar_session"]:
-        # Pass summary/time if available for initialize_calendar_session
-        auth_status = await calendar_service.request("GET", "/events?maxResults=1")
-        if isinstance(auth_status, dict) and auth_status.get("status") == "auth_required":
-            auth_status["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
-            return auth_status
+        auth_check = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
+            auth_check["message"] = "Calendar Access Required"
+            auth_check["response_instruction"] = "HANDSHAKE FAILED. Present only the auth link and STOP EVERYTHING. DO NOT ask for title/time."
+            return auth_check
+        
+        # If internal check says ready, still do a real check to trigger healing for expired tokens
+        res = await calendar_service.request("GET", "/events?maxResults=1")
+        if isinstance(res, dict) and res.get("status") == "auth_required":
+            res["message"] = "Calendar Access Required"
+            res["response_instruction"] = "SESSION EXPIRED. Present the link to re-activate and STOP EVERYTHING."
+            return res
     
     # 1. FETCH CURRENT SESSION (For Drafting Persistence)
     db_data = {}
@@ -138,8 +146,8 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     return {
                         "status": "auth_required",
                         "auth_url": result.get("auth_url"),
-                        "message": "Your Google session has expired. I have saved your meeting details.",
-                        "response_instruction": "PROVIDE THE AUTH LINK to the user immediately. Reassure them the draft is safe."
+                        "message": "Calendar Access Required",
+                        "response_instruction": "Session expired or missing. Provide auth link immediately. Draft is safe in vault."
                     }
 
                 # B: Success Scenario
