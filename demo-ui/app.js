@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
 
         try {
-            const response = await fetch('/ai/chat', {
+            const response = await fetch('/ai/chat/stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -125,29 +125,81 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ prompt: text, history })
             });
 
-            const data = await response.json();
-            const currentLoader = document.getElementById(loadingId);
-            if (currentLoader) currentLoader.remove();
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let accumulatedContent = "";
+            let aiMessageDiv = null;
+            let aiContentDiv = null;
 
-            if (data.response) {
-                appendMessage('ai', data.response);
-                history = data.history || [];
-            } else if (data.status === 'auth_required') {
-                const box = `
-                    <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color);">
-                        <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
-                        <p style="margin: 8px 0; font-size: 0.875rem;">${data.message}</p>
-                        <a href="${data.auth_url}" target="_blank" class="primary-btn" style="display:inline-block; width:auto; text-decoration:none;">Authorize Connection</a>
-                    </div>`;
-                appendMessage('ai', box);
-            } else {
-                appendMessage('ai', 'Something went wrong. Please check your connection.');
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+
+                    let data;
+                    try {
+                        data = JSON.parse(line.slice(6));
+                    } catch (e) { continue; }
+
+                    const currentLoader = document.getElementById(loadingId);
+                    if (currentLoader) currentLoader.remove();
+
+                    // Initialize AI message container on first chunk
+                    if (!aiMessageDiv) {
+                        aiMessageDiv = document.createElement('div');
+                        aiMessageDiv.className = 'message ai';
+                        aiMessageDiv.innerHTML = `
+                            <div class="message-icon"><i class="fas fa-robot"></i></div>
+                            <div class="message-content" id="stream-content-${loadingId}"></div>
+                        `;
+                        thread.appendChild(aiMessageDiv);
+                        aiContentDiv = document.getElementById(`stream-content-${loadingId}`);
+                    }
+
+                    if (data.action) {
+                        // Display background action progress
+                        const actionEl = document.createElement('div');
+                        actionEl.className = 'agent-action-note';
+                        actionEl.style = 'font-style: italic; color: var(--text-secondary); font-size: 0.8rem; margin: 4px 0;';
+                        actionEl.innerHTML = `<i class="fas fa-cog fa-spin"></i> ${data.action}`;
+                        aiContentDiv.appendChild(actionEl);
+                        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
+                    }
+
+                    if (data.content) {
+                        accumulatedContent += data.content;
+                        // Use marked if available, otherwise raw
+                        aiContentDiv.innerHTML = typeof marked !== 'undefined' ? marked.parse(accumulatedContent) : accumulatedContent;
+                        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
+                    }
+
+                    if (data.status === 'auth_required') {
+                        aiContentDiv.innerHTML += `
+                            <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color); margin-top: 10px;">
+                                <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
+                                <p style="margin: 8px 0; font-size: 0.875rem;">${data.message}</p>
+                                <a href="${data.auth_url}" target="_blank" class="primary-btn" style="display:inline-block; width:auto; text-decoration:none;">Authorize Connection</a>
+                            </div>`;
+                    }
+
+                    if (data.done) {
+                        history = data.history || [];
+                        if (data.suggested_actions) {
+                            // Handle suggested actions if we wanted to re-render them
+                        }
+                    }
+                }
             }
         } catch (e) {
-            console.error('Fetch error:', e);
+            console.error('Streaming error:', e);
             const currentLoader = document.getElementById(loadingId);
             if (currentLoader) currentLoader.remove();
-            appendMessage('ai', 'Service unavailable. Please try again later.');
+            appendMessage('ai', 'Connection lost. Please try again.');
         }
     }
 

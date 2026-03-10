@@ -14,7 +14,8 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status, APIRouter
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
 
 # FIX 1 (cont): This is the preferred way to handle datetime in this file
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,15 @@ async def lifespan(app: FastAPI):
     print("Resources cleaned up. Goodbye.")
 
 app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION, lifespan=lifespan)
+
+# --- 0. CORS & Middleware ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("legal-agentic-ai")
@@ -506,6 +516,166 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
              return {"response": final_resp, "history": messages[1:]}
 
     return {"response": messages[-1].get("content"), "history": messages[1:]}
+
+# --- 6.1. The Streaming Reasoning Endpoint ---
+@app.post("/ai/chat/stream")
+async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
+    tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
+    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
+    ai_client = request.app.state.ai_client
+    user_tz = auth.get("timezone", "UTC")
+    services = {"calendar": calendar_service}
+
+    # Standard check for CLEAR
+    if req.prompt.lower().strip() in ["clear", "reset", "/clear"]:
+        async def clear_gen():
+            yield f"data: {json.dumps({'content': 'Conversation history cleared.', 'done': True, 'history': []})}\n\n"
+        return StreamingResponse(clear_gen(), media_type="text/event-stream")
+
+    # Setup Context (Reused from /ai/chat - duplication preferred for stability as requested)
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    for msg in reversed(cleaned_history):
+        content = msg.get("content") or ""
+        if '"jwtToken":' in content:
+            try:
+                data = json.loads(content)
+                if data.get("jwtToken"):
+                    calendar_service.set_auth_token(data["jwtToken"])
+                    break
+            except: continue
+            
+    rehydration_data = await get_rehydration_context(tenant_id, services)
+    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
+    if rehydration_data:
+        messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
+    messages.extend(sanitize_history(cleaned_history))
+    messages.append({"role": "user", "content": req.prompt})
+
+    async def event_generator():
+        nonlocal messages
+        last_action = "Waiting for input"
+        
+        for i in range(5):
+            # Fetch current session state — fault-tolerant: stream must not fail if Node.js is down
+            try:
+                db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+            except Exception as e:
+                logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
+                db_session = {}
+            client_vault = {k: v for k, v in {
+                "client_number": db_session.get("client_number"), "client_type": db_session.get("client_type"),
+                "first_name": db_session.get("first_name"), "last_name": db_session.get("last_name"), "email": db_session.get("email")
+            }.items() if v}
+            metadata = db_session.get("metadata", {})
+            event_draft = {k: v for k, v in metadata.get("event_draft", {}).items() if v is not None}
+            if not any(v for k, v in event_draft.items() if k != "optional_fields_requested"): event_draft = {}
+
+            vault_segments = []
+            if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
+            if event_draft: vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+            vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
+            logger.info(f"[STREAM] STARTING ROUND {i} | Vault: {vault_str}")
+
+            state_injection = {
+                "role": "system",
+                "content": (
+                    f"### SYSTEM STATE ###\nNOW (UTC): {datetime.now(timezone.utc).strftime('%I:%M %p UTC')} | USER_TIMEZONE: {user_tz}\n"
+                    f"DATABASE VAULT (SAVED): {vault_str}\nLAST_SYSTEM_ACTION: {last_action}\n"
+                    "--- RULES ---\n1. VAULT IS SUPREME. 2. PERSISTENCE: Data in VAULT is already in the database.\n"
+                )
+            }
+            loop_messages = [messages[0], state_injection] + messages[1:]
+            logger.info(f"[STREAM] Sending messages to OpenAI...")
+
+            # START STREAM
+            try:
+                stream = await ai_client.chat.completions.create(
+                    model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
+                )
+            except Exception as e:
+                logger.error(f"[STREAM] OpenAI error: {e}")
+                yield f"data: {json.dumps({'content': f'OpenAI error: {str(e)}', 'done': True})}\n\n"
+                return
+
+            full_content = ""
+            current_tool_calls = {} # index -> call
+
+            logger.info(f"[STREAM] Iterating over chunks...")
+            async for chunk in stream:
+                if not chunk.choices: continue
+                delta = chunk.choices[0].delta
+                
+                # Stream Content
+                if delta.content:
+                    full_content += delta.content
+                    logger.debug(f"[STREAM] Content delta: {delta.content}")
+                    yield f"data: {json.dumps({'content': delta.content})}\n\n"
+                
+                # Accumulate Tool Calls
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in current_tool_calls:
+                            current_tool_calls[idx] = {"id": tc.id, "function": {"name": tc.function.name, "arguments": ""}}
+                        if tc.function.arguments:
+                            current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+            # Finalize this round of streaming
+            if not current_tool_calls:
+                logger.info(f"[STREAM] Response complete. Full Content Length: {len(full_content)}")
+                messages.append({"role": "assistant", "content": full_content})
+                # Terminal check: suggest actions
+                final_payload = {"done": True, "history": messages[1:]}
+                if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
+                    final_payload["suggested_actions"] = get_starter_chips()
+                yield f"data: {json.dumps(final_payload)}\n\n"
+                return
+
+            logger.info(f"[STREAM] Found tool calls. Total: {len(current_tool_calls)}")
+            # Execute Tools
+            assistant_msg_dict = {"role": "assistant", "content": full_content or None, "tool_calls": []}
+            for idx in sorted(current_tool_calls.keys()):
+                call = current_tool_calls[idx]
+                assistant_msg_dict["tool_calls"].append({
+                    "id": call["id"], "type": "function", 
+                    "function": {"name": call["function"]["name"], "arguments": call["function"]["arguments"]}
+                })
+            
+            messages.append(assistant_msg_dict)
+            terminal_success_msg = None
+
+            for tool_call_data in assistant_msg_dict["tool_calls"]:
+                # Mock a tool-call object for execute_tool_call
+                class MockTool:
+                    def __init__(self, d):
+                        self.id = d["id"]
+                        self.function = type('obj', (object,), d["function"])
+                
+                # yield f"data: {json.dumps({'content': f'\\n\\n*[AGENT]*: Executing `{tool_call_data['function']['name']}`...\\n'})}\n\n"
+                # Standard progress signal
+                tool_name = tool_call_data['function']['name']
+                yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
+                
+                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages)
+                messages.append({"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)})
+                
+                if isinstance(result, dict):
+                    if result.get("_exit_loop") and result.get("status") == "success":
+                        terminal_success_msg = result.get("message")
+                    last_action = f"Executed {tool_name}"
+
+            if terminal_success_msg:
+                final_text = f"\n\n{terminal_success_msg}"
+                yield f"data: {json.dumps({'content': final_text})}\n\n"
+                messages.append({"role": "assistant", "content": terminal_success_msg})
+                yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+                return
+
+        # Fallback completion
+        yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 # --- 7. Utility Route for Google Sync ---
 @app.post("/ai/sync")
