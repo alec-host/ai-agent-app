@@ -16,12 +16,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     ref_time = sys_context.get("current_time")
 
     # 0. PRE-FLIGHT AUTH CHECK (Enforced Gatekeeper)
-    # We always verify connection before any data-gathering tool
+    # Perform a LIGHTWEIGHT REAL CHECK to trigger silent healing in main.py if needed.
     if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event"]:
-        # We don't want to check if this IS the initialization call (to avoid loop)
-        auth_status = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
-        if isinstance(auth_status, dict) and auth_status.get("status") != "ready":
-            # If not ready, return auth_required immediately regardless of the original func_name
+        auth_status = await calendar_service.request("GET", "/events?maxResults=1")
+        if isinstance(auth_status, dict) and auth_status.get("status") == "auth_required":
             auth_status["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
             return auth_status
     
@@ -205,15 +203,25 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar")
         )
         
-        result = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        # PROACTIVE AUTH HEAL: Perform a 'Real' lightweight calendar operation.
+        # This will trigger the Silent healing in `main.py` if the token is expired but refreshable.
+        result = await calendar_service.request("GET", "/events?maxResults=1")
         if isinstance(result, dict):
-            if result.get("status") == "ready":
-                result["message"] = "SUCCESS: Calendar access is verified and ready."
-                result["_continue_chaining"] = True
+            # If successfully retrieved (means token is fresh/healed)
+            if result.get("status") == "success" or "items" in result:
+                return {
+                    "status": "ready",
+                    "message": "SUCCESS: Calendar access is verified and ready.",
+                    "_continue_chaining": True
+                }
+            # If it returns auth_required from the healing interceptor
             elif result.get("status") == "auth_required":
-                result["message"] = "Your Google Calendar is not authorized. I have a specialized link for you to connect it now."
-                result["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
-        return result
+                result["response_instruction"] = "Your Google Calendar is not authorized. Present ONLY the link below and ask them to let you know when done. STOP EVERYTHING ELSE."
+                return result
+
+        # Fallback to status check if GET /events was inconclusive
+        check = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        return check
 
     # --- 5. RETRIEVAL & DELETION ---
     if func_name == "get_all_events":

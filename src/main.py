@@ -496,13 +496,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             
             if isinstance(result, dict):
                 # Detect Terminal Success (Gives us direct control over the final output)
-                if result.get("_exit_loop") and result.get("status") == "success":
-                    terminal_success_msg = result.get("message")
-
-                # SUCCESS / PROGRESS LOGGING
+                # CRITICAL: If auth is required, terminate loop immediately to show the card
                 if result.get("status") == "auth_required":
                     last_action = "Google session expired. Presenting Auth link."
-                    # Terminal: Return auth required directly so UI can show the card
                     return {
                         "role": "assistant",
                         "content": result.get("message", "Authorization required."),
@@ -510,6 +506,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                         "auth_url": result.get("auth_url"),
                         "history": messages[1:]
                     }
+
+                if result.get("_exit_loop") and result.get("status") == "success":
+                    terminal_success_msg = result.get("message")
                 elif result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
                     last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
                 else:
@@ -671,6 +670,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                     # Proactively yield auth link to stream if needed
                     if result.get("status") == "auth_required":
                         yield f"data: {json.dumps(result)}\n\n"
+                        # TERMINATE LOOP IMMEDIATELY
+                        logger.warning("[STREAM-AUTH] Terminating loop due to auth_required.")
+                        break
                     
                     if result.get("_exit_loop") and result.get("status") == "success":
                         terminal_success_msg = result.get("message")
