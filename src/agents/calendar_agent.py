@@ -34,7 +34,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             "duration_minutes": args.get("duration_minutes") or event_draft.get("duration_minutes", 60),
             "summary": args.get("description") or event_draft.get("summary"),
             "location": args.get("location") or event_draft.get("location"),
-            "attendees": args.get("attendees") or event_draft.get("attendees", [])
+            "attendees": args.get("attendees") or event_draft.get("attendees", []),
+            "summary_requested": event_draft.get("summary_requested", False),
+            "attendees_requested": event_draft.get("attendees_requested", False),
+            "location_requested": event_draft.get("location_requested", False)
         }
         
         # Immediate Persistence: Lock in what we know so far
@@ -69,17 +72,39 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     "response_instruction": f"You have some details saved, but you are missing {', '.join(missing)}. Explicitly ask the user for them. DO NOT ASSUME DEFAULTS like 'Consultation'."
                 }
 
-            # Enforce Optional Fields Check
-            optional_fields_requested = event_draft.get("optional_fields_requested", False)
-            if not optional_fields_requested:
-                current_draft["optional_fields_requested"] = True
+            # --- Step-by-Step Conversational Workflow ---
+            # Instead of asking for all optional fields at once, we request them one-by-one.
+            if not current_draft.get("summary_requested"):
+                current_draft["summary_requested"] = True
                 await calendar_service.sync_client_session(
                     format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
                 )
                 return {
                     "status": "partial_success",
-                    "message": "Title and Time captured. Need to ask for optional details.",
-                    "response_instruction": "You have the Title and Time saved. You MUST explicitly ask the user: 'Would you like to provide a meeting summary, add any attendees' emails, or specify a location/venue before I finalize this booking?' Do NOT schedule the event yet."
+                    "message": "Title and Time captured. Moving to step 1 (Summary).",
+                    "response_instruction": "You have the Event Title and Start Time saved. Now, ask the user ONLY for a brief meeting summary or description. Do NOT finalize the booking yet."
+                }
+
+            if not current_draft.get("attendees_requested"):
+                current_draft["attendees_requested"] = True
+                await calendar_service.sync_client_session(
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                )
+                return {
+                    "status": "partial_success",
+                    "message": "Summary step handled. Moving to step 2 (Attendees).",
+                    "response_instruction": "Meeting summary handled. Now, ask the user ONLY for any attendees' emails they would like to add. If none, they can say 'none' or 'skip'."
+                }
+
+            if not current_draft.get("location_requested"):
+                current_draft["location_requested"] = True
+                await calendar_service.sync_client_session(
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                )
+                return {
+                    "status": "partial_success",
+                    "message": "Attendees step handled. Moving to step 3 (Location).",
+                    "response_instruction": "Attendees handled. Now, ask the user ONLY for a meeting location or venue. This is the last optional step."
                 }
 
             # Time Normalization
@@ -120,7 +145,11 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                                 "title": None, 
                                 "startTime": None,
                                 "summary": None,
-                                "optional_fields_requested": False
+                                "location": None,
+                                "attendees": [],
+                                "summary_requested": False,
+                                "attendees_requested": False,
+                                "location_requested": False
                             },
                             active_workflow=None, # Explicitly nullify the workflow
                             history=history
