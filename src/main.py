@@ -500,10 +500,18 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                     terminal_success_msg = result.get("message")
 
                 # SUCCESS / PROGRESS LOGGING
-                if result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
-                    last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
-                elif result.get("status") == "auth_required":
+                if result.get("status") == "auth_required":
                     last_action = "Google session expired. Presenting Auth link."
+                    # Terminal: Return auth required directly so UI can show the card
+                    return {
+                        "role": "assistant",
+                        "content": result.get("message", "Authorization required."),
+                        "status": "auth_required",
+                        "auth_url": result.get("auth_url"),
+                        "history": messages[1:]
+                    }
+                elif result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
+                    last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
                 else:
                     last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
 
@@ -660,6 +668,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 messages.append({"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)})
                 
                 if isinstance(result, dict):
+                    # Proactively yield auth link to stream if needed
+                    if result.get("status") == "auth_required":
+                        yield f"data: {json.dumps(result)}\n\n"
+                    
                     if result.get("_exit_loop") and result.get("status") == "success":
                         terminal_success_msg = result.get("message")
                     last_action = f"Executed {tool_name}"

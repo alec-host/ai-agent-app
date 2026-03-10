@@ -14,6 +14,16 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     # Extract temporal context injected by agent_manager
     sys_context = args.get("_system_context", {})
     ref_time = sys_context.get("current_time")
+
+    # 0. PRE-FLIGHT AUTH CHECK (Enforced Gatekeeper)
+    # We always verify connection before any data-gathering tool
+    if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event"]:
+        # We don't want to check if this IS the initialization call (to avoid loop)
+        auth_status = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        if isinstance(auth_status, dict) and auth_status.get("status") != "ready":
+            # If not ready, return auth_required immediately regardless of the original func_name
+            auth_status["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
+            return auth_status
     
     # 1. FETCH CURRENT SESSION (For Drafting Persistence)
     db_data = {}
