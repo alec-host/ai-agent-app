@@ -223,12 +223,15 @@ class CalendarServiceClient:
         try:
             response = await self._do_request(method, url, json_data)
             
-            # --- SILENT AUTH HEALING ---
-            # If 401/403, try to recover the token from Node.js before giving up
-            if response.status_code in [401, 403] and _retry_on_auth:
-                logger.info(f"[AUTH-HEAL] Received {response.status_code} for {path}. Attempting token recovery...")
+            # --- SILENT AUTH HEALING / TOKEN CHECK ---
+            # If 401/403 OR 400 with "No token", try to recover/refresh before giving up
+            resp_body = response.text
+            is_token_missing = response.status_code == 400 and "No token found" in resp_body
+            
+            if (response.status_code in [401, 403] or is_token_missing) and _retry_on_auth:
+                logger.info(f"[AUTH-HEAL] Status {response.status_code} for {path}. Attempting token recovery...")
                 
-                # Call the internal auth check
+                # Call the internal auth status check
                 auth_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
                 auth_check = await self.client.get(auth_url, headers=self.headers)
                 
@@ -238,22 +241,21 @@ class CalendarServiceClient:
                         new_token = auth_data["jwtToken"]
                         logger.info(f"[AUTH-HEAL] Success! Recovered fresh token. Retrying {path}...")
                         self.set_auth_token(new_token)
-                        # Retry original request EXACTLY once
                         return await self.request(method, path, json_data, _retry_on_auth=False)
 
-            # --- AUTH RECOVERY INTERCEPTION (IF HEALING FAILED) ---
-            if response.status_code in [401, 403]:
-                logger.warning(f"[AUTH-GUARD] Persistent {response.status_code} for {path}. Redirecting to OAuth.")
+            # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
+            if response.status_code in [401, 403] or is_token_missing:
+                logger.warning(f"[AUTH-GUARD] Authentication required for {path}. Redirecting to OAuth.")
                 return {
                     "status": "auth_required",
                     "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
-                    "message": "Your Google session has expired or requires consent. Please re-authorize.",
+                    "message": "Your Google session is not authenticated. One-time consent is required.",
                     "code": response.status_code
                 }
 
             if response.status_code >= 400:
-                logger.error(f"Backend API Error {response.status_code}: {response.text}")
-                return {"status": "error", "message": f"Server returned error {response.status_code}", "details": response.text}
+                logger.error(f"Backend API Error {response.status_code}: {resp_body}")
+                return {"status": "error", "message": f"Server returned error {response.status_code}", "details": resp_body}
 
             return response.json()
         except Exception as e:
@@ -670,9 +672,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                     # Proactively yield auth link to stream if needed
                     if result.get("status") == "auth_required":
                         yield f"data: {json.dumps(result)}\n\n"
-                        # TERMINATE LOOP IMMEDIATELY
-                        logger.warning("[STREAM-AUTH] Terminating loop due to auth_required.")
-                        break
+                        # TERMINATE THE ENTIRE GENERATOR IMMEDIATELY
+                        logger.warning("[STREAM-AUTH] Killing generator due to auth_required.")
+                        return 
                     
                     if result.get("_exit_loop") and result.get("status") == "success":
                         terminal_success_msg = result.get("message")

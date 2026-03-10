@@ -17,7 +17,8 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
     # 0. PRE-FLIGHT AUTH CHECK (Enforced Gatekeeper)
     # Perform a LIGHTWEIGHT REAL CHECK to trigger silent healing in main.py if needed.
-    if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event"]:
+    if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event", "initialize_calendar_session"]:
+        # Pass summary/time if available for initialize_calendar_session
         auth_status = await calendar_service.request("GET", "/events?maxResults=1")
         if isinstance(auth_status, dict) and auth_status.get("status") == "auth_required":
             auth_status["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
