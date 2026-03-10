@@ -224,9 +224,9 @@ class CalendarServiceClient:
             response = await self._do_request(method, url, json_data)
             
             # --- SILENT AUTH HEALING / TOKEN CHECK ---
-            # If 401/403 OR 400 with "No token", try to recover/refresh before giving up
+            # If 401/403 OR 400 with "token" error, try to recover/refresh before giving up
             resp_body = response.text
-            is_token_missing = response.status_code == 400 and "No token found" in resp_body
+            is_token_missing = (response.status_code == 400 and "token" in resp_body.lower())
             
             if (response.status_code in [401, 403] or is_token_missing) and _retry_on_auth:
                 logger.info(f"[AUTH-HEAL] Status {response.status_code} for {path}. Attempting token recovery...")
@@ -249,7 +249,7 @@ class CalendarServiceClient:
                 return {
                     "status": "auth_required",
                     "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
-                    "message": "Your Google session is not authenticated. One-time consent is required.",
+                    "message": "Calendar Access Required",
                     "code": response.status_code
                 }
 

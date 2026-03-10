@@ -217,8 +217,12 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 }
             # If it returns auth_required from the healing interceptor
             elif result.get("status") == "auth_required":
-                result["response_instruction"] = "Your Google Calendar is not authorized. Present ONLY the link below and ask them to let you know when done. STOP EVERYTHING ELSE."
-                return result
+                return {
+                    "status": "auth_required",
+                    "auth_url": result.get("auth_url"),
+                    "message": "Calendar Access Required",
+                    "response_instruction": "Your Google Calendar is not authorized. Present ONLY the link below and ask them to let you know when done. STOP EVERYTHING ELSE."
+                }
 
         # Fallback to status check if GET /events was inconclusive
         check = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
