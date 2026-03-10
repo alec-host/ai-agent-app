@@ -1,16 +1,66 @@
 :root {
-    --bg-primary: #0f1115;
-    --bg-secondary: #17191e;
-    --bg-tertiary: #1e2128;
+    /* Color Tokens - Fixed */
     --accent-color: #497cfe;
     --accent-hover: #3a62cc;
+    --sidebar-width: 280px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color-scheme: dark;
+
+    /* Dark Theme (Default) */
+    --bg-primary: #0f1115;
+    /* Main content bg */
+    --bg-secondary: #17191e;
+    /* Sidebar/Input bg */
+    --bg-tertiary: #1e2128;
+    /* Hover states */
     --text-primary: #f0f2f5;
     --text-secondary: #9ba1ad;
     --border-color: #2e333d;
-    --sidebar-width: 280px;
     --glass-bg: rgba(23, 25, 30, 0.7);
     --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
-    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --input-bg: #17191e;
+}
+
+html.light-mode {
+    color-scheme: light;
+    /* Light Theme Overrides */
+    --bg-primary: #ffffff;
+    /* Main content bg */
+    --bg-secondary: #f8fafc;
+    /* Sidebar/Input bg */
+    --bg-tertiary: #f1f5f9;
+    /* Hover states */
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --border-color: #e2e8f0;
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.05);
+    --input-bg: #f8fafc;
+}
+
+/* Theme Toggle Icon Animation */
+#themeToggle i {
+    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+html.light-mode #themeToggle i {
+    transform: rotate(180deg);
+}
+
+/* Ensure smooth transitions for theme-sensitive properties */
+body {
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.main-content,
+.sidebar,
+.top-bar,
+.input-container,
+.modal-content,
+.chip,
+.message.user .message-content,
+.input-wrapper {
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 * {
@@ -104,6 +154,10 @@ body {
 
 .nav-list {
     list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* Vertical spacing between chips/links */
 }
 
 .nav-link {
@@ -126,7 +180,7 @@ body {
 .history-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
 }
 
 .history-item {
@@ -287,20 +341,20 @@ body {
 
 .starter-chips-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
     margin-top: 20px;
 }
 
 .chip {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    padding: 24px;
-    border-radius: 16px;
+    padding: 12px;
+    border-radius: 10px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
+    gap: 6px;
     cursor: pointer;
     transition: var(--transition);
     text-align: center;
@@ -314,15 +368,15 @@ body {
 }
 
 .chip-icon {
-    width: 48px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     background-color: rgba(73, 124, 254, 0.1);
     color: var(--accent-color);
-    border-radius: 12px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.25rem;
+    font-size: 1rem;
 }
 
 .chip-text {
@@ -353,6 +407,107 @@ body {
         transform: translateY(0);
     }
 }
+
+/* ─── Gemini-style Orbital Ring — AI loading state ─── */
+.message.ai.loading .message-icon {
+    position: relative;
+    /* subtle scale-pulse on the icon itself */
+    animation: iconPulse 2s ease-in-out infinite;
+    background-color: transparent !important;
+    /* Let the pseudo-elements handle the layering */
+}
+
+/* The spinning conic-gradient arc — Refined with glow and multi-color depth */
+.message.ai.loading .message-icon::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    /* Slightly tighter ring */
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+            transparent 0%,
+            var(--accent-color) 25%,
+            #a78bfa 50%,
+            #60a5fa 75%,
+            transparent 100%);
+    animation: orbitSpin 1.2s linear infinite;
+    filter: blur(1.5px);
+    /* Adds the "inner glow" feel */
+    z-index: 0;
+}
+
+/* Inner mask that restores the solid icon background with a tiny gap for precision */
+.message.ai.loading .message-icon::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    /* Creates a 3px ring width with a clean boundary */
+    border-radius: 50%;
+    background: var(--bg-primary);
+    /* Creates a dark gap before the icon */
+    z-index: 1;
+}
+
+/* The actual blue icon container sitting inside the ring */
+/* Restore the icon background on a nested element or just center the icon */
+.message.ai.loading .message-icon>i {
+    position: relative;
+    z-index: 2;
+    background-color: var(--accent-color);
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@keyframes orbitSpin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes iconPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.04);
+    }
+}
+
+/* "Thinking…" label beneath the icon */
+.thinking-label {
+    display: inline-block;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    letter-spacing: 0.04em;
+    animation: thinkingPulse 1.6s ease-in-out infinite;
+    padding-top: 4px;
+}
+
+@keyframes thinkingPulse {
+
+    0%,
+    100% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 0.9;
+    }
+}
+
+/* ─────────────────────────────────────────────────── */
 
 .message.user {
     flex-direction: row-reverse;

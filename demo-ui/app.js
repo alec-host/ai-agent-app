@@ -38,7 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tenantInput: document.getElementById('tenantInput'),
         roleSelect: document.getElementById('roleSelect'),
         timezoneInput: document.getElementById('timezoneInput'),
-        saveBtn: document.getElementById('saveSettingsBtn')
+        saveBtn: document.getElementById('saveSettingsBtn'),
+        themeToggle: document.getElementById('themeToggle')
     };
 
     // --- SESSION IDENTITY STATE ---
@@ -108,7 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
         loader.id = loadingId;
         loader.innerHTML = `
             <div class="message-icon"><i class="fas fa-robot"></i></div>
-            <div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+            <div class="message-content">
+                <span class="thinking-label" aria-hidden="true">Thinking&hellip;</span>
+            </div>
         `;
         thread.appendChild(loader);
         nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
@@ -261,7 +264,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     nodes.sendBtn.addEventListener('click', () => sendMessage(nodes.chatInput.value));
 
+    function initThemeWorkflow() {
+        if (!nodes.themeToggle) return;
+
+        const icon = nodes.themeToggle.querySelector('i');
+        const updateIcon = (isLight) => {
+            if (isLight) {
+                icon.className = 'fas fa-sun';
+            } else {
+                icon.className = 'fas fa-moon';
+            }
+        };
+
+        // Sync icon on startup
+        updateIcon(document.documentElement.classList.contains('light-mode'));
+
+        nodes.themeToggle.addEventListener('click', () => {
+            const isLight = document.documentElement.classList.toggle('light-mode');
+            safeStorage.set('theme', isLight ? 'light' : 'dark');
+            updateIcon(isLight);
+        });
+    }
+
     // INITIALIZE
     updateUIIdentity();
     initIdentityWorkflow();
+    initThemeWorkflow();
 });

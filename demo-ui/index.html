@@ -17,7 +17,12 @@
 
 <body>
     <script>
-        // High-priority global helper
+        // High-priority: Theme initialization (avoids flash of incorrect theme)
+        (function () {
+            const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            if (theme === 'light') document.documentElement.classList.add('light-mode');
+        })();
+
         window.toggleIdentityModal = (show) => {
             const modal = document.getElementById('settingsModal');
             if (modal) {
@@ -109,6 +114,9 @@
                         <div class="status-indicator"></div>
                         <div class="badge-text">Tenant: <span id="badgeTenant">None</span></div>
                     </div>
+                    <button class="icon-btn" id="themeToggle" title="Toggle Light/Dark Mode">
+                        <i class="fas fa-moon"></i>
+                    </button>
                     <button class="icon-btn" id="openSettingsBtn" title="Session Settings"
                         onclick="toggleIdentityModal(true)"><i class="fas fa-id-card"></i></button>
                     <button class="icon-btn"><i class="far fa-bell"></i></button>
