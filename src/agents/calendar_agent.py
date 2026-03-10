@@ -196,9 +196,13 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         )
         
         result = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
-        if isinstance(result, dict) and result.get("status") == "ready":
-             result["message"] = "SUCCESS: Session ready. You are authorized to manage the calendar."
-             result["_continue_chaining"] = True
+        if isinstance(result, dict):
+            if result.get("status") == "ready":
+                result["message"] = "SUCCESS: Calendar access is verified and ready."
+                result["_continue_chaining"] = True
+            elif result.get("status") == "auth_required":
+                result["message"] = "Your Google Calendar is not authorized. I have a specialized link for you to connect it now."
+                result["response_instruction"] = "Present only the auth link and ask the user to let you know once they have authorized access. Stop all other activities."
         return result
 
     # --- 5. RETRIEVAL & DELETION ---
