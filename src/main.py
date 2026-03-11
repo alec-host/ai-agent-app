@@ -187,9 +187,10 @@ class CalendarServiceClient:
         Requires active Bearer JWT in headers.
         """
         try:
-            url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken?tenant_id={self.tenant_id}"
+            url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken"
+            payload = {"tenant_id": self.tenant_id}
             # Bearer Token is already in self.headers from _sync_access_token()
-            resp = await self.client.get(url, headers=self.headers, timeout=10)
+            resp = await self.client.post(url, json=payload, headers=self.headers, timeout=10)
             data = resp.json()
             if data.get("success"):
                 logger.info(f"[SILENT-REFRESH] Successfully refreshed Google token for {self.tenant_id}")
