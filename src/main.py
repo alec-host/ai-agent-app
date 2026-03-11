@@ -587,8 +587,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         metadata = db_session.get("metadata", {})
         active_workflow = metadata.get("active_workflow")
         if i == 0 and active_workflow == "calendar":
-             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow. Re-checking grant token.")
-             # JWT already synced at Pre-LLM gate — go straight to grant validity check.
+             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow. Ensuring Auth Handshake.")
+             # MANDATORY: Sync JWT before grant-check, even if Pre-LLM gate was skipped (e.g. no keywords)
+             token_status = await services['calendar']._sync_access_token()
+             if token_status["status"] == "auth_required":
+                  logger.warning(f"[{tenant_id}] Turn {i}: Session expired/missing during loop. Returning auth_required.")
+                  return {
+                      "role": "assistant",
+                      "content": "Calendar Access Required",
+                      "status": "auth_required",
+                      "auth_url": token_status["auth_url"],
+                      "history": cleaned_history
+                  }
+
              grant = await services['calendar'].check_grant_token()
              if not grant["granted"]:
                   logger.warning(f"[{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
@@ -788,8 +799,14 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 metadata = db_session.get("metadata", {})
                 active_workflow = metadata.get("active_workflow")
                 if i == 0 and active_workflow == "calendar":
-                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow. Re-checking grant token.")
-                     # JWT already synced at Pre-LLM gate — go straight to grant validity check.
+                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow. Ensuring Auth Handshake.")
+                     # MANDATORY: Sync JWT before grant-check, even if Pre-LLM gate was skipped
+                     token_status = await services['calendar']._sync_access_token()
+                     if token_status["status"] == "auth_required":
+                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Session expired during loop. Surface auth card.")
+                          yield f"data: {json.dumps({'status': 'auth_required', 'auth_url': token_status['auth_url']})}\n\n"
+                          return
+
                      grant = await services['calendar'].check_grant_token()
                      if not grant["granted"]:
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
