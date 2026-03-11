@@ -128,6 +128,17 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             except Exception as e:
                 return {"status": "error", "message": f"Invalid time format: {e}"}
 
+            # --- CONFLICT GATE ---
+            # Check for existing meetings in the same slot before proceeding
+            has_conflict = await calendar_service.check_conflicts(current_draft["startTime"], current_draft["endTime"])
+            if has_conflict:
+                logger.warning(f"[{tenant_id}] Conflict detected for {current_draft['startTime']} to {current_draft['endTime']}. Blocking schedule.")
+                return {
+                    "status": "partial_success",
+                    "message": "Conflict detected on the user's calendar.",
+                    "response_instruction": "The requested time slot is already booked. You MUST notify the user of this specific conflict and ask them to suggest an alternative time or date. Do NOT finalize the booking."
+                }
+
             # PRE-FLIGHT SYNC (Last check) - includes workflow lock
             await calendar_service.sync_client_session(
                 format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
