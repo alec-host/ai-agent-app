@@ -208,28 +208,15 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar")
         )
         
-        # PROACTIVE AUTH HEAL: Perform a 'Real' lightweight calendar operation.
-        # This will trigger the Silent healing in `main.py` if the token is expired but refreshable.
-        result = await calendar_service.request("GET", "/events?maxResults=1")
-        
-        # FAIL CLOSED: Only 'ready' if we get a definitive success/items list
-        if isinstance(result, dict) and (result.get("status") == "success" or "items" in result):
+        # Verify basic JWT status (Handled by main.py pre-flight, but we check local state)
+        if calendar_service.is_authenticated():
             return {
                 "status": "ready",
                 "message": "SUCCESS: Calendar access is verified and ready.",
                 "_continue_chaining": True
             }
         
-        # If the result is a dict but NOT a success (e.g. auth_required or error)
-        if isinstance(result, dict):
-            return {
-                "status": "auth_required",
-                "auth_url": result.get("auth_url") or f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",
-                "message": "Calendar Access Required",
-                "response_instruction": "Google Calendar authorization is missing or expired. Present ONLY the link below and STOP EVERYTHING."
-            }
-        
-        # If result is some other object (Response) that indicates failure
+        # FAIL CLOSED: If we somehow reached here without auth
         return {
             "status": "auth_required",
             "auth_url": f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",

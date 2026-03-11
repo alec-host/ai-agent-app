@@ -181,11 +181,30 @@ class CalendarServiceClient:
                 "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}"
             }
 
+    async def silent_refresh(self) -> bool:
+        """
+        Attempt to refresh the Google OAuth token silently using the Node.js backend.
+        Requires active Bearer JWT in headers.
+        """
+        try:
+            url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken?tenant_id={self.tenant_id}"
+            # Bearer Token is already in self.headers from _sync_access_token()
+            resp = await self.client.get(url, headers=self.headers, timeout=10)
+            data = resp.json()
+            if data.get("success"):
+                logger.info(f"[SILENT-REFRESH] Successfully refreshed Google token for {self.tenant_id}")
+                return True
+            logger.warning(f"[SILENT-REFRESH] Refresh failed for {self.tenant_id}: {data.get('message')}")
+            return False
+        except Exception as e:
+            logger.error(f"[SILENT-REFRESH] Request crashed: {e}")
+            return False
+
     async def check_grant_token(self) -> dict:
         """
         Step 2 — Calendar Grant Validity Gate.
         Calls GET /auth/hasGrantToken?tenant_id=... WITH the JWT already in self.headers.
-        MUST be called after _sync_access_token() so the Bearer token is present.
+        If invalid, attempts a SILENT REFRESH before failing.
 
         Returns:
           { "granted": True }                                           -> Calendar access confirmed
@@ -196,15 +215,29 @@ class CalendarServiceClient:
             # self.headers already contains Authorization: Bearer <jwt> from _sync_access_token()
             resp = await self.client.get(url, headers=self.headers, timeout=10)
             data = resp.json()
+
+            # 1. SUCCESS: Grant is valid
             if data.get("success") and data.get("valid"):
                 return {"granted": True}
+
+            # 2. RECOVERY: Try Silent Refresh
+            logger.info(f"[GRANT-CHECK] Grant invalid for {self.tenant_id}. Attempting recovery...")
+            if await self.silent_refresh():
+                # Re-verify after successful refresh
+                resp = await self.client.get(url, headers=self.headers, timeout=10)
+                data = resp.json()
+                if data.get("success") and data.get("valid"):
+                    logger.info(f"[GRANT-CHECK] Recovery successful for {self.tenant_id}")
+                    return {"granted": True}
+
+            # 3. FAILURE: Must re-authorize
             return {
                 "granted": False,
                 "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
                 "reason": data.get("message", "Google Calendar access required.")
             }
         except Exception as e:
-            logger.error(f"[GRANT-CHECK] hasGrantToken call failed for {self.tenant_id}: {e}")
+            logger.error(f"[GRANT-CHECK] check_grant_token failed for {self.tenant_id}: {e}")
             return {
                 "granted": False,
                 "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
