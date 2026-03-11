@@ -365,6 +365,21 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     if user_prompt_raw in ["clear", "reset", "/clear"]:
         return {"response": "Conversation history cleared.", "history": []}
 
+    tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
+    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
+    
+    # Session Recovery: Restore JWT from history if present (CRITICAL: Fixes auth-healing on first turn)
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    for msg in reversed(cleaned_history):
+        content = msg.get("content") or ""
+        if '"jwtToken":' in content:
+            try:
+                data = json.loads(content)
+                if data.get("jwtToken"):
+                    calendar_service.set_auth_token(data["jwtToken"])
+                    break
+            except: continue
+
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     calendar_keywords = ["schedule", "event", "meeting", "book", "appointment", "calendar", "call", "set up"]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
@@ -397,19 +412,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         elif error_type == "no_wallet":
              return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
     '''
-    # --- 1. HISTORY CLEANUP ---
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    # --- 1. HISTORY CLEANUP (Already done during recovery) ---
+    # cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     
     # Session Recovery: Restore JWT from history if present
-    for msg in reversed(cleaned_history):
-        content = msg.get("content") or ""
-        if '"jwtToken":' in content:
-            try:
-                data = json.loads(content)
-                if data.get("jwtToken"):
-                    calendar_service.set_auth_token(data["jwtToken"])
-                    break
-            except: continue
+    # for msg in reversed(cleaned_history):
+    #     content = msg.get("content") or ""
+    #     if '"jwtToken":' in content:
+    #         try:
+    #             data = json.loads(content)
+    #             if data.get("jwtToken"):
+    #                 calendar_service.set_auth_token(data["jwtToken"])
+    #                 break
+    #         except: continue
 
     services = {"calendar": calendar_service}
 
