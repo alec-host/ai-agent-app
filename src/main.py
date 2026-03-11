@@ -225,6 +225,7 @@ class CalendarServiceClient:
             
             # --- SILENT AUTH HEALING / TOKEN CHECK ---
             # Broaden: Treat 401/403 and some 400s as points where we should check/refresh session
+            resp_body = response.text
             is_potential_auth_issue = response.status_code in [401, 403] or (response.status_code == 400 and ("token" in resp_body.lower() or "unauthorized" in resp_body.lower() or "google" in resp_body.lower()))
             
             if is_potential_auth_issue and _retry_on_auth:
