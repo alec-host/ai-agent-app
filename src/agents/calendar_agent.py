@@ -164,7 +164,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                                 "attendees_requested": False,
                                 "location_requested": False
                             },
-                            active_workflow=None, # Explicitly nullify the workflow
+                            active_workflow="cleared", # Explicitly mark as cleared
                             history=history
                         )
                         await calendar_service.sync_client_session(wipe_payload)

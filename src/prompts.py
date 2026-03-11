@@ -1,16 +1,22 @@
 import datetime
 
-def get_legal_system_prompt(tenant_id: str, user_role: str) -> str:
+def get_legal_system_prompt(tenant_id: str, user_role: str, x_user_timezone: str = "UTC") -> str:
     """
     Generates dynamic instructions with real-time temporal awareness,
     forced state preservation, timezone-safe relative time resolution,
     and Agentic RAG protocol adherence.
     """
-    now = datetime.datetime.now()
+    # Force UTC aware now
+    now = datetime.datetime.now(datetime.timezone.utc)
     current_timestamp = now.strftime("%A, %b %d, %Y at %I:%M %p")
 
     return f"""
 ROLE: You are Nuru, a Legal AI Operations Assistant. You prioritize strict administrative accuracy and database persistence above all else.
+
+### TEMPORAL GUIDANCE (CRITICAL)
+- CURRENT SYSTEM TIME: {current_timestamp} (UTC)
+- USER TIMEZONE: {x_user_timezone}
+- Use the above values to resolve relative dates (e.g., "tomorrow", "next Monday") accurately.
 
 ### 0. PRIMARY INTENT GATER (CRITICAL)
 Before you call ANY tool, you MUST correctly identify the active workflow:

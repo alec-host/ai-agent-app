@@ -565,7 +565,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # This fetches the latest saved state from the DB to prevent looping
     rehydration_data = await get_rehydration_context(tenant_id, services)
     
-    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
+    user_tz = auth.get("timezone", "UTC")
+    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz)}]
     
     if rehydration_data:
         messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
@@ -575,7 +576,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
     ai_client = request.app.state.ai_client
     last_action = "Waiting for input"
-    user_tz = auth.get("timezone", "UTC")
 
     # --- 3. AGENTIC REASONING LOOP ---
     for i in range(5):
@@ -710,13 +710,16 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         # If a tool marked itself as terminal success, we break the loop and return its message directly
         if terminal_success_msg and not assistant_msg.content:
-             return {"response": terminal_success_msg, "history": messages[1:]}
+             final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+             return {"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db}
         elif terminal_success_msg:
              # If assistant already had words, append the success table to it
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
-             return {"response": final_resp, "history": messages[1:]}
+             final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+             return {"response": final_resp, "history": messages[1:], "vault_data": final_db}
 
-    return {"response": messages[-1].get("content"), "history": messages[1:]}
+    final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+    return {"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db}
 
 # --- 6.1. The Streaming Reasoning Endpoint ---
 @app.post("/ai/chat/stream")
@@ -779,7 +782,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         return StreamingResponse(clear_gen(), media_type="text/event-stream")
 
     rehydration_data = await get_rehydration_context(tenant_id, services)
-    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
+    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz)}]
     if rehydration_data:
         messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
     messages.extend(sanitize_history(cleaned_history))
