@@ -133,6 +133,7 @@ class CalendarServiceClient:
     def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
+        self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
