@@ -1,12 +1,12 @@
 # src/agent_manager.py
 import json
 from datetime import datetime
-from src.logger import logger
+from .logger import logger
 
 # Import Specialized Agents
-from src.agents.calendar_agent import handle_calendar
-from src.agents.client_creation_agent import handle_client_creation
-from src.agents.rag_agent import handle_rag_lookup
+from .agents.calendar_agent import handle_calendar
+from .agents.client_creation_agent import handle_client_creation
+from .agents.rag_agent import handle_rag_lookup
 
 async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     """
@@ -23,7 +23,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
         args["_system_context"] = {
             "current_time": now_obj.isoformat(),
             "day_of_week": now_obj.strftime("%A"),
-            "timezone_offset": f"{offset[:3]}:{offset[3:]}"
+            "timezone_offset": f"{offset[0:3]}:{offset[3:5]}" if len(offset) == 5 else offset
         }
     except Exception as e:
         logger.error(f"Temporal injection failed: {str(e)}")

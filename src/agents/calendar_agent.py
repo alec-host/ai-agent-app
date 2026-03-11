@@ -15,22 +15,18 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     sys_context = args.get("_system_context", {})
     ref_time = sys_context.get("current_time")
 
-    # 0. PRE-FLIGHT AUTH HANDSHAKE (Enhanced Gatekeeper)
-    # 1. Internal check for token existence in Redis/DB
-    # 2. Real API check to trigger silent healing if expired
+    # 0. PRE-FLIGHT GRANT CHECK
+    # By this point, the JWT has already been synced upstream by _sync_access_token() in main.py.
+    # We only need to confirm the Google Calendar grant is still valid — skip the accessToken re-fetch.
     if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event", "initialize_calendar_session"]:
-        auth_check = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
-        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
-            auth_check["message"] = "Calendar Access Required"
-            auth_check["response_instruction"] = "HANDSHAKE FAILED. Present only the auth link and STOP EVERYTHING. DO NOT ask for title/time."
-            return auth_check
-        
-        # If internal check says ready, still do a real check to trigger healing for expired tokens
-        res = await calendar_service.request("GET", "/events?maxResults=1")
-        if isinstance(res, dict) and res.get("status") == "auth_required":
-            res["message"] = "Calendar Access Required"
-            res["response_instruction"] = "SESSION EXPIRED. Present the link to re-activate and STOP EVERYTHING."
-            return res
+        grant = await calendar_service.check_grant_token()
+        if not grant["granted"]:
+            return {
+                "status": "auth_required",
+                "auth_url": grant["auth_url"],
+                "message": "Calendar Access Required",
+                "response_instruction": "HANDSHAKE FAILED. Present only the auth link and STOP EVERYTHING. DO NOT ask for title/time."
+            }
     
     # 1. FETCH CURRENT SESSION (For Drafting Persistence)
     db_data = {}
@@ -99,7 +95,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 return {
                     "status": "partial_success",
                     "message": "Title and Time captured. Moving to step 1 (Summary).",
-                    "response_instruction": "You have the Event Title and Start Time saved. Now, ask the user ONLY for a brief meeting summary or description. Do NOT finalize the booking yet."
+                    "response_instruction": "You have the Event Title and Start Time saved. Explicitly ask the user ONLY for a brief meeting summary or description. Do NOT finalize the booking yet."
                 }
 
             if not current_draft.get("attendees_requested"):
@@ -110,7 +106,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 return {
                     "status": "partial_success",
                     "message": "Summary step handled. Moving to step 2 (Attendees).",
-                    "response_instruction": "Meeting summary handled. Now, ask the user ONLY for any attendees' emails they would like to add. If none, they can say 'none' or 'skip'."
+                    "response_instruction": "Meeting summary handled. Explicitly ask the user ONLY for any attendees' emails they would like to add. If none, they can say 'none' or 'skip'."
                 }
 
             if not current_draft.get("location_requested"):
@@ -121,7 +117,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 return {
                     "status": "partial_success",
                     "message": "Attendees step handled. Moving to step 3 (Location).",
-                    "response_instruction": "Attendees handled. Now, ask the user ONLY for a meeting location or venue. This is the last optional step."
+                    "response_instruction": "Attendees handled. Explicitly ask the user ONLY for a meeting location or venue. This is the last optional step."
                 }
 
             # Time Normalization
