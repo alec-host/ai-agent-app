@@ -391,7 +391,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             except: continue
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
-    calendar_keywords = ["schedule", "event", "meeting", "book", "appointment", "calendar", "call", "set up"]
+    # Enhanced keywords for better Turn 1 detection
+    calendar_keywords = [
+        "schedule", "event", "meeting", "book", "appointment", "calendar", 
+        "call", "set up", "setup", "create", "meet", "add", "arrange", "organize", "put"
+    ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
     
     if is_calendar_intent:
@@ -457,7 +461,22 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # --- 3. AGENTIC REASONING LOOP ---
     for i in range(5):
         # Fetch current session state for precise injection
-        db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+        # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
+        # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
+        metadata = db_session.get("metadata", {})
+        active_workflow = metadata.get("active_workflow")
+        if i == 0 and active_workflow == "calendar":
+             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow. Verifying session health.")
+             h_check = await services['calendar'].request("GET", "/events?maxResults=1")
+             if isinstance(h_check, dict) and h_check.get("status") == "auth_required":
+                  logger.warning(f"[{tenant_id}] Turn {i}: Active workflow but token lost. Surface auth card immediately.")
+                  return {
+                      "role": "assistant",
+                      "content": "Calendar Access Required",
+                      "status": "auth_required",
+                      "auth_url": h_check.get("auth_url"),
+                      "history": cleaned_history
+                  }
         
         # Segment 1: Client Fields
         client_vault = {k: v for k, v in {
@@ -576,9 +595,24 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service}
 
+    # Setup Context (Reused from /ai/chat - duplication preferred for stability as requested)
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    for msg in reversed(cleaned_history):
+        content = msg.get("content") or ""
+        if '"jwtToken":' in content:
+            try:
+                data = json.loads(content)
+                if data.get("jwtToken"):
+                    calendar_service.set_auth_token(data["jwtToken"])
+                    break
+            except: continue
+
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
-    calendar_keywords = ["schedule", "event", "meeting", "book", "appointment", "calendar", "call", "set up"]
+    calendar_keywords = [
+        "schedule", "event", "meeting", "book", "appointment", "calendar", 
+        "call", "set up", "setup", "create", "meet", "add", "arrange", "organize", "put"
+    ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
 
     if is_calendar_intent:
@@ -595,18 +629,6 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             yield f"data: {json.dumps({'content': 'Conversation history cleared.', 'done': True, 'history': []})}\n\n"
         return StreamingResponse(clear_gen(), media_type="text/event-stream")
 
-    # Setup Context (Reused from /ai/chat - duplication preferred for stability as requested)
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-    for msg in reversed(cleaned_history):
-        content = msg.get("content") or ""
-        if '"jwtToken":' in content:
-            try:
-                data = json.loads(content)
-                if data.get("jwtToken"):
-                    calendar_service.set_auth_token(data["jwtToken"])
-                    break
-            except: continue
-            
     rehydration_data = await get_rehydration_context(tenant_id, services)
     messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role)}]
     if rehydration_data:
@@ -622,6 +644,19 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             # Fetch current session state — fault-tolerant: stream must not fail if Node.js is down
             try:
                 db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+                
+                # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks (STREAMING) ---
+                # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
+                metadata = db_session.get("metadata", {})
+                active_workflow = metadata.get("active_workflow")
+                if i == 0 and active_workflow == "calendar":
+                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow. Verifying session health.")
+                     h_check = await services['calendar'].request("GET", "/events?maxResults=1")
+                     if isinstance(h_check, dict) and h_check.get("status") == "auth_required":
+                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Active workflow but token lost. Surface auth card.")
+                          async def reauth_gen():
+                               yield f"data: {json.dumps(h_check)}\n\n"
+                          return StreamingResponse(reauth_gen(), media_type="text/event-stream")
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
