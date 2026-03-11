@@ -409,8 +409,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             internal_resp = await request.app.state.http_client.get(internal_url, headers={"X-Correlation-ID": corr_id})
             if internal_resp.status_code == 200:
                 internal_data = internal_resp.json()
+                # SILENT HEALING: If backend recovered a token (e.g. from Redis refresh token), sync it immediately.
+                # This ensures Step 2 (Live Probe) starts with the fresh token and doesn't hit a 401.
+                if internal_data.get("status") == "ready" and internal_data.get("jwtToken"):
+                     logger.info(f"[{tenant_id}] Handshake Step 1: Recovered fresh session. Syncing token locally.")
+                     calendar_service.set_auth_token(internal_data["jwtToken"])
+                
                 if internal_data.get("status") == "auth_required":
-                    logger.warning(f"[{tenant_id}] Backend confirms auth required for new/disconnected user.")
+                    logger.warning(f"[{tenant_id}] Handshake Step 1: Backend confirms auth required. Aborting.")
                     return {
                         "role": "assistant",
                         "content": "Calendar Access Required",
@@ -650,6 +656,11 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             internal_resp = await request.app.state.http_client.get(internal_url, headers={"X-Correlation-ID": corr_id})
             if internal_resp.status_code == 200:
                 internal_data = internal_resp.json()
+                # SYNC SILENT HEALING: Sync the token before Step 2 hits the network.
+                if internal_data.get("status") == "ready" and internal_data.get("jwtToken"):
+                     logger.info(f"[STREAM] [{tenant_id}] Handshake Step 1: Recovered session. Syncing token.")
+                     calendar_service.set_auth_token(internal_data["jwtToken"])
+
                 if internal_data.get("status") == "auth_required":
                     async def auth_gen():
                         internal_data["status"] = "auth_required"
