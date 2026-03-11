@@ -655,9 +655,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                      h_check = await services['calendar'].request("GET", "/events?maxResults=1")
                      if isinstance(h_check, dict) and h_check.get("status") == "auth_required":
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Active workflow but token lost. Surface auth card.")
-                          async def reauth_gen():
-                               yield f"data: {json.dumps(h_check)}\n\n"
-                          return StreamingResponse(reauth_gen(), media_type="text/event-stream")
+                          yield f"data: {json.dumps(h_check)}\n\n"
+                          return
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
