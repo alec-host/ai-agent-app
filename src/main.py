@@ -365,9 +365,25 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     if user_prompt_raw in ["clear", "reset", "/clear"]:
         return {"response": "Conversation history cleared.", "history": []}
 
-    tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
-    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
+    # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
+    calendar_keywords = ["schedule", "event", "meeting", "book", "appointment", "calendar", "call", "set up"]
+    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
     
+    if is_calendar_intent:
+        logger.info(f"[{tenant_id}] Calendar intent detected. Performing pre-LLM auth handshake.")
+        # Perform a LIGHTWEIGHT REAL CHECK to trigger silent healing / verify token
+        auth_check = await calendar_service.request("GET", "/events?maxResults=1")
+        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
+            logger.warning(f"[{tenant_id}] Auth required. Bypassing LLM to show consent card.")
+            return {
+                "role": "assistant",
+                "content": "Calendar Access Required",
+                "status": "auth_required",
+                "auth_url": auth_check.get("auth_url"),
+                "history": req.history
+            }
+        logger.info(f"[{tenant_id}] Auth handshake successful. Proceeding to LLM.")
+
 	# DROP-IN PRE-FLIGHT CHECK
     # wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
     '''
@@ -535,8 +551,21 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service}
 
+    # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
+    user_prompt_raw = req.prompt.lower().strip()
+    calendar_keywords = ["schedule", "event", "meeting", "book", "appointment", "calendar", "call", "set up"]
+    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+
+    if is_calendar_intent:
+        logger.info(f"[{tenant_id}] Calendar intent detected (Streaming). Performing pre-LLM auth handshake.")
+        auth_check = await calendar_service.request("GET", "/events?maxResults=1")
+        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
+            async def auth_gen():
+                yield f"data: {json.dumps(auth_check)}\n\n"
+            return StreamingResponse(auth_gen(), media_type="text/event-stream")
+
     # Standard check for CLEAR
-    if req.prompt.lower().strip() in ["clear", "reset", "/clear"]:
+    if user_prompt_raw in ["clear", "reset", "/clear"]:
         async def clear_gen():
             yield f"data: {json.dumps({'content': 'Conversation history cleared.', 'done': True, 'history': []})}\n\n"
         return StreamingResponse(clear_gen(), media_type="text/event-stream")
