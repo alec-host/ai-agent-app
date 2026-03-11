@@ -215,26 +215,31 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         # PROACTIVE AUTH HEAL: Perform a 'Real' lightweight calendar operation.
         # This will trigger the Silent healing in `main.py` if the token is expired but refreshable.
         result = await calendar_service.request("GET", "/events?maxResults=1")
+        
+        # FAIL CLOSED: Only 'ready' if we get a definitive success/items list
+        if isinstance(result, dict) and (result.get("status") == "success" or "items" in result):
+            return {
+                "status": "ready",
+                "message": "SUCCESS: Calendar access is verified and ready.",
+                "_continue_chaining": True
+            }
+        
+        # If the result is a dict but NOT a success (e.g. auth_required or error)
         if isinstance(result, dict):
-            # If successfully retrieved (means token is fresh/healed)
-            if result.get("status") == "success" or "items" in result:
-                return {
-                    "status": "ready",
-                    "message": "SUCCESS: Calendar access is verified and ready.",
-                    "_continue_chaining": True
-                }
-            # If it returns auth_required from the healing interceptor
-            elif result.get("status") == "auth_required":
-                return {
-                    "status": "auth_required",
-                    "auth_url": result.get("auth_url"),
-                    "message": "Calendar Access Required",
-                    "response_instruction": "Your Google Calendar is not authorized. Present ONLY the link below and ask them to let you know when done. STOP EVERYTHING ELSE."
-                }
-
-        # Fallback to status check if GET /events was inconclusive
-        check = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
-        return check
+            return {
+                "status": "auth_required",
+                "auth_url": result.get("auth_url") or f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",
+                "message": "Calendar Access Required",
+                "response_instruction": "Google Calendar authorization is missing or expired. Present ONLY the link below and STOP EVERYTHING."
+            }
+        
+        # If result is some other object (Response) that indicates failure
+        return {
+            "status": "auth_required",
+            "auth_url": f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",
+            "message": "Calendar Access Required",
+            "response_instruction": "Verification failed. Please authorize Google Calendar to continue."
+        }
 
     # --- 5. RETRIEVAL & DELETION ---
     if func_name == "get_all_events":
