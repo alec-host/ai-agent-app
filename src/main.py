@@ -224,28 +224,28 @@ class CalendarServiceClient:
             response = await self._do_request(method, url, json_data)
             
             # --- SILENT AUTH HEALING / TOKEN CHECK ---
-            # If 401/403 OR 400 with "token" error, try to recover/refresh before giving up
-            resp_body = response.text
-            is_token_missing = (response.status_code == 400 and "token" in resp_body.lower())
+            # Broaden: Treat 401/403 and some 400s as points where we should check/refresh session
+            is_potential_auth_issue = response.status_code in [401, 403] or (response.status_code == 400 and ("token" in resp_body.lower() or "unauthorized" in resp_body.lower() or "google" in resp_body.lower()))
             
-            if (response.status_code in [401, 403] or is_token_missing) and _retry_on_auth:
-                logger.info(f"[AUTH-HEAL] Status {response.status_code} for {path}. Attempting token recovery...")
+            if is_potential_auth_issue and _retry_on_auth:
+                logger.info(f"[AUTH-HEAL] Potential auth issue ({response.status_code}) for {path}. Verifying session...")
                 
-                # Call the internal auth status check
+                # Check internal session status
                 auth_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
                 auth_check = await self.client.get(auth_url, headers=self.headers)
                 
                 if auth_check.status_code == 200:
                     auth_data = auth_check.json()
+                    # If internal check says "Actually we have a token", try refreshing it
                     if auth_data.get("status") == "ready" and auth_data.get("jwtToken"):
                         new_token = auth_data["jwtToken"]
-                        logger.info(f"[AUTH-HEAL] Success! Recovered fresh token. Retrying {path}...")
+                        logger.info(f"[AUTH-HEAL] Found session record. Updating local token and retrying {path}...")
                         self.set_auth_token(new_token)
                         return await self.request(method, path, json_data, _retry_on_auth=False)
                     
-                    # NEW: Explicitly detect if the check itself says "Auth Required" (e.g. Needs Consent)
+                    # If internal check confirms auth is required
                     if auth_data.get("status") == "auth_required":
-                         logger.warning(f"[AUTH-HEAL] Status check confirms consent/auth required for {self.tenant_id}.")
+                         logger.warning(f"[AUTH-HEAL] Internal status confirms auth required for {self.tenant_id}.")
                          return {
                             "status": "auth_required",
                             "auth_url": auth_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
@@ -254,8 +254,8 @@ class CalendarServiceClient:
                          }
 
             # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
-            if response.status_code in [401, 403] or is_token_missing:
-                logger.warning(f"[AUTH-GUARD] Authentication required for {path}. Redirecting to OAuth.")
+            if is_potential_auth_issue:
+                logger.warning(f"[AUTH-GUARD] Authentication block for {path}. Redirecting to OAuth.")
                 return {
                     "status": "auth_required",
                     "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
@@ -399,19 +399,42 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
     
     if is_calendar_intent:
-        logger.info(f"[{tenant_id}] Calendar intent detected. Performing pre-LLM auth handshake.")
-        # Perform a LIGHTWEIGHT REAL CHECK to trigger silent healing / verify token
+        logger.info(f"[{tenant_id}] Calendar intent detected. Performing Ultra-Proactive Auth Handshake.")
+        
+        # STEP 1: Internal Check (Check if backend even thinks we are ready)
+        # This catches "New Users" immediately without even trying a Google call.
+        internal_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={tenant_id}"
+        try:
+            internal_resp = await request.app.state.http_client.get(internal_url, headers={"X-Correlation-ID": corr_id})
+            if internal_resp.status_code == 200:
+                internal_data = internal_resp.json()
+                if internal_data.get("status") == "auth_required":
+                    logger.warning(f"[{tenant_id}] Backend confirms auth required for new/disconnected user.")
+                    return {
+                        "role": "assistant",
+                        "content": "Calendar Access Required",
+                        "status": "auth_required",
+                        "auth_url": internal_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}",
+                        "history": req.history
+                    }
+        except Exception as e:
+            logger.error(f"[{tenant_id}] Internal auth check failed: {e}")
+
+        # STEP 2: Live Probe (Catch revoked/expired sessions)
+        # We do this even if Step 1 passed, as Step 1 might be a "false ready".
         auth_check = await calendar_service.request("GET", "/events?maxResults=1")
-        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
-            logger.warning(f"[{tenant_id}] Auth required. Bypassing LLM to show consent card.")
+        
+        # FAIL CLOSED: If NOT success/items, something is wrong with the connection.
+        if isinstance(auth_check, dict) and (auth_check.get("status") != "success" and "items" not in auth_check):
+            logger.warning(f"[{tenant_id}] Live Probe Failed (Status: {auth_check.get('status')}). Surface Auth Button.")
             return {
                 "role": "assistant",
                 "content": "Calendar Access Required",
                 "status": "auth_required",
-                "auth_url": auth_check.get("auth_url"),
+                "auth_url": auth_check.get("auth_url") if isinstance(auth_check, dict) else f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}",
                 "history": req.history
             }
-        logger.info(f"[{tenant_id}] Auth handshake successful. Proceeding to LLM.")
+        logger.info(f"[{tenant_id}] Ultra-Handshake successful. Proceeding to LLM.")
 
 	# DROP-IN PRE-FLIGHT CHECK
     # wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
@@ -470,13 +493,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if i == 0 and active_workflow == "calendar":
              logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow. Verifying session health.")
              h_check = await services['calendar'].request("GET", "/events?maxResults=1")
-             if isinstance(h_check, dict) and h_check.get("status") == "auth_required":
-                  logger.warning(f"[{tenant_id}] Turn {i}: Active workflow but token lost. Surface auth card immediately.")
+             # FAIL CLOSED: If not explicitly successful, surface auth card
+             if isinstance(h_check, dict) and (h_check.get("status") != "success" and "items" not in h_check):
+                  logger.warning(f"[{tenant_id}] Turn {i}: Workflow probe failed. Surface auth card immediately.")
                   return {
                       "role": "assistant",
                       "content": "Calendar Access Required",
                       "status": "auth_required",
-                      "auth_url": h_check.get("auth_url"),
+                      "auth_url": h_check.get("auth_url") if isinstance(h_check, dict) else f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}",
                       "history": cleaned_history
                   }
         
@@ -617,10 +641,29 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
 
     if is_calendar_intent:
-        logger.info(f"[{tenant_id}] Calendar intent detected (Streaming). Performing pre-LLM auth handshake.")
+        logger.info(f"[{tenant_id}] Calendar intent detected (Streaming). Performing Ultra-Handshake.")
+        
+        # STEP 1: Internal Check
+        internal_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={tenant_id}"
+        try:
+            internal_resp = await request.app.state.http_client.get(internal_url, headers={"X-Correlation-ID": corr_id})
+            if internal_resp.status_code == 200:
+                internal_data = internal_resp.json()
+                if internal_data.get("status") == "auth_required":
+                    async def auth_gen():
+                        internal_data["status"] = "auth_required"
+                        yield f"data: {json.dumps(internal_data)}\n\n"
+                    return StreamingResponse(auth_gen(), media_type="text/event-stream")
+        except Exception as e:
+            logger.error(f"[STREAM] [{tenant_id}] Internal check error: {e}")
+
+        # STEP 2: Live Probe
         auth_check = await calendar_service.request("GET", "/events?maxResults=1")
-        if isinstance(auth_check, dict) and auth_check.get("status") == "auth_required":
+        if isinstance(auth_check, dict) and (auth_check.get("status") != "success" and "items" not in auth_check):
             async def auth_gen():
+                if "auth_url" not in auth_check:
+                    auth_check["auth_url"] = f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}"
+                auth_check["status"] = "auth_required"
                 yield f"data: {json.dumps(auth_check)}\n\n"
             return StreamingResponse(auth_gen(), media_type="text/event-stream")
 
@@ -653,10 +696,15 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 if i == 0 and active_workflow == "calendar":
                      logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow. Verifying session health.")
                      h_check = await services['calendar'].request("GET", "/events?maxResults=1")
-                     if isinstance(h_check, dict) and h_check.get("status") == "auth_required":
-                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Active workflow but token lost. Surface auth card.")
-                          yield f"data: {json.dumps(h_check)}\n\n"
-                          return
+                     # FAIL CLOSED
+                     if isinstance(h_check, dict) and (h_check.get("status") != "success" and "items" not in h_check):
+                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Active workflow probe failed. Surface auth card.")
+                          async def reauth_gen():
+                               if "auth_url" not in h_check:
+                                   h_check["auth_url"] = f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}"
+                               h_check["status"] = "auth_required"
+                               yield f"data: {json.dumps(h_check)}\n\n"
+                          return StreamingResponse(reauth_gen(), media_type="text/event-stream")
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
