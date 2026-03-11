@@ -699,12 +699,11 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                      # FAIL CLOSED
                      if isinstance(h_check, dict) and (h_check.get("status") != "success" and "items" not in h_check):
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Active workflow probe failed. Surface auth card.")
-                          async def reauth_gen():
-                               if "auth_url" not in h_check:
-                                   h_check["auth_url"] = f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}"
-                               h_check["status"] = "auth_required"
-                               yield f"data: {json.dumps(h_check)}\n\n"
-                          return StreamingResponse(reauth_gen(), media_type="text/event-stream")
+                          if "auth_url" not in h_check:
+                              h_check["auth_url"] = f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={tenant_id}"
+                          h_check["status"] = "auth_required"
+                          yield f"data: {json.dumps(h_check)}\n\n"
+                          return
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
