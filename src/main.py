@@ -242,6 +242,16 @@ class CalendarServiceClient:
                         logger.info(f"[AUTH-HEAL] Success! Recovered fresh token. Retrying {path}...")
                         self.set_auth_token(new_token)
                         return await self.request(method, path, json_data, _retry_on_auth=False)
+                    
+                    # NEW: Explicitly detect if the check itself says "Auth Required" (e.g. Needs Consent)
+                    if auth_data.get("status") == "auth_required":
+                         logger.warning(f"[AUTH-HEAL] Status check confirms consent/auth required for {self.tenant_id}.")
+                         return {
+                            "status": "auth_required",
+                            "auth_url": auth_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                            "message": "Calendar Access Required",
+                            "code": 401
+                         }
 
             # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
             if response.status_code in [401, 403] or is_token_missing:
