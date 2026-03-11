@@ -461,6 +461,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # --- 3. AGENTIC REASONING LOOP ---
     for i in range(5):
         # Fetch current session state for precise injection
+        db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+        
         # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
         # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
         metadata = db_session.get("metadata", {})
@@ -488,7 +490,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         }.items() if v}
         
         # Segment 2: Event Draft (from metadata)
-        metadata = db_session.get("metadata", {})
         metadata = db_session.get("metadata", {})
         dirty_event_draft = metadata.get("event_draft", {})
         # Only include if we have at least one truthy value besides the control flag
@@ -664,7 +665,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 "client_number": db_session.get("client_number"), "client_type": db_session.get("client_type"),
                 "first_name": db_session.get("first_name"), "last_name": db_session.get("last_name"), "email": db_session.get("email")
             }.items() if v}
-            metadata = db_session.get("metadata", {})
+            # Segment 2: Event Draft (from metadata)
+            # metadata is already defined above in the gatekeeper check
             event_draft = {k: v for k, v in metadata.get("event_draft", {}).items() if v is not None}
             if not any(v for k, v in event_draft.items() if k != "optional_fields_requested"): event_draft = {}
 
