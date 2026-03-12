@@ -31,7 +31,7 @@ from src.utils import sanitize_history, retry_with_backoff, get_rehydration_cont
 from src.config import settings
 from src.logger import logger
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from openai import AsyncOpenAI
 
 @asynccontextmanager
@@ -461,14 +461,13 @@ class CalendarServiceClient:
 
 # --- 5. Request Models ---
 class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="allow")
     role: str 
     content: Optional[str] = None
     tool_calls: Optional[list] = None 
     tool_call_id: Optional[str] = None
     name: Optional[str] = None
 
-    class Config:
-        extra = "allow"
     
 class ChatRequest(BaseModel):
     prompt: str

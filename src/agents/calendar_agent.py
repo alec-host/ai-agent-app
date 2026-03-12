@@ -16,8 +16,6 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     ref_time = sys_context.get("current_time")
 
     # 0. PRE-FLIGHT GRANT CHECK
-    # By this point, the JWT has already been synced upstream by _sync_access_token() in main.py.
-    # We only need to confirm the Google Calendar grant is still valid — skip the accessToken re-fetch.
     if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event", "initialize_calendar_session"]:
         grant = await calendar_service.check_grant_token()
         if not grant["granted"]:
@@ -33,13 +31,21 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     try:
         resp = await calendar_service.get_client_session(tenant_id)
         db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
+
+        # SELF-DISCOVERY: Read the threadId from the DB record and bind it to the service client.
+        # This guarantees all subsequent sync/wipe/clear operations target the *exact* same DB row,
+        # without requiring the frontend to track or send any thread_id.
+        discovered_thread_id = db_data.get("threadId")
+        if discovered_thread_id:
+            calendar_service.thread_id = discovered_thread_id
+            logger.info(f"[{tenant_id}] Thread ID self-discovered from DB: {discovered_thread_id}")
     except: pass
     
+    thread_id = calendar_service.thread_id  # Convenient local alias
     db_metadata = db_data.get("metadata", {})
     event_draft = db_metadata.get("event_draft", {})
 
     # --- 2. THE DRAFTING SYNC (Amnesia Fix) ---
-    # Merge incoming args with the saved Draft
     if func_name in ["schedule_event", "update_event"]:
         current_draft = {
             "title": args.get("title") or event_draft.get("title"),
@@ -57,10 +63,11 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         try:
             sync_payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
-                client_args=db_data, # Keep existing client data
+                client_args=db_data,
                 event_draft=current_draft,
                 history=history,
-                active_workflow="calendar"
+                active_workflow="calendar",
+                thread_id=thread_id
             )
             await calendar_service.sync_client_session(sync_payload)
             logger.info(f"[CAL-DRAFT] Sync successful for '{current_draft.get('title')}'")
@@ -71,14 +78,12 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         if func_name == "schedule_event":
             # Validation
             if not current_draft.get("startTime") or not current_draft.get("title"):
-                # Progress sync: lock into 'calendar' workflow
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
                 )
                 missing = []
                 if not current_draft.get("title"): missing.append("an Event Title")
                 if not current_draft.get("startTime"): missing.append("a specific Date and Time")
-                
                 return {
                     "status": "partial_success",
                     "message": f"Captured partial details. Still need: {', '.join(missing)}.",
@@ -86,11 +91,10 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 }
 
             # --- Step-by-Step Conversational Workflow ---
-            # Instead of asking for all optional fields at once, we request them one-by-one.
             if not current_draft.get("summary_requested"):
                 current_draft["summary_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
                 )
                 return {
                     "status": "partial_success",
@@ -101,7 +105,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             if not current_draft.get("attendees_requested"):
                 current_draft["attendees_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
                 )
                 return {
                     "status": "partial_success",
@@ -112,7 +116,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             if not current_draft.get("location_requested"):
                 current_draft["location_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
                 )
                 return {
                     "status": "partial_success",
@@ -129,7 +133,6 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 return {"status": "error", "message": f"Invalid time format: {e}"}
 
             # --- CONFLICT GATE ---
-            # Check for existing meetings in the same slot before proceeding
             has_conflict = await calendar_service.check_conflicts(current_draft["startTime"], current_draft["endTime"])
             if has_conflict:
                 logger.warning(f"[{tenant_id}] Conflict detected for {current_draft['startTime']} to {current_draft['endTime']}. Blocking schedule.")
@@ -139,9 +142,9 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     "response_instruction": "The requested time slot is already booked. You MUST notify the user of this specific conflict and ask them to suggest an alternative time or date. Do NOT finalize the booking."
                 }
 
-            # PRE-FLIGHT SYNC (Last check) - includes workflow lock
+            # PRE-FLIGHT SYNC
             await calendar_service.sync_client_session(
-                format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar")
+                format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
             )
 
             # Execute save to actual calendar
@@ -159,14 +162,12 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
                 # B: Success Scenario
                 if result.get("status") == "success" or "id" in result:
-                    # SUCCESS: Perform the "Clean Exit"
-                    # Wiping the session clears the 'active_workflow' and the draft
                     try:
                         wipe_payload = format_sync_chat_payload(
                             tenant_id=tenant_id,
                             client_args=db_data,
                             event_draft={
-                                "title": None, 
+                                "title": None,
                                 "startTime": None,
                                 "summary": None,
                                 "location": None,
@@ -175,17 +176,21 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                                 "attendees_requested": False,
                                 "location_requested": False
                             },
-                            active_workflow="cleared", # Explicitly mark as cleared
-                            history=history
+                            active_workflow="cleared",
+                            history=history,
+                            thread_id=thread_id  # Targets the exact DB row being cleared
                         )
                         await calendar_service.sync_client_session(wipe_payload)
+                        logger.info(f"[CAL] Wipe sync dispatched for threadId: {thread_id}")
                     except Exception as e:
                         logger.error(f"[CAL] Sync wipe failed: {e}")
                     
-                    await calendar_service.clear_client_session(tenant_id)
-                    logger.info(f"[CAL] Event scheduled. Session cleared for tenant {tenant_id}")
+                    cleared = await calendar_service.clear_client_session(tenant_id)
+                    if cleared:
+                        logger.info(f"[CAL] Session record deleted for tenant {tenant_id}, threadId: {thread_id}")
+                    else:
+                        logger.warning(f"[CAL] Session DELETE returned non-200 for tenant {tenant_id}, threadId: {thread_id}")
                     
-                    # Format the success message with a structured Markdown table for HTML rendering
                     attendees_list = current_draft.get('attendees', [])
                     attendees_str = ", ".join(attendees_list) if attendees_list else "None"
                     
@@ -214,20 +219,15 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
     # --- 4. SESSION INITIALIZATION ---
     if func_name == "initialize_calendar_session":
-        # Lock into 'calendar' workflow even before any data is gathered
         await calendar_service.sync_client_session(
-            format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar")
+            format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar", thread_id=thread_id)
         )
-        
-        # Verify basic JWT status (Handled by main.py pre-flight, but we check local state)
         if calendar_service.is_authenticated():
             return {
                 "status": "ready",
                 "message": "SUCCESS: Calendar access is verified and ready.",
                 "_continue_chaining": True
             }
-        
-        # FAIL CLOSED: If we somehow reached here without auth
         return {
             "status": "auth_required",
             "auth_url": f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",
@@ -240,7 +240,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         return await calendar_service.request("GET", "/events")
 
     if func_name == "delete_event":
-        if user_role != "admin": 
+        if user_role != "admin":
             return {"error": "Unauthorized: Admin role required for deletion."}
         return await calendar_service.request("DELETE", f"/events/{args.get('event_id')}")
 
