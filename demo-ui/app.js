@@ -224,8 +224,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         aiContentDiv.innerHTML += `
                             <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color); margin-top: 10px;">
                                 <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
-                                <p style="margin: 8px 0; font-size: 0.875rem;">${data.message}</p>
-                                <a href="${data.auth_url}" target="_blank" class="primary-btn" style="display:inline-block; width:auto; text-decoration:none;">Authorize Connection</a>
+                                <p style="margin: 8px 0; font-size: 0.875rem;">${data.message || 'Google Calendar connection is required to schedule events.'}</p>
+                                <button class="primary-btn oauth-trigger-btn" data-url="${data.auth_url}" style="display:inline-block; width:auto; border:none; cursor:pointer; padding: 10px 20px; border-radius: 8px;">Authorize Connection</button>
                             </div>`;
                     }
 
@@ -268,6 +268,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- EVENT REGISTRATION ---
+    // OAuth Button Delegation
+    nodes.chatViewport.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('oauth-trigger-btn')) {
+            const targetUrl = e.target.getAttribute('data-url');
+            if (!targetUrl) return;
+
+            // 1. Instantly open tab to bypass pop-up blockers
+            const authWindow = window.open('', '_blank');
+            authWindow.document.write('<div style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh;">Loading Google Authorization...</div>');
+
+            try {
+                // 2. Fetch the JSON from Node.js
+                const response = await fetch(targetUrl);
+                const payload = await response.json();
+
+                // 3. Extract the `data` attribute
+                if (payload.success && payload.data) {
+                    // 4. Send the ALREADY OPEN tab to Google Consent
+                    authWindow.location.href = payload.data;
+                } else {
+                    throw new Error('Failed to parse URL payload.');
+                }
+            } catch (error) {
+                console.error("Authorization fetch failed:", error);
+                authWindow.document.write('<div style="color: red; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh;">Error opening authorization window. Please try again.</div>');
+            }
+        }
+    });
+
     nodes.chatInput.addEventListener('input', function () {
         this.style.height = 'auto';
         this.style.height = `${this.scrollHeight}px`;
