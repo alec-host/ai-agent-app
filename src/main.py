@@ -134,8 +134,9 @@ class CalendarServiceClient:
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
         # SELF-HEALING: If no thread_id provided (legacy/direct call), 
-        # generate a stable fallback to prevent Node.js 'undefined' crashes.
-        self.thread_id = thread_id or f"legacy_{uuid.uuid4().hex[:8]}"
+        # use a stable fallback to restore amnesia-fix memory while preventing 
+        # Node.js 'undefined' crashes.
+        self.thread_id = thread_id or "default_session"
         self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
