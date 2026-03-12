@@ -198,6 +198,31 @@ TOOLS = [
                "required": ["email", "password"]
            }
        }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "create_contact",
+           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Call this IMMEDIATELY as soon as you have ANY piece of information (like first name or email) to save progress to the database vault.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "contact_type": {"type": "string", "description": "Type of contact (e.g., primary, secondary)."},
+                   "title": {"type": "string", "description": "Honorific title (e.g., Mr., Ms., Dr.)."},
+                   "first_name": {"type": "string", "description": "The contact's first name."},
+                   "middle_name": {"type": "string", "description": "The contact's middle name."},
+                   "last_name": {"type": "string", "description": "The contact's last name."},
+                   "email": {"type": "string", "description": "The contact's email address."},
+                   "country_code": {"type": "string", "description": "International dialing code (e.g., +1, +254)."},
+                   "phone_number": {"type": "string", "description": "The contact's phone number."},
+                   "model_type": {"type": "string", "description": "Associated model (e.g., App\\Models\\Prospect)."},
+                   "model_id": {"type": "integer", "description": "The ID of the associated model."},
+                   "active": {"type": "boolean", "description": "Whether the contact is active."},
+                   "featured": {"type": "boolean", "description": "Whether the contact is featured."}
+               }
+           }
+       }
     }
 ]
+
 
