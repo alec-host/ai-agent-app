@@ -221,7 +221,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (data.status === 'auth_required') {
-                        if (data.auth_type === 'matterminer_core') {
+                        const isMatterMiner = data.auth_type === 'matterminer_core' || 
+                                              (data.message && data.message.includes('MatterMiner'));
+                        
+                        if (isMatterMiner) {
                             aiContentDiv.innerHTML += `
                                 <div class="auth-required-box core-login-box" style="background: rgba(16, 185, 129, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed #10b981; margin-top: 10px;">
                                     <p><strong><i class="fas fa-lock"></i> MatterMiner Core Login</strong></p>
