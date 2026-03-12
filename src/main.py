@@ -521,6 +521,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             return {
                 "role": "assistant",
                 "content": "Calendar Access Required",
+                "message": "Google Calendar connection is required to schedule events.",
                 "status": "auth_required",
                 "auth_url": token_status["auth_url"],
                 "history": req.history
@@ -534,6 +535,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             return {
                 "role": "assistant",
                 "content": "Calendar Access Required",
+                "message": "Google Calendar connection is required to schedule events.",
                 "status": "auth_required",
                 "auth_url": grant["auth_url"],
                 "history": req.history
@@ -603,6 +605,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                   return {
                       "role": "assistant",
                       "content": "Calendar Access Required",
+                      "message": "Google Calendar connection is required to schedule events.",
                       "status": "auth_required",
                       "auth_url": token_status["auth_url"],
                       "history": cleaned_history
@@ -614,6 +617,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                   return {
                       "role": "assistant",
                       "content": "Calendar Access Required",
+                      "message": "Google Calendar connection is required to schedule events.",
                       "status": "auth_required",
                       "auth_url": grant["auth_url"],
                       "history": cleaned_history
@@ -772,7 +776,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         if token_status["status"] == "auth_required":
             logger.warning(f"[STREAM] [{tenant_id}] Step 1: No session found. Returning auth_required.")
             async def _no_session_gen():
-                yield f"data: {json.dumps({'status': 'auth_required', 'auth_url': token_status['auth_url']})}\n\n"
+                yield f"data: {json.dumps({'status': 'auth_required', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']})}\n\n"
             return StreamingResponse(_no_session_gen(), media_type="text/event-stream")
 
         # STEP 2: Grant Check — with JWT now in headers, verify Google Calendar was actually granted.
@@ -780,7 +784,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         if not grant["granted"]:
             logger.warning(f"[STREAM] [{tenant_id}] Step 2: hasGrantToken returned not granted. Re-auth required.")
             async def _no_grant_gen():
-                yield f"data: {json.dumps({'status': 'auth_required', 'auth_url': grant['auth_url']})}\n\n"
+                yield f"data: {json.dumps({'status': 'auth_required', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']})}\n\n"
             return StreamingResponse(_no_grant_gen(), media_type="text/event-stream")
 
     # Standard check for CLEAR
@@ -815,13 +819,13 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                      token_status = await services['calendar']._sync_access_token()
                      if token_status["status"] == "auth_required":
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Session expired during loop. Surface auth card.")
-                          yield f"data: {json.dumps({'status': 'auth_required', 'auth_url': token_status['auth_url']})}\n\n"
+                          yield f"data: {json.dumps({'status': 'auth_required', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']})}\n\n"
                           return
 
                      grant = await services['calendar'].check_grant_token()
                      if not grant["granted"]:
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
-                          yield f"data: {json.dumps({'status': 'auth_required', 'auth_url': grant['auth_url']})}\n\n"
+                          yield f"data: {json.dumps({'status': 'auth_required', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']})}\n\n"
                           return
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
