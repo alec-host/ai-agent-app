@@ -78,6 +78,7 @@ async def handle_lookup_countries(args, services, tenant_id):
     if not token:
         return {
             "status": "auth_required",
+            "auth_type": "matterminer_core",
             "message": "Authentication required to lookup countries.",
             "response_instruction": "Inform the user that you need them to login to MatterMiner to fetch the country list. Display the login card."
         }
@@ -188,6 +189,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         
         return {
             "status": "auth_required",
+            "auth_type": "matterminer_core",
             "message": "Authentication required for MatterMiner Core.",
             "response_instruction": "Tell the user that you have all the contact details ready, but they need to login to MatterMiner first. Display the login card."
         }

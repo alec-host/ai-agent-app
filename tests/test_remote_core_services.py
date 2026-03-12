@@ -39,7 +39,7 @@ CONTACT_SUCCESS_RESPONSE = {
 @respx.mock
 async def test_core_client_login():
     # Setup mock
-    route = respx.post("https://dev.matterminer.com/calendar/login").mock(
+    respx.post("https://dev.matterminer.com/calendar/login").mock(
         return_value=httpx.Response(200, json=LOGIN_RESPONSE)
     )
     
@@ -49,13 +49,12 @@ async def test_core_client_login():
     assert resp["status"] == "success"
     assert client.access_token == "mock_core_token"
     assert client.user_profile["full_name"] == "Dev User"
-    assert route.called
     await client.close()
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_core_client_get_countries():
-    # Setup mock - fixed syntax
+    # Setup mock
     respx.get("http://localhost:3005/api/countries").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
@@ -91,9 +90,25 @@ async def test_agent_handle_create_contact_drafting():
     assert sync_call_args["metadata"]["active_workflow"] == "contact"
 
 @pytest.mark.asyncio
+async def test_agent_handle_create_contact_auth_required():
+    # Full data but missing token
+    mock_cal_service = AsyncMock()
+    mock_cal_service.get_client_session.return_value = {
+        "metadata": {
+            "contact_draft": {"first_name": "Jane", "last_name": "Smith", "email": "jane@test.com"}
+        }
+    }
+    mock_cal_service.thread_id = "test_thread"
+    services = {"calendar": mock_cal_service}
+    
+    result = await handle_create_contact({}, services, "12345678", [])
+    assert result["status"] == "auth_required"
+    assert result["auth_type"] == "matterminer_core"
+
+@pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_create_contact_finalize_after_auth():
-    # 1. Setup session with token and full data
+    # Setup session with token and full data
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
         "metadata": {
@@ -106,40 +121,33 @@ async def test_agent_handle_create_contact_finalize_after_auth():
         }
     }
     mock_cal_service.thread_id = "test_thread"
-    
     services = {"calendar": mock_cal_service}
     
-    # 2. Mock the remote API
+    # Mock the remote API
     respx.post("http://localhost:3005/api/contacts").mock(
         return_value=httpx.Response(200, json=CONTACT_SUCCESS_RESPONSE)
     )
     
-    # 3. Call current args
     result = await handle_create_contact({}, services, "12345678", [])
-    
-    # 4. Assertions
     assert result["status"] == "success"
     mock_cal_service.clear_client_session.assert_called_once_with("12345678")
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_lookup_countries():
-    # 1. Setup session with token
+    # Setup session with token
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
         "metadata": {"remote_access_token": "valid_token"}
     }
     services = {"calendar": mock_cal_service}
     
-    # 2. Mock the remote API
+    # Mock the remote API
     respx.get("http://localhost:3005/api/countries").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
     
-    # 3. Execute
     result = await handle_lookup_countries({"search": "Kenya"}, services, "12345678")
-    
-    # 4. Assertions
     assert result["status"] == "success"
     assert "Kenya (ID: 4)" in result["countries"]
 

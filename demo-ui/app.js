@@ -221,12 +221,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (data.status === 'auth_required') {
-                        aiContentDiv.innerHTML += `
-                            <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color); margin-top: 10px;">
-                                <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
-                                <p style="margin: 8px 0; font-size: 0.875rem;">${data.message || 'Google Calendar connection is required to schedule events.'}</p>
-                                <button class="primary-btn oauth-trigger-btn" data-url="${data.auth_url}" style="display:inline-block; width:auto; border:none; cursor:pointer; padding: 10px 20px; border-radius: 8px;">Authorize Connection</button>
-                            </div>`;
+                        if (data.auth_type === 'matterminer_core') {
+                            aiContentDiv.innerHTML += `
+                                <div class="auth-required-box core-login-box" style="background: rgba(16, 185, 129, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed #10b981; margin-top: 10px;">
+                                    <p><strong><i class="fas fa-lock"></i> MatterMiner Core Login</strong></p>
+                                    <p style="margin: 8px 0; font-size: 0.875rem;">${data.message || 'Please log in to your MatterMiner account to proceed.'}</p>
+                                    <div class="login-form" style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+                                        <input type="email" class="login-email" placeholder="Email" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);">
+                                        <input type="password" class="login-password" placeholder="Password" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);">
+                                        <button class="primary-btn core-login-submit-btn" style="display:inline-block; width:auto; border:none; cursor:pointer; padding: 10px 20px; border-radius: 8px; background: #10b981; color: white;">Log In</button>
+                                    </div>
+                                </div>`;
+                        } else {
+                            // Default to Google/Calendar for google_calendar or fallback
+                            aiContentDiv.innerHTML += `
+                                <div class="auth-required-box" style="background: rgba(73, 124, 254, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed var(--accent-color); margin-top: 10px;">
+                                    <p><strong><i class="fab fa-google"></i> Calendar Access Required</strong></p>
+                                    <p style="margin: 8px 0; font-size: 0.875rem;">${data.message || 'Google Calendar connection is required to schedule events.'}</p>
+                                    <button class="primary-btn oauth-trigger-btn" data-url="${data.auth_url || ''}" style="display:inline-block; width:auto; border:none; cursor:pointer; padding: 10px 20px; border-radius: 8px;">Authorize Connection</button>
+                                </div>`;
+                        }
                     }
 
                     if (data.done) {
@@ -294,6 +308,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("Authorization fetch failed:", error);
                 authWindow.document.write('<div style="color: red; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh;">Error opening authorization window. Please try again.</div>');
             }
+        }
+
+        // MatterMiner Core Login Delegation
+        if (e.target.classList.contains('core-login-submit-btn')) {
+            const container = e.target.closest('.core-login-box');
+            const email = container.querySelector('.login-email').value;
+            const password = container.querySelector('.login-password').value;
+
+            if (!email || !password) {
+                alert('Please provide both email and password.');
+                return;
+            }
+
+            // We simulate a message to the agent that triggers the login tool
+            // The agent already has the tool authenticate_to_core(email, password)
+            const prompt = `Please log me in with email ${email} and password ${password}`;
+            
+            // Disable the form to show progress
+            e.target.disabled = true;
+            e.target.textContent = 'Logging in...';
+            
+            sendMessage(prompt);
         }
     });
 
