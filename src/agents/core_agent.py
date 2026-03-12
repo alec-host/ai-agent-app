@@ -37,7 +37,7 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
                 
                 payload = format_sync_chat_payload(
                     tenant_id=tenant_id,
-                    client_data=session,
+                    client_args=session,
                     metadata=metadata,
                     history=history,
                     thread_id=services['calendar'].thread_id
@@ -160,7 +160,7 @@ async def handle_create_contact(args, services, tenant_id, history):
     if missing:
         payload = format_sync_chat_payload(
             tenant_id=tenant_id,
-            client_data=session,
+            client_args=session,
             metadata=metadata,
             history=history,
             thread_id=services['calendar'].thread_id
@@ -179,7 +179,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         # Save progress but stop for auth
         payload = format_sync_chat_payload(
             tenant_id=tenant_id,
-            client_data=session,
+            client_args=session,
             metadata=metadata,
             history=history,
             thread_id=services['calendar'].thread_id

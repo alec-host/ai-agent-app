@@ -185,30 +185,41 @@ def get_starter_chips():
         {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active"):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
     """
     client_data = client_args or {}
     
-    # We maintain the existing schema while using 'metadata' for flexible storage
-    metadata = {
-        "chat_history": history if history else [],
-        "event_draft": event_draft if event_draft else {},
-        "active_workflow": active_workflow, # 'client' or 'calendar'
+    # Base metadata structure
+    sys_metadata = {
+        "chat_history": history if history is not None else [],
+        "event_draft": event_draft if event_draft is not None else {},
+        "active_workflow": active_workflow, 
         "session_lifecycle": session_lifecycle
     }
     
+    # If a full metadata dict is provided (from the agent), use it as the base and merge sys fields
+    if metadata:
+        final_metadata = metadata.copy()
+        # Ensure we don't accidentally wipe history if it was passed separately
+        if history is not None: final_metadata["chat_history"] = history
+        if event_draft is not None: final_metadata["event_draft"] = event_draft
+        if active_workflow: final_metadata["active_workflow"] = active_workflow
+        if session_lifecycle: final_metadata["session_lifecycle"] = session_lifecycle
+    else:
+        final_metadata = sys_metadata
+    
     payload = {
         "tenantId": tenant_id,
-        "threadId": thread_id, # Ensure threadId is always at the top level
+        "threadId": thread_id,
         "first_name": client_data.get("first_name"),
         "last_name": client_data.get("last_name"),
         "client_number": client_data.get("client_number"),
         "client_type": client_data.get("client_type"),
         "email": client_data.get("email"),
-        "metadata": metadata
+        "metadata": final_metadata
     }
     return payload
 
