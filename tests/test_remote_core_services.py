@@ -39,11 +39,11 @@ CONTACT_SUCCESS_RESPONSE = {
 @respx.mock
 async def test_core_client_login():
     # Setup mock
-    respx.post("https://dev.matterminer.com/calendar/login").mock(
+    respx.post("https://dev.matterminer.com/api/login").mock(
         return_value=httpx.Response(200, json=LOGIN_RESPONSE)
     )
     
-    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/calendar", tenant_id="12345678")
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
     resp = await client.login("dev@matterminer.com", "password")
     
     assert resp["status"] == "success"
@@ -55,11 +55,11 @@ async def test_core_client_login():
 @respx.mock
 async def test_core_client_get_countries():
     # Setup mock
-    respx.get("http://localhost:3005/api/countries").mock(
+    respx.get("https://dev.matterminer.com/api/countries").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
     
-    client = MatterMinerCoreClient(base_url="http://localhost:3005", tenant_id="12345678")
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
     client.set_auth_token("test_token")
     resp = await client.get_countries(search="Kenya")
     
@@ -124,7 +124,7 @@ async def test_agent_handle_create_contact_finalize_after_auth():
     services = {"calendar": mock_cal_service}
     
     # Mock the remote API
-    respx.post("http://localhost:3005/api/contacts").mock(
+    respx.post("https://dev.matterminer.com/api/contacts").mock(
         return_value=httpx.Response(200, json=CONTACT_SUCCESS_RESPONSE)
     )
     
@@ -143,7 +143,7 @@ async def test_agent_handle_lookup_countries():
     services = {"calendar": mock_cal_service}
     
     # Mock the remote API
-    respx.get("http://localhost:3005/api/countries").mock(
+    respx.get("https://dev.matterminer.com/api/countries").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
     
@@ -164,7 +164,7 @@ async def test_agent_handle_create_contact_failure():
     }
     services = {"calendar": mock_cal_service}
     
-    respx.post("http://localhost:3005/api/contacts").mock(
+    respx.post("https://dev.matterminer.com/api/contacts").mock(
         return_value=httpx.Response(500, json={"message": "Internal Server Error"})
     )
     

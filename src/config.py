@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # External Service URLs
     # Defaults to localhost if not found in .env
     NODE_SERVICE_URL: str = "http://localhost:3005"
+    NODE_REMOTE_SERVICE_URL: str = "https://dev.matterminer.com/api"
     
     # API Keys (Required)
     OPENAI_API_KEY: str

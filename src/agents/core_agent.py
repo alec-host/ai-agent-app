@@ -14,7 +14,7 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
         from ..config import settings
         
         core_client = MatterMinerCoreClient(
-            base_url=settings.NODE_SERVICE_URL, # Or a separate MATTERMINER_CORE_URL
+            base_url=settings.NODE_REMOTE_SERVICE_URL, # Or a separate MATTERMINER_CORE_URL
             tenant_id=tenant_id
         )
         
@@ -88,7 +88,7 @@ async def handle_lookup_countries(args, services, tenant_id):
     from ..config import settings
     
     core_client = MatterMinerCoreClient(
-        base_url=settings.NODE_SERVICE_URL,
+        base_url=settings.NODE_REMOTE_SERVICE_URL,
         tenant_id=tenant_id
     )
     core_client.set_auth_token(token)
@@ -199,7 +199,7 @@ async def handle_create_contact(args, services, tenant_id, history):
     from ..config import settings
     
     core_client = MatterMinerCoreClient(
-        base_url=settings.NODE_SERVICE_URL,
+        base_url=settings.NODE_REMOTE_SERVICE_URL,
         tenant_id=tenant_id
     )
     core_client.set_auth_token(token)
