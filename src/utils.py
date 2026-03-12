@@ -200,7 +200,7 @@ def get_starter_chips():
         {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
@@ -221,6 +221,7 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
         # Ensure we don't accidentally wipe history if it was passed separately
         if history is not None: final_metadata["chat_history"] = history
         if event_draft is not None: final_metadata["event_draft"] = event_draft
+        if contact_draft is not None: final_metadata["contact_draft"] = contact_draft
         if active_workflow: final_metadata["active_workflow"] = active_workflow
         if session_lifecycle: final_metadata["session_lifecycle"] = session_lifecycle
     else:

@@ -681,7 +681,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             vault_segments.append(f"EVENT_DRAFT: {event_draft}")
         
         # Segment 3: Contact Draft (from metadata)
+        # Try both metadata key and top-level key (for redundancy)
         contact_draft = metadata.get("contact_draft", {})
+        if not contact_draft:
+             contact_draft = db_session.get("contact_draft", {})
+        
         if contact_draft and active_workflow == "contact":
              vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
 
@@ -883,7 +887,11 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             if event_draft and active_workflow == "calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
             
             # Segment 3: Contact Draft (from metadata)
+            # Try both metadata key and top-level key (for redundancy)
             contact_draft = metadata.get("contact_draft", {})
+            if not contact_draft:
+                 contact_draft = db_session.get("contact_draft", {})
+            
             if contact_draft and active_workflow == "contact":
                  vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
 

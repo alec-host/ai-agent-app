@@ -162,6 +162,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         payload = format_sync_chat_payload(
             tenant_id=tenant_id,
             client_args=session,
+            contact_draft=draft,
             metadata=metadata,
             history=history,
             thread_id=services['calendar'].thread_id
@@ -181,6 +182,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         payload = format_sync_chat_payload(
             tenant_id=tenant_id,
             client_args=session,
+            contact_draft=draft,
             metadata=metadata,
             history=history,
             thread_id=services['calendar'].thread_id
@@ -215,6 +217,7 @@ async def handle_create_contact(args, services, tenant_id, history):
             payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
                 client_args=session,
+                contact_draft=metadata.get("contact_draft"),
                 metadata=metadata,
                 history=history,
                 thread_id=services['calendar'].thread_id

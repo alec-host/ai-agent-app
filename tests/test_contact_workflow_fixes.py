@@ -75,8 +75,8 @@ async def test_contact_rehydration_logic():
     Verify that get_rehydration_context correctly identifies a pending contact draft.
     """
     mock_cal_service = AsyncMock()
-    # Mock return from session fetch
-    mock_cal_service.request.return_value = {
+    # Mock return from session fetch (Hardened helper)
+    mock_cal_service.get_client_session.return_value = {
         "metadata": {
             "active_workflow": "contact",
             "contact_draft": {
