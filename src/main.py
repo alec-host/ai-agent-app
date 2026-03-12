@@ -617,12 +617,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         db_session = await services['calendar'].get_client_session(tenant_id)
         
         # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
-        # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
+        # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
         metadata = db_session.get("metadata", {})
         active_workflow = metadata.get("active_workflow")
-        if i == 0 and active_workflow == "calendar":
-             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow. Ensuring Auth Handshake.")
-             # MANDATORY: Sync JWT before grant-check, even if Pre-LLM gate was skipped (e.g. no keywords)
+        if i == 0 and active_workflow == "calendar" and is_calendar_intent:
+             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
+             # MANDATORY: Sync JWT before grant-check
              token_status = await services['calendar']._sync_access_token()
              if token_status["status"] == "auth_required":
                   logger.warning(f"[{tenant_id}] Turn {i}: Session expired/missing during loop. Returning auth_required.")
@@ -631,6 +631,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                       "content": "Calendar Access Required",
                       "message": "Google Calendar connection is required to schedule events.",
                       "status": "auth_required",
+                      "auth_type": "google_calendar",
                       "auth_url": token_status["auth_url"],
                       "history": cleaned_history
                   }
@@ -643,6 +644,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                       "content": "Calendar Access Required",
                       "message": "Google Calendar connection is required to schedule events.",
                       "status": "auth_required",
+                      "auth_type": "google_calendar",
                       "auth_url": grant["auth_url"],
                       "history": cleaned_history
                   }
@@ -669,7 +671,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if client_vault: 
             clean_client = {k: v for k, v in client_vault.items() if v is not None}
             if clean_client: vault_segments.append(f"CLIENT: {clean_client}")
-        if event_draft: 
+        if event_draft and active_workflow == "calendar": 
             vault_segments.append(f"EVENT_DRAFT: {event_draft}")
         vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
@@ -866,7 +868,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             vault_segments = []
             if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
-            if event_draft: vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+            if event_draft and active_workflow == "calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
             vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
             logger.info(f"[STREAM] STARTING ROUND {i} | Vault: {vault_str}")
 

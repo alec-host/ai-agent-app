@@ -119,6 +119,7 @@ async def get_rehydration_context(tenant_id, services):
         # Check if we just returned from OAuth (Status Ready + Existing Draft)
         metadata = resp.get("metadata", {})
         event_draft = metadata.get("event_draft", {})
+        active_workflow = metadata.get("active_workflow")
         
         auth_status = await calendar_service._sync_access_token()
         is_newly_ready = isinstance(auth_status, dict) and auth_status.get("status") == "ready"
@@ -142,11 +143,11 @@ async def get_rehydration_context(tenant_id, services):
             
             blocks.append(f"CLIENT PROFILE:\n{json.dumps(vault_state, indent=2)}")
 
-        if event_draft and any(v is not None for v in event_draft.values()):
+        if event_draft and active_workflow == "calendar" and any(v is not None for v in event_draft.values()):
             # Mask sensitive internal fields
             clean_draft = {k: v for k, v in event_draft.items() if not k.startswith("_")}
             # Additional check: only append if we have actual data (not just nulls/False)
-            if any(v for v in clean_draft.values()):
+            if any(v for v in clean_draft.values() if v is not None):
                 blocks.append(f"PENDING CALENDAR EVENT:\n{json.dumps(clean_draft, indent=2)}")
                 
                 if is_newly_ready:
