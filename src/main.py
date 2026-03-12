@@ -130,9 +130,10 @@ async def update_tenant_wallet(tenant_id: str, usage_object, calendar_service):
 # --- 3. Node.js Backend API Client ---            
 class CalendarServiceClient:
     """Async client to communicate with the existing Node.js Microservice."""
-    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str):
+    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
+        self.thread_id = thread_id
         self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
@@ -420,7 +421,10 @@ class CalendarServiceClient:
     async def get_client_session(self, tenant_id: str):
         """Fetches partial intake data from the Node.js chatsessions table."""
         try:
-            response = await self.client.get("/chat/session", params={"tenantId": tenant_id})
+            params = {"tenantId": tenant_id}
+            if getattr(self, 'thread_id', None):
+                params["threadId"] = self.thread_id
+            response = await self.client.get("/chat/session", params=params)
             return response.json() if response.status_code == 200 else {}
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
@@ -441,7 +445,10 @@ class CalendarServiceClient:
     async def clear_client_session(self, tenant_id: str):
         """Deletes the draft session once the intake is complete."""
         try:
-            response = await self.client.delete("/chat/session", params={"tenantId": tenant_id})
+            params = {"tenantId": tenant_id}
+            if getattr(self, 'thread_id', None):
+                params["threadId"] = self.thread_id
+            response = await self.client.delete("/chat/session", params=params)
             if response.status_code == 200:
                 logger.info(f"[DB-CLEAR] Session destroyed for tenant: {tenant_id}")
                 return True
@@ -467,6 +474,7 @@ class ChatRequest(BaseModel):
     prompt: str
     history: Optional[List[ChatMessage]] = []
     debug: bool = False
+    thread_id: Optional[str] = None
 
 # --- 6. The Core Reasoning Endpoint ---
 @app.post("/ai/chat")
@@ -476,7 +484,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         return {"response": "Conversation history cleared.", "history": []}
 
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
-    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
+    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id, thread_id=req.thread_id)
     
     # Session Recovery: Restore JWT from history if present (CRITICAL: Fixes auth-healing on first turn)
     cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
@@ -580,7 +588,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # --- 3. AGENTIC REASONING LOOP ---
     for i in range(5):
         # Fetch current session state for precise injection
-        db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+        db_session = await services['calendar'].get_client_session(tenant_id)
         
         # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
         # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
@@ -710,22 +718,22 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         # If a tool marked itself as terminal success, we break the loop and return its message directly
         if terminal_success_msg and not assistant_msg.content:
-             final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+             final_db = await services['calendar'].get_client_session(tenant_id)
              return {"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db}
         elif terminal_success_msg:
              # If assistant already had words, append the success table to it
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
-             final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+             final_db = await services['calendar'].get_client_session(tenant_id)
              return {"response": final_resp, "history": messages[1:], "vault_data": final_db}
 
-    final_db = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+    final_db = await services['calendar'].get_client_session(tenant_id)
     return {"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db}
 
 # --- 6.1. The Streaming Reasoning Endpoint ---
 @app.post("/ai/chat/stream")
 async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
-    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id)
+    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id, thread_id=req.thread_id)
     ai_client = request.app.state.ai_client
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service}
@@ -795,7 +803,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         for i in range(5):
             # Fetch current session state — fault-tolerant: stream must not fail if Node.js is down
             try:
-                db_session = await services['calendar'].request("GET", f"/chat/session?tenantId={tenant_id}")
+                db_session = await services['calendar'].get_client_session(tenant_id)
                 
                 # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks (STREAMING) ---
                 # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn

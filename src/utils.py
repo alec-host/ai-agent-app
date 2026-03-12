@@ -90,7 +90,12 @@ async def get_rehydration_context(tenant_id, services):
         if not calendar_service:
             return None
 
-        resp = await calendar_service.request("GET", f"/chat/session?tenantId={tenant_id}")
+        thread_id = getattr(calendar_service, 'thread_id', None)
+        query = f"/chat/session?tenantId={tenant_id}"
+        if thread_id:
+            query += f"&threadId={thread_id}"
+            
+        resp = await calendar_service.request("GET", query)
         if not resp or not isinstance(resp, dict):
             return None
 
@@ -173,7 +178,7 @@ def get_starter_chips():
         {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
@@ -187,7 +192,7 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
         "active_workflow": active_workflow # 'client' or 'calendar'
     }
     
-    return {
+    payload = {
         "tenantId": tenant_id,
         "first_name": client_data.get("first_name"),
         "last_name": client_data.get("last_name"),
@@ -196,3 +201,6 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
         "email": client_data.get("email"),
         "metadata": metadata
     }
+    if thread_id:
+        payload["threadId"] = thread_id
+    return payload
