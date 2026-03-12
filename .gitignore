@@ -210,4 +210,4 @@ __marimo__/
 .pyre_configuration
 .vscode/
 pyproject.toml
-tests/
+

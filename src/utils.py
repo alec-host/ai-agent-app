@@ -202,6 +202,7 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
     
     payload = {
         "tenantId": tenant_id,
+        "threadId": thread_id, # Ensure threadId is always at the top level
         "first_name": client_data.get("first_name"),
         "last_name": client_data.get("last_name"),
         "client_number": client_data.get("client_number"),
@@ -209,6 +210,5 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
         "email": client_data.get("email"),
         "metadata": metadata
     }
-    if thread_id:
-        payload["threadId"] = thread_id
     return payload
+

@@ -133,7 +133,9 @@ class CalendarServiceClient:
     def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
-        self.thread_id = thread_id
+        # SELF-HEALING: If no thread_id provided (legacy/direct call), 
+        # generate a stable fallback to prevent Node.js 'undefined' crashes.
+        self.thread_id = thread_id or f"legacy_{uuid.uuid4().hex[:8]}"
         self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
@@ -424,16 +426,14 @@ class CalendarServiceClient:
     async def get_client_session(self, tenant_id: str):
         """Fetches partial intake data from the Node.js chatsessions table."""
         try:
-            params = {"tenantId": tenant_id}
-            if getattr(self, 'thread_id', None):
-                params["threadId"] = self.thread_id
-            
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
-            query = f"/chat/session?tenantId={params['tenantId']}"
-            if "threadId" in params:
-                query += f"&threadId={params['threadId']}"
-                
-            return await self.request("GET", query)
+            query = f"/chat/session?tenantId={self.tenant_id}&threadId={self.thread_id}"
+            resp = await self.request("GET", query)
+            
+            # HARDEN: If request returns an error object, return {} so agents start fresh
+            if isinstance(resp, dict) and resp.get("status") == "error":
+                return {}
+            return resp if isinstance(resp, dict) else {}
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
             return {}
@@ -441,6 +441,9 @@ class CalendarServiceClient:
     async def sync_client_session(self, payload: dict):
         """Updates the Node.js chatsessions table with latest client_number,client_type,first_name,last_name,email, and history."""
         try:
+            # ENSURE THREAD ID: Guarantee the payload has the threadId to prevent Node.js 500
+            payload["threadId"] = self.thread_id
+            
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
             response = await self.request("POST", "/chat/session", json_data=payload)
             

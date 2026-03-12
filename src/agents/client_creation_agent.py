@@ -18,8 +18,15 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
     try:
         resp = await services['calendar'].get_client_session(tenant_id)
         db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
-        db_metadata = db_data.get("metadata", {})
         
+        # SELF-DISCOVERY: Read the threadId from the DB record and bind it to the service client.
+        # This ensures the client registration stays pinned to the correct row.
+        discovered_thread_id = db_data.get("threadId")
+        if discovered_thread_id:
+            services['calendar'].thread_id = discovered_thread_id
+            logger.info(f"[{tenant_id}] Client Thread self-discovered: {discovered_thread_id}")
+
+        db_metadata = db_data.get("metadata", {})
         # Recover chat history from metadata if available
         db_history = db_metadata.get("chat_history", [])
     except Exception as e:
