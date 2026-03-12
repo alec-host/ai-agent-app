@@ -7,6 +7,7 @@ from .logger import logger
 from .agents.calendar_agent import handle_calendar
 from .agents.client_creation_agent import handle_client_creation
 from .agents.rag_agent import handle_rag_lookup
+from .agents.core_agent import handle_core_ops
 
 async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     """
@@ -36,6 +37,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     ]
     client_funcs = ["create_client_record", "setup_client"]
     rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
+    core_funcs = ["authenticate_to_core"]
 
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:
@@ -69,6 +71,9 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
                 return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
 
             return await handle_client_creation(func_name, args, services, tenant_id, history)
+            
+        elif func_name in core_funcs:
+            return await handle_core_ops(func_name, args, services, tenant_id, history)
             
         elif func_name in rag_funcs:
             return await handle_rag_lookup(func_name, args, services, tenant_id)

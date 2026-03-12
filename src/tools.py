@@ -183,6 +183,21 @@ TOOLS = [
              }
           }
       }
-   }
+   },
+    {
+       "type": "function",
+       "function": {
+           "name": "authenticate_to_core",
+           "description": "Authenticates the user into the MatterMiner Core remote system using email and password. Call this when the user needs to access their matters, cases, or profile.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "email": {"type": "string", "description": "The user's login email address."},
+                   "password": {"type": "string", "description": "The user's secret password."}
+               },
+               "required": ["email", "password"]
+           }
+       }
+    }
 ]
 
