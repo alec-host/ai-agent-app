@@ -43,7 +43,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     try:
         db_session = await services['calendar'].get_client_session(tenant_id)
         metadata = db_session.get("metadata", {})
-        active_workflow = metadata.get("active_workflow")  # 'calendar' or 'client'
+        active_workflow = metadata.get("active_workflow")  # 'calendar', 'client', or 'contact'
         
         # Define strict demarcation
         is_calendar_tool = func_name in calendar_funcs

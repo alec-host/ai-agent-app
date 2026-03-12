@@ -171,7 +171,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         return {
             "status": "partial_success",
             "message": f"Captured {', '.join([k.replace('_', ' ').title() for k in args.keys() if k in draft])}.",
-            "response_instruction": f"Acknowledge the info received. Then, politely ask the user for the missing details: {', '.join(missing)}."
+            "response_instruction": f"Acknowledge the info received. Then, politely ask for the {missing[0]}."
         }
         
     # 5. Scenario B: Ready to commit - Check Authentication
@@ -208,8 +208,18 @@ async def handle_create_contact(args, services, tenant_id, history):
         resp = await core_client.create_contact(draft)
         
         if resp.get("status") == "success":
-            # CLEAR SESSION on success
-            await services['calendar'].clear_client_session(tenant_id)
+            # Selectively clear the draft and active workflow but KEEP the remote token
+            metadata["contact_draft"] = {}
+            metadata["active_workflow"] = None
+            
+            payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=session,
+                metadata=metadata,
+                history=history,
+                thread_id=services['calendar'].thread_id
+            )
+            await services['calendar'].sync_client_session(payload)
             return {
                 "status": "success",
                 "message": f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}",

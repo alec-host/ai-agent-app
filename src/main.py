@@ -673,6 +673,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             if clean_client: vault_segments.append(f"CLIENT: {clean_client}")
         if event_draft and active_workflow == "calendar": 
             vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+        
+        # Segment 3: Contact Draft (from metadata)
+        contact_draft = metadata.get("contact_draft", {})
+        if contact_draft and active_workflow == "contact":
+             vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
+
         vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
         current_now_utc = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
@@ -869,6 +875,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             vault_segments = []
             if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
             if event_draft and active_workflow == "calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+            
+            # Segment 3: Contact Draft (from metadata)
+            contact_draft = metadata.get("contact_draft", {})
+            if contact_draft and active_workflow == "contact":
+                 vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
+
             vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
             logger.info(f"[STREAM] STARTING ROUND {i} | Vault: {vault_str}")
 

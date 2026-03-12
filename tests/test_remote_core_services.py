@@ -130,7 +130,9 @@ async def test_agent_handle_create_contact_finalize_after_auth():
     
     result = await handle_create_contact({}, services, "12345678", [])
     assert result["status"] == "success"
-    mock_cal_service.clear_client_session.assert_called_once_with("12345678")
+    # Verify we clear the draft but keep the session (selective wipe)
+    mock_cal_service.sync_client_session.assert_called()
+    # mock_cal_service.clear_client_session.assert_called_once_with("12345678") # Removed because we now persist tokens
 
 @pytest.mark.asyncio
 @respx.mock

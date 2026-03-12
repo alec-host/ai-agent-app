@@ -158,6 +158,24 @@ async def get_rehydration_context(tenant_id, services):
                         f"\"{clean_draft.get('title', 'your meeting')}\" now?'"
                     )
 
+        # 4. CONTACT DRAFT RE-HYDRATION
+        contact_draft = metadata.get("contact_draft", {})
+        if contact_draft and active_workflow == "contact" and any(v is not None for v in contact_draft.values()):
+            clean_contact = {k: v for k, v in contact_draft.items() if v is not None}
+            if clean_contact:
+                blocks.append(f"PENDING CONTACT RECORD:\n{json.dumps(clean_contact, indent=2)}")
+                
+                # If we don't already have a recovery instruction (e.g. from Client Draft), add one
+                if not recovery_instruction:
+                    required_contact = ["first_name", "last_name", "email"]
+                    missing_contact = [f.replace('_', ' ').title() for f in required_contact if not clean_contact.get(f)]
+                    if missing_contact:
+                        recovery_instruction = (
+                            "### RECOVERY MODE: CONTACT INTAKE DETECTED ###\n"
+                            f"The user was previously creating a contact. Known: {list(clean_contact.keys())}. "
+                            f"Acknowledge the partial info and ask for the {missing_contact[0]}."
+                        )
+
         # Return the structured block
         if not blocks:
             return None
