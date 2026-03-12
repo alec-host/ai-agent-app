@@ -81,7 +81,8 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                         "optional_fields_requested": False
                     },
                     active_workflow="cleared", 
-                    history=history
+                    history=history,
+                    session_lifecycle="completed"
                 )
                 await services['calendar'].sync_client_session(wipe_payload)
             except Exception as e:

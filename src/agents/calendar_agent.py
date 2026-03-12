@@ -178,7 +178,8 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                             },
                             active_workflow="cleared",
                             history=history,
-                            thread_id=thread_id  # Targets the exact DB row being cleared
+                            thread_id=thread_id,  # Targets the exact DB row being cleared
+                            session_lifecycle="completed" # Mark as finished to prevent zombie re-hydration
                         )
                         await calendar_service.sync_client_session(wipe_payload)
                         logger.info(f"[CAL] Wipe sync dispatched for threadId: {thread_id}")

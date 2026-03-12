@@ -99,6 +99,13 @@ async def get_rehydration_context(tenant_id, services):
         if not resp or not isinstance(resp, dict):
             return None
 
+        # 0. LIFECYCLE CHECK
+        metadata = resp.get("metadata", {})
+        lifecycle = metadata.get("session_lifecycle", "active")
+        if lifecycle == "completed":
+            logger.info(f"[REHYDRATION] Skipping completed session for tenant: {tenant_id}")
+            return None
+
         # 1. CLIENT VAULT
         vault_state = {k: v for k, v in {
             "client_number": resp.get("client_number"),
@@ -178,7 +185,7 @@ def get_starter_chips():
         {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active"):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
@@ -189,7 +196,8 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, hist
     metadata = {
         "chat_history": history if history else [],
         "event_draft": event_draft if event_draft else {},
-        "active_workflow": active_workflow # 'client' or 'calendar'
+        "active_workflow": active_workflow, # 'client' or 'calendar'
+        "session_lifecycle": session_lifecycle
     }
     
     payload = {
