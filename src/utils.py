@@ -90,12 +90,8 @@ async def get_rehydration_context(tenant_id, services):
         if not calendar_service:
             return None
 
-        thread_id = getattr(calendar_service, 'thread_id', None)
-        query = f"/chat/session?tenantId={tenant_id}"
-        if thread_id:
-            query += f"&threadId={thread_id}"
-            
-        resp = await calendar_service.request("GET", query)
+        # Use the hardened helper to ensure API envelopes are unwrapped
+        resp = await calendar_service.get_client_session(tenant_id)
         if not resp or not isinstance(resp, dict):
             return None
 

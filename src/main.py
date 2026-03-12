@@ -438,6 +438,12 @@ class CalendarServiceClient:
             # HARDEN: If request returns an error object, return {} so agents start fresh
             if isinstance(resp, dict) and resp.get("status") == "error":
                 return {}
+            
+            # AUTOMATIC UNWRAPPING: Handle Node.js standard response envelopes
+            if isinstance(resp, dict) and resp.get("status") == "success" and "data" in resp:
+                logger.info(f"[DB-SESSION] Unwrapped session data for {tenant_id}")
+                return resp["data"]
+                
             return resp if isinstance(resp, dict) else {}
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
