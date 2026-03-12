@@ -222,6 +222,21 @@ TOOLS = [
                }
            }
        }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_countries",
+           "description": "Searches for country information (name, id, etc.) in the MatterMiner Core system. Use this to find the correct country_id for client or contact creation.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search": {"type": "string", "description": "The country name or keyword to search for."},
+                   "page": {"type": "integer", "description": "Page number for results (default 1)."},
+                   "per_page": {"type": "integer", "description": "Number of results per page (default 15)."}
+               }
+           }
+       }
     }
 ]
 

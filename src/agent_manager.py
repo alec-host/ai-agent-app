@@ -37,7 +37,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     ]
     client_funcs = ["create_client_record", "setup_client"]
     rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
-    core_funcs = ["authenticate_to_core", "create_contact"]
+    core_funcs = ["authenticate_to_core", "create_contact", "lookup_countries"]
 
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:

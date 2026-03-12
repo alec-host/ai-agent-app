@@ -101,6 +101,17 @@ class MatterMinerCoreClient:
         """Creates a new contact record in the remote system."""
         return await self.request("POST", "/api/contacts", json_data=payload)
 
+    async def get_countries(self, search: str = "", page: int = 1, per_page: int = 15) -> Dict[str, Any]:
+        """Retrieves a list of countries based on search and pagination."""
+        params = {
+            "page": page,
+            "per_page": per_page,
+            "search": search,
+            "sort_by": "created_at",
+            "sort_order": "desc"
+        }
+        return await self.request("GET", "/api/countries", params=params)
+
     def _get_headers(self, authenticated: bool = False) -> Dict[str, str]:
         """Constructs headers with necessary context."""
         headers = {

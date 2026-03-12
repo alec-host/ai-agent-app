@@ -60,8 +60,71 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
 
     elif func_name == "create_contact":
         return await handle_create_contact(args, services, tenant_id, history)
+        
+    elif func_name == "lookup_countries":
+        return await handle_lookup_countries(args, services, tenant_id)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
+
+async def handle_lookup_countries(args, services, tenant_id):
+    """
+    Handles searching for country information.
+    """
+    # 1. Fetch existing session to get the token
+    session = await services['calendar'].get_client_session(tenant_id)
+    metadata = session.get("metadata", {})
+    token = metadata.get("remote_access_token")
+    
+    if not token:
+        return {
+            "status": "auth_required",
+            "message": "Authentication required to lookup countries.",
+            "response_instruction": "Inform the user that you need them to login to MatterMiner to fetch the country list. Display the login card."
+        }
+        
+    # 2. Call the Remote Service
+    from ..remote_services.matterminer_core import MatterMinerCoreClient
+    from ..config import settings
+    
+    core_client = MatterMinerCoreClient(
+        base_url=settings.NODE_SERVICE_URL,
+        tenant_id=tenant_id
+    )
+    core_client.set_auth_token(token)
+    
+    try:
+        search = args.get("search", "")
+        page = args.get("page", 1)
+        per_page = args.get("per_page", 15)
+        
+        resp = await core_client.get_countries(search=search, page=page, per_page=per_page)
+        
+        if resp.get("status") == "success":
+            countries_data = resp.get("data", [])
+            # Format a clean list for the AI
+            # Logic: We extracted 'id' and 'name' (identifier etc if needed)
+            formatted_list = []
+            for c in countries_data:
+                # Based on your requirement: "extracting the id, which will be mapped to country_id as integer"
+                name = c.get("name")
+                cid = c.get("id")
+                formatted_list.append(f"{name} (ID: {cid})")
+                
+            return {
+                "status": "success",
+                "message": f"Found {len(formatted_list)} matches.",
+                "countries": formatted_list,
+                "raw_data": countries_data, # Keep raw for exact mapping if needed
+                "response_instruction": "Display the results to the user. If they have selected one, remember the ID to use as 'country_id' in client/contact creation."
+            }
+        else:
+            return {
+                "status": "error",
+                "message": resp.get("message", "Failed to retrieve countries."),
+                "response_instruction": "Inform the user that the search failed and ask them to try a different keyword."
+            }
+    finally:
+        await core_client.close()
 
 async def handle_create_contact(args, services, tenant_id, history):
     """
