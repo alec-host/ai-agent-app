@@ -120,7 +120,7 @@ async def get_rehydration_context(tenant_id, services):
         metadata = resp.get("metadata", {})
         event_draft = metadata.get("event_draft", {})
         
-        auth_status = await calendar_service.request("GET", f"/auth/accessToken?tenant_id={tenant_id}")
+        auth_status = await calendar_service._sync_access_token()
         is_newly_ready = isinstance(auth_status, dict) and auth_status.get("status") == "ready"
         
         # Construct segments

@@ -160,7 +160,10 @@ class CalendarServiceClient:
         """
         try:
             url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
-            resp = await self.client.get(url, headers=self.headers, timeout=10)
+            # CLEAN HANDSHAKE: Do not pass the existing Authorization header here.
+            # If we pass an expired Bearer token to the provisioner, it might reject the request!
+            handshake_headers = {k: v for k, v in self.headers.items() if k != "Authorization"}
+            resp = await self.client.get(url, headers=handshake_headers, timeout=10)
             if resp.status_code != 200:
                 return {
                     "status": "auth_required",
@@ -424,8 +427,13 @@ class CalendarServiceClient:
             params = {"tenantId": tenant_id}
             if getattr(self, 'thread_id', None):
                 params["threadId"] = self.thread_id
-            response = await self.client.get("/chat/session", params=params)
-            return response.json() if response.status_code == 200 else {}
+            
+            # Use self.request to ensure Auth Headers and Auth-Healing are applied
+            query = f"/chat/session?tenantId={params['tenantId']}"
+            if "threadId" in params:
+                query += f"&threadId={params['threadId']}"
+                
+            return await self.request("GET", query)
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
             return {}
@@ -433,11 +441,13 @@ class CalendarServiceClient:
     async def sync_client_session(self, payload: dict):
         """Updates the Node.js chatsessions table with latest client_number,client_type,first_name,last_name,email, and history."""
         try:
-            response = await self.client.post("/chat/session", json=payload)
+            # Use self.request to ensure Auth Headers and Auth-Healing are applied
+            response = await self.request("POST", "/chat/session", json_data=payload)
+            
+            if isinstance(response, dict) and response.get("status") == "error":
+                return False
 
-            logger.info(f"[DB-SYNC] Status: {response.status_code} | Payload: {payload}")
-
-            return response.status_code == 200
+            return True
         except Exception as e:
             logger.error(f"Error syncing session: {e}")
             return False
@@ -448,13 +458,18 @@ class CalendarServiceClient:
             params = {"tenantId": tenant_id}
             if getattr(self, 'thread_id', None):
                 params["threadId"] = self.thread_id
-            response = await self.client.delete("/chat/session", params=params)
-            if response.status_code == 200:
-                logger.info(f"[DB-CLEAR] Session destroyed for tenant: {tenant_id}")
-                return True
-            else:
-                logger.warning(f"[DB-CLEAR] Failed to clear session. Status: {response.status_code}")
+            
+            query = f"/chat/session?tenantId={params['tenantId']}"
+            if "threadId" in params:
+                query += f"&threadId={params['threadId']}"
+                
+            response = await self.request("DELETE", query)
+            
+            if isinstance(response, dict) and response.get("status") == "error":
                 return False
+                
+            logger.info(f"[DB-CLEAR] Session destroyed for tenant: {tenant_id}")
+            return True
         except Exception as e:
             logger.error(f"[DB-CLEAR] Error calling delete: {e}")
             return False
