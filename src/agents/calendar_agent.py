@@ -21,6 +21,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         if not grant["granted"]:
             return {
                 "status": "auth_required",
+                "auth_type": "google_calendar",
                 "auth_url": grant["auth_url"],
                 "message": "Calendar Access Required",
                 "response_instruction": "HANDSHAKE FAILED. Present only the auth link and STOP EVERYTHING. DO NOT ask for title/time."

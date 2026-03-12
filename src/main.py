@@ -244,6 +244,7 @@ class CalendarServiceClient:
             # 3. FAILURE: Must re-authorize
             return {
                 "granted": False,
+                "auth_type": "google_calendar",
                 "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
                 "reason": data.get("message", "Google Calendar access required.")
             }
@@ -832,20 +833,20 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             # Fetch current session state — fault-tolerant: stream must not fail if Node.js is down
             try:
                 db_session = await services['calendar'].get_client_session(tenant_id)
-                
-                # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks (STREAMING) ---
-                # If we are in the middle of a calendar workflow, verify auth on the first iteration of the turn
+                    # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks (STREAMING) ---
+                # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
+                # This allows the user to "break out" to a different workflow (like contact) without being blocked by Google.
                 metadata = db_session.get("metadata", {})
                 active_workflow = metadata.get("active_workflow")
-                if i == 0 and active_workflow == "calendar":
-                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow. Ensuring Auth Handshake.")
-                     # MANDATORY: Sync JWT before grant-check, even if Pre-LLM gate was skipped
+                if i == 0 and active_workflow == "calendar" and is_calendar_intent:
+                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
+                     # MANDATORY: Sync JWT before grant-check
                      token_status = await services['calendar']._sync_access_token()
                      if token_status["status"] == "auth_required":
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Session expired during loop. Surface auth card.")
                           yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']})}\n\n"
                           return
-
+ 
                      grant = await services['calendar'].check_grant_token()
                      if not grant["granted"]:
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
