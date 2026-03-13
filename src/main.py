@@ -424,9 +424,9 @@ class CalendarServiceClient:
             "email": client_data.get("email")
         }
 
-        # This should hit your Node.js permanent storage endpoint
-        # return await self.request("POST", "/calendar/api/web", payload)
-        return await self.client.post("/api/web", json=payload)
+        # This hits the Node.js permanent storage endpoint via the authenticated request wrapper
+        # The request helper automatically prepends the correct base URL and adds Auth headers.
+        return await self.request("POST", "/api/web", json_data=payload)
     
     async def get_client_session(self, tenant_id: str):
         """Fetches partial intake data from the Node.js chatsessions table."""

@@ -41,6 +41,15 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
         "client_type": args.get("client_type") or db_data.get("client_type"),
         "email": args.get("email") or db_data.get("email")          
     }
+    
+    # 2.5 GLITCH GUARD: Prevent ID format from leaking into last_name
+    # If last_name matches the client_number and contains numbers, it's likely a mapping error
+    if final_args.get("last_name") == final_args.get("client_number") and final_args.get("client_number"):
+        import re
+        if any(char.isdigit() for char in str(final_args["last_name"])):
+            logger.warning(f"[GLITCH-GUARD] ID {final_args['client_number']} detected in last_name. Resetting.")
+            # If the tool call explicitly provided a name that isn't the number, use it; otherwise reset
+            final_args["last_name"] = args.get("last_name") if args.get("last_name") != args.get("client_number") else None
 
     # 3. SYNC TO DATABASE (Incremental Persistence)
     try:
@@ -71,31 +80,41 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             logger.info(f"Final record save result: {save_result}")
             
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
-            try:
-                wipe_payload = format_sync_chat_payload(
-                    tenant_id=tenant_id,
-                    client_args={
-                        "first_name": None,
-                        "last_name": None,
-                        "client_number": None,
-                        "client_type": None,
-                        "email": None
-                    },
-                    event_draft={
-                        "title": None, 
-                        "startTime": None,
-                        "summary": None,
-                        "optional_fields_requested": False
-                    },
-                    active_workflow="cleared", 
-                    history=history,
-                    session_lifecycle="completed"
-                )
-                await services['calendar'].sync_client_session(wipe_payload)
-            except Exception as e:
-                logger.error(f"[CLIENT] Sync wipe failed: {e}")
+            # SECURITY: Only clear if the remote save actually worked (200-201 or specific success code)
+            is_truly_saved = False
+            if hasattr(save_result, 'status_code'):
+                 is_truly_saved = save_result.status_code in [200, 201]
+            elif isinstance(save_result, dict):
+                 is_truly_saved = save_result.get("status") == "success"
 
-            await services['calendar'].clear_client_session(tenant_id)
+            if is_truly_saved:
+                try:
+                    wipe_payload = format_sync_chat_payload(
+                        tenant_id=tenant_id,
+                        client_args={
+                            "first_name": None,
+                            "last_name": None,
+                            "client_number": None,
+                            "client_type": None,
+                            "email": None
+                        },
+                        event_draft={
+                            "title": None, 
+                            "startTime": None,
+                            "summary": None,
+                            "optional_fields_requested": False
+                        },
+                        active_workflow="cleared", 
+                        history=history,
+                        session_lifecycle="completed"
+                    )
+                    await services['calendar'].sync_client_session(wipe_payload)
+                    await services['calendar'].clear_client_session(tenant_id)
+                except Exception as e:
+                    logger.error(f"[CLIENT] Sync wipe failed: {e}")
+            else:
+                logger.error(f"[CLIENT] Remote save failed (Status: {getattr(save_result, 'status_code', 'Unknown')}). Retaining session.")
+                return {"status": "error", "message": f"The remote system rejected the record. Reason: {getattr(save_result, 'text', 'Unknown error')}"}
 
             # Format the success message with a structured Markdown table for HTML rendering
             summary_table = (
