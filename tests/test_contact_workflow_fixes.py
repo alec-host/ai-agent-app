@@ -1,7 +1,7 @@
 import pytest
 import json
 from src.agents.core_agent import handle_create_contact
-from src.utils import get_rehydration_context
+from src.agent_manager import get_rehydration_context
 from unittest.mock import AsyncMock, MagicMock
 import respx
 import httpx

@@ -282,3 +282,39 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         return await calendar_service.request("DELETE", f"/events/{args.get('event_id')}")
 
     return {"error": f"Function {func_name} not implemented"}
+
+def get_workflow_recovery(metadata, db_data):
+    """
+    HOOK: Rehydration logic encapsulated within the Calendar Agent.
+    """
+    active_workflow = metadata.get("active_workflow")
+    lifecycle = metadata.get("session_lifecycle", "active")
+    event_draft = metadata.get("event_draft", {})
+    is_newly_ready = metadata.get("is_newly_ready", False)
+
+    if active_workflow != "calendar" or lifecycle == "completed":
+        return None
+
+    if not event_draft or not any(v is not None for v in event_draft.values()):
+        return None
+
+    # Mask sensitive internal fields
+    clean_draft = {k: v for k, v in event_draft.items() if not k.startswith("_")}
+    
+    if not any(v for v in clean_draft.values() if v is not None):
+        return None
+
+    recovery = {
+        "header": "### PENDING CALENDAR EVENT ###",
+        "data": clean_draft
+    }
+
+    if is_newly_ready:
+        recovery["instruction"] = (
+            "### OAUTH SUCCESS: RE-HYDRATION MODE ###\n"
+            "The user has JUST authorized their calendar. You have the draft ready to finalize. "
+            "In your first message, say: 'Great! I've confirmed your calendar access. Should I finalize the scheduling for "
+            f"\"{clean_draft.get('title', 'your meeting')}\" now?'"
+        )
+    
+    return recovery

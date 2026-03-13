@@ -24,9 +24,8 @@ from urllib.parse import quote
 
 from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
-from src.agent_manager import execute_tool_call
-
-from src.utils import sanitize_history, retry_with_backoff, get_rehydration_context, get_starter_chips
+from src.agent_manager import execute_tool_call, get_rehydration_context
+from src.utils import sanitize_history, retry_with_backoff, get_starter_chips
 
 from src.config import settings
 from src.logger import logger

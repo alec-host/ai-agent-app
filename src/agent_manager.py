@@ -7,7 +7,68 @@ from .logger import logger
 from .agents.calendar_agent import handle_calendar
 from .agents.client_creation_agent import handle_client_creation
 from .agents.rag_agent import handle_rag_lookup
-from .agents.core_agent import handle_core_ops
+from .agents.core_agent import handle_core_ops, get_workflow_recovery as core_recovery
+
+async def get_rehydration_context(tenant_id, services):
+    """
+    Dispatcher-level rehydration aggregator.
+    Calls each agent's hook to see if they have a recovery context.
+    """
+    try:
+        calendar_service = services.get("calendar")
+        if not calendar_service:
+            return None
+
+        db_session = await calendar_service.get_client_session(tenant_id)
+        raw_metadata = db_session.get("metadata", {})
+        
+        if isinstance(raw_metadata, str):
+            try:
+                metadata = json.loads(raw_metadata)
+            except:
+                metadata = {}
+        else:
+            metadata = raw_metadata or {}
+
+        lifecycle = metadata.get("session_lifecycle", "active")
+        if lifecycle == "completed":
+            return None
+
+        # 1. CORE AUTH STATUS (ALWAYS SHIELDED)
+        blocks = []
+        is_core_auth = bool(metadata.get("remote_access_token"))
+        blocks.append(f"CORE SYSTEM STATUS:\n{{\"is_authenticated\": {str(is_core_auth).lower()}}}")
+
+        # 2. AGENT REGISTRY FOR RECOVERY
+        from .agents.calendar_agent import get_workflow_recovery as cal_recovery
+        from .agents.client_creation_agent import get_workflow_recovery as client_recovery
+        # core_recovery is already imported above
+
+        agent_hooks = [cal_recovery, client_recovery, core_recovery]
+        
+        for hook in agent_hooks:
+            recovery = hook(metadata, db_session)
+            if recovery:
+                block = f"{recovery['header']}\n{json.dumps(recovery['data'], indent=2)}"
+                if recovery.get("instruction"):
+                    block += f"\n\n{recovery['instruction']}"
+                blocks.append(block)
+
+        if not blocks:
+            return None
+
+        return {
+            "injection": (
+                "### DATABASE VAULT (CURRENT SESSION STATE) ###\n"
+                "The following details are already captured. Use them to prevent redundant questions.\n\n"
+                + "\n\n".join(blocks)
+            )
+        }
+
+    except Exception as e:
+        logger.error(f"[REHYDRATION-AGGREGATOR] Failed for {tenant_id}: {e}", exc_info=True)
+        return None
+
 
 async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     """

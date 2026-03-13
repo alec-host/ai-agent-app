@@ -176,6 +176,7 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             logger.error(f"Final save failed: {e}")
             return {"status": "error", "message": "The system encountered an error while saving the final record."}
 
+    else:
         # PARTIAL PROGRESS: Lock progress and instruct the AI on exactly what to ask next
         captured = [f.replace('_', ' ').title() for f in REQUIRED_FIELDS if final_args.get(f)]
         missing_labels = [f.replace('_', ' ').title() for f in missing]
@@ -198,3 +199,34 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                 "Do NOT ask for fields you already have."
             )
         }
+
+def get_workflow_recovery(metadata, db_data):
+    """
+    HOOK: Rehydration logic encapsulated within the Client Agent.
+    """
+    active_workflow = metadata.get("active_workflow")
+    lifecycle = metadata.get("session_lifecycle", "active")
+    client_draft = metadata.get("client_draft", {})
+
+    if active_workflow != "client" or lifecycle == "completed":
+        return None
+
+    # Merge draft and top-level identity for a complete recovery view
+    full_state = {**db_data, **{k:v for k,v in client_draft.items() if v}}
+    
+    # Filter to only relevant fields
+    recov_data = {f: full_state.get(f) for f in REQUIRED_FIELDS if full_state.get(f)}
+
+    if not recov_data:
+        return None
+
+    missing = [f.replace('_', ' ').title() for f in REQUIRED_FIELDS if not recov_data.get(f)]
+    
+    if not missing:
+        return None
+
+    return {
+        "header": "### RECOVERY MODE: CLIENT INTAKE DETECTED ###",
+        "data": recov_data,
+        "instruction": f"The user was previously registering a client. Known: {list(recov_data.keys())}. Acknowledge the partial info and ask for the {missing[0]}."
+    }

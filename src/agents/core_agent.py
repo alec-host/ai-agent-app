@@ -196,3 +196,41 @@ async def handle_create_contact(args, services, tenant_id, history):
             }
     finally:
         await core_client.close()
+
+def get_workflow_recovery(metadata, db_data):
+    """
+    HOOK: Rehydration logic encapsulated within the Core Agent (for Contact workflow).
+    """
+    active_workflow = metadata.get("active_workflow")
+    lifecycle = metadata.get("session_lifecycle", "active")
+    contact_draft = metadata.get("contact_draft", {})
+
+    if active_workflow != "contact" or lifecycle == "completed":
+        return None
+
+    if not contact_draft or not any(v is not None for v in contact_draft.values()):
+        return None
+
+    # Filter sensitive keys
+    sensitive_keys = ["password", "token", "access_token"]
+    clean_contact = {k: v for k, v in contact_draft.items() if v is not None and k not in sensitive_keys}
+
+    if not clean_contact:
+        return None
+
+    required_contact = ["first_name", "last_name", "email"]
+    missing_contact = [f.replace('_', ' ').title() for f in required_contact if not clean_contact.get(f)]
+
+    recovery = {
+        "header": "### PENDING CONTACT RECORD ###",
+        "data": clean_contact
+    }
+
+    if missing_contact:
+        recovery["instruction"] = (
+            "### RECOVERY MODE: CONTACT INTAKE DETECTED ###\n"
+            f"The user was previously creating a contact. Known: {list(clean_contact.keys())}. "
+            f"Acknowledge the partial info and ask for the {missing_contact[0]}."
+        )
+    
+    return recovery
