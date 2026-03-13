@@ -75,9 +75,20 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
     missing = [f for f in REQUIRED_FIELDS if not final_args.get(f)]
 
     if not missing:
-        # ALL FIELDS CAPTURED: Finalize the record
+        # 6. GATING: Check for MatterMiner Core Authentication
+        token = db_metadata.get("remote_access_token")
+        if not token:
+             return {
+                "status": "auth_required",
+                "auth_type": "matterminer_core",
+                "message": "Authentication required for MatterMiner Core.",
+                "response_instruction": "Acknowledge the info received. Tell the user you have all the details, but they need to login to MatterMiner to complete the registration. Display the login card."
+            }
+
+        # ALL FIELDS CAPTURED & AUTHENTICATED: Finalize the record
         try:
-            save_result = await services['calendar'].save_new_client(final_args, tenant_id)
+            # Pass the token so save_new_client can use it for the remote call
+            save_result = await services['calendar'].save_new_client(final_args, tenant_id, token=token)
             logger.info(f"Final record save result: {save_result}")
             
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client

@@ -70,7 +70,10 @@ async def test_client_save_failure_retains_session():
         "client_number": "C123",
         "client_type": "individual",
         "email": "john@test.com",
-        "metadata": {"active_workflow": "client"}
+        "metadata": {
+            "active_workflow": "client",
+            "remote_access_token": "valid_mock_token"
+        }
     }
     mock_cal_service.thread_id = "test_thread"
     
@@ -102,7 +105,10 @@ async def test_client_save_success_clears_session():
         "client_number": "C123",
         "client_type": "individual",
         "email": "john@test.com",
-        "metadata": {"active_workflow": "client"}
+        "metadata": {
+            "active_workflow": "client",
+            "remote_access_token": "valid_mock_token"
+        }
     }
     mock_cal_service.thread_id = "test_thread"
     
@@ -135,14 +141,14 @@ async def test_save_new_client_endpoint_resolution():
         correlation_id="test_corr"
     )
     
-    # Mock the Node.js endpoint
-    # Note: request() adds the base URL from settings (http://localhost:3005)
-    route = respx.post("http://localhost:3005/api/web").mock(
+    # Mock the Remote Core endpoint
+    # Note: save_new_client now uses node_remote_service_url (https://dev.matterminer.com/api)
+    route = respx.post("https://dev.matterminer.com/api/clients").mock(
         return_value=httpx.Response(201, json={"status": "success"})
     )
     
     client_data = {"first_name": "John", "last_name": "Doe"}
-    resp = await client.save_new_client(client_data, "12345678")
+    resp = await client.save_new_client(client_data, "12345678", token="mock_remote_token")
     
     assert route.called
     assert resp["status"] == "success"
