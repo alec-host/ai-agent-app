@@ -687,7 +687,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
         # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
         metadata = db_session.get("metadata", {})
+        lifecycle = metadata.get("session_lifecycle", "active")
         active_workflow = metadata.get("active_workflow")
+        # Treat 'cleared' workflow or 'completed' lifecycle as no active lock
+        if active_workflow == "cleared" or lifecycle == "completed":
+            active_workflow = None
         if i == 0 and active_workflow == "calendar" and is_calendar_intent:
              logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
              # MANDATORY: Sync JWT before grant-check
@@ -917,7 +921,11 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
                 # This allows the user to "break out" to a different workflow (like contact) without being blocked by Google.
                 metadata = db_session.get("metadata", {})
+                lifecycle = metadata.get("session_lifecycle", "active")
                 active_workflow = metadata.get("active_workflow")
+                # Treat 'cleared' workflow or 'completed' lifecycle as no active lock
+                if active_workflow == "cleared" or lifecycle == "completed":
+                    active_workflow = None
                 if i == 0 and active_workflow == "calendar" and is_calendar_intent:
                      logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
                      # MANDATORY: Sync JWT before grant-check
