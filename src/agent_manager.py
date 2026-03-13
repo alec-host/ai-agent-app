@@ -42,7 +42,17 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:
         db_session = await services['calendar'].get_client_session(tenant_id)
-        metadata = db_session.get("metadata", {})
+        raw_metadata = db_session.get("metadata", {})
+        
+        # Robust parsing for string-encoded metadata
+        if isinstance(raw_metadata, str):
+            try:
+                metadata = json.loads(raw_metadata)
+            except:
+                metadata = {}
+        else:
+            metadata = raw_metadata or {}
+
         lifecycle = metadata.get("session_lifecycle", "active")
         active_workflow = metadata.get("active_workflow") if lifecycle != "completed" else None 
         

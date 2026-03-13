@@ -46,6 +46,8 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
     db_history = db_metadata.get("chat_history", [])
 
     # 2. INITIALIZE & SAFE MERGE (Prioritize new args -> then Draft -> then top-level DB)
+    # We use a double-fallback to ensure that data in the 'Identity' columns is utilized
+    # if the 'Draft' namespace is somehow corrupted or missing.
     final_args = {
         "first_name": args.get("first_name") or client_draft.get("first_name") or db_data.get("first_name"),
         "last_name": args.get("last_name") or client_draft.get("last_name") or db_data.get("last_name"),
@@ -54,15 +56,19 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
         "email": args.get("email") or client_draft.get("email") or db_data.get("email")
     }
     
+    # 2.3 RECOVERY LOGGING: Helpful for tracing "Amnesia" glitches
+    logger.info(f"[{tenant_id}] Recovered State: First={final_args['first_name']}, Last={final_args['last_name']}, Email={final_args['email']}")
+
     # 2.5 GLITCH GUARD: Prevent ID format from leaking into last_name
-    # Trigger ONLY if the incoming tool call is explicitly providing a numeric string for last_name
     incoming_last_name = args.get("last_name")
     if incoming_last_name and any(char.isdigit() for char in str(incoming_last_name)):
         # If it matches the client number, it's a mapping error
         if incoming_last_name == final_args.get("client_number"):
             logger.warning(f"[GLITCH-GUARD] Blocking ID {incoming_last_name} from being saved as last_name.")
-            # Restore from DB or set to None (to avoid saving the numeric value)
-            final_args["last_name"] = db_data.get("last_name") if db_data.get("last_name") != incoming_last_name else None
+            # RESTORE FROM PREVIOUS KNOWN: Use db_data or client_draft as fallback
+            final_args["last_name"] = client_draft.get("last_name") or db_data.get("last_name")
+            if final_args["last_name"] == incoming_last_name: # Still numeric?
+                 final_args["last_name"] = None # Wipe it completely to stop the corruption
 
     # 3. SYNC TO DATABASE (Incremental Persistence)
     try:
