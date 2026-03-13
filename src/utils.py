@@ -48,10 +48,28 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
         
         content = msg_dict.get("content")
         
-        if isinstance(content, str) and not is_recent:
-            if len(content) > max_content_length:
-                # Keep the beginning (summary/status) and cut the rest
-                msg_dict["content"] = content[:max_content_length] + f" ... [Truncated: {len(content) - max_content_length} chars]"
+        if isinstance(content, str):
+            # 3.5 PASSWORD MASKING (SAFETY GUARD)
+            # Mask any potential password patterns or fields
+            content = content.replace("password", "********")
+            msg_dict["content"] = content
+
+            if not is_recent:
+                if len(content) > max_content_length:
+                    # Keep the beginning (summary/status) and cut the rest
+                    msg_dict["content"] = content[:max_content_length] + f" ... [Truncated: {len(content) - max_content_length} chars]"
+        
+        # Mask passwords in tool_calls arguments if they exist
+        if "tool_calls" in msg_dict and msg_dict["tool_calls"]:
+            for tc in msg_dict["tool_calls"]:
+                if tc.get("function") and tc["function"].get("arguments"):
+                    try:
+                        args_dict = json.loads(tc["function"]["arguments"])
+                        if "password" in args_dict:
+                            args_dict["password"] = "********"
+                            tc["function"]["arguments"] = json.dumps(args_dict)
+                    except:
+                        pass
         
         sanitized.append(msg_dict)
         
@@ -135,6 +153,9 @@ async def get_rehydration_context(tenant_id, services):
             # Prefer namespaced draft if available, else top-level
             full_client_state = {**vault_state, **{k:v for k,v in client_draft.items() if v}}
             
+            # SENSITIVE DATA SHIELD: Ensure credentials never touch the LLM context
+            # (already filtered by choosing specific keys, but being explicit here)
+            
             if full_client_state:
                 # Detect which fields are missing to formulate a recovery prompt
                 required = ["first_name", "last_name", "client_number", "client_type", "email"]
@@ -148,6 +169,10 @@ async def get_rehydration_context(tenant_id, services):
                     )
                 
                 blocks.append(f"CLIENT PROFILE:\n{json.dumps(full_client_state, indent=2)}")
+
+        # 2. CORE AUTH STATUS (SHIELDED)
+        is_core_auth = bool(metadata.get("remote_access_token"))
+        blocks.append(f"CORE SYSTEM STATUS:\n{{\"is_authenticated\": {str(is_core_auth).lower()}}}")
 
         if event_draft and active_workflow == "calendar" and any(v is not None for v in event_draft.values()):
             # Mask sensitive internal fields
@@ -167,7 +192,9 @@ async def get_rehydration_context(tenant_id, services):
         # 4. CONTACT DRAFT RE-HYDRATION
         contact_draft = metadata.get("contact_draft", {})
         if contact_draft and active_workflow == "contact" and any(v is not None for v in contact_draft.values()):
-            clean_contact = {k: v for k, v in contact_draft.items() if v is not None}
+            # Filter sensitive keys from contact draft
+            sensitive_keys = ["password", "token", "access_token"]
+            clean_contact = {k: v for k, v in contact_draft.items() if v is not None and k not in sensitive_keys}
             if clean_contact:
                 blocks.append(f"PENDING CONTACT RECORD:\n{json.dumps(clean_contact, indent=2)}")
                 

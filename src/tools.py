@@ -187,21 +187,6 @@ TOOLS = [
     {
        "type": "function",
        "function": {
-           "name": "authenticate_to_core",
-           "description": "Authenticates the user into the MatterMiner Core remote system using email and password. Call this when the user needs to access their matters, cases, or profile.",
-           "parameters": {
-               "type": "object",
-               "properties": {
-                   "email": {"type": "string", "description": "The user's login email address."},
-                   "password": {"type": "string", "description": "The user's secret password."}
-               },
-               "required": ["email", "password"]
-           }
-       }
-    },
-    {
-       "type": "function",
-       "function": {
            "name": "create_contact",
            "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Call this IMMEDIATELY as soon as you have ANY piece of information (like first name or email) to save progress to the database vault.",
            "parameters": {

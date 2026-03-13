@@ -41,18 +41,18 @@ async def test_contact_token_persistence_on_success():
         # 4. Assertions
         assert result["status"] == "success"
         
-        # Verify clear_client_session was NOT called
-        mock_cal_service.clear_client_session.assert_not_called()
+        # Verify hard-delete was called to unblock future workflows
+        mock_cal_service.clear_client_session.assert_called_once_with("tenant_123")
         
-        # Verify sync_client_session WAS called to clear the draft but keep the token
+        # Verify sync_client_session WAS called to mark lifecycle as completed
         assert mock_cal_service.sync_client_session.called
         sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
         
-        # The key check: Token must still be there, but draft empty
+        # The key check: Lifecycle should be completed in metadata
         metadata = sync_payload["metadata"]
-        assert metadata["remote_access_token"] == "persistent_core_token"
+        assert metadata["session_lifecycle"] == "completed"
         assert metadata["contact_draft"] == {}
-        assert metadata["active_workflow"] is None
+        assert metadata["active_workflow"] == "cleared"
 
 @pytest.mark.asyncio
 async def test_sequential_field_asking():
