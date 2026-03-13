@@ -49,8 +49,21 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
         content = msg_dict.get("content")
         
         if isinstance(content, str):
+            # 3.4 GHOST DATA SCRUBBING
+            # Completely strip out previous system injections from historical messages 
+            # to prevent the LLM from hallucinating old state after a workflow completes.
+            scrub_markers = [
+                "### DATABASE VAULT",
+                "### RECOVERY MODE",
+                "### PENDING CONTACT",
+                "### PENDING CALENDAR",
+                "The following data is ALREADY SYNCED" # fallback
+            ]
+            for marker in scrub_markers:
+                if marker in content:
+                    content = content.split(marker)[0].strip()
+                    
             # 3.5 PASSWORD MASKING (SAFETY GUARD)
-            # Mask any potential password patterns or fields
             content = content.replace("password", "********")
             msg_dict["content"] = content
 

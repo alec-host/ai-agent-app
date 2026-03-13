@@ -121,7 +121,7 @@ async def handle_create_contact(args, services, tenant_id, history):
             client_args=session,
             contact_draft=draft,
             metadata=metadata,
-            history=history,
+            history=[],
             thread_id=services['calendar'].thread_id
         )
         await services['calendar'].sync_client_session(payload)
@@ -141,7 +141,7 @@ async def handle_create_contact(args, services, tenant_id, history):
             client_args=session,
             contact_draft=draft,
             metadata=metadata,
-            history=history,
+            history=[],
             thread_id=services['calendar'].thread_id
         )
         await services['calendar'].sync_client_session(payload)
@@ -176,7 +176,7 @@ async def handle_create_contact(args, services, tenant_id, history):
                 client_args=session,
                 contact_draft={},
                 metadata=metadata,
-                history=history,
+                history=[],
                 thread_id=services['calendar'].thread_id,
                 active_workflow="cleared",
                 session_lifecycle="completed"

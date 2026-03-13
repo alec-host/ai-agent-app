@@ -66,7 +66,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 tenant_id=tenant_id,
                 client_args=db_data,
                 event_draft=current_draft,
-                history=history,
+                history=[],
                 active_workflow="calendar",
                 thread_id=thread_id
             )
@@ -84,7 +84,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         tenant_id=tenant_id, 
                         client_args=db_data, 
                         event_draft=current_draft, 
-                        history=history, 
+                        history=[], 
                         active_workflow="calendar", 
                         thread_id=thread_id
                     )
@@ -106,7 +106,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         tenant_id=tenant_id, 
                         client_args=db_data, 
                         event_draft=current_draft, 
-                        history=history, 
+                        history=[], 
                         active_workflow="calendar", 
                         thread_id=thread_id
                     )
@@ -124,7 +124,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         tenant_id=tenant_id, 
                         client_args=db_data, 
                         event_draft=current_draft, 
-                        history=history, 
+                        history=[], 
                         active_workflow="calendar", 
                         thread_id=thread_id
                     )
@@ -142,7 +142,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         tenant_id=tenant_id, 
                         client_args=db_data, 
                         event_draft=current_draft, 
-                        history=history, 
+                        history=[], 
                         active_workflow="calendar", 
                         thread_id=thread_id
                     )
@@ -177,7 +177,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     tenant_id=tenant_id, 
                     client_args=db_data, 
                     event_draft=current_draft, 
-                    history=history, 
+                    history=[], 
                     active_workflow="calendar", 
                     thread_id=thread_id
                 )
@@ -213,7 +213,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                                 "location_requested": False
                             },
                             active_workflow="cleared",
-                            history=history,
+                            history=[],
                             thread_id=thread_id,  # Targets the exact DB row being cleared
                             session_lifecycle="completed" # Mark as finished to prevent zombie re-hydration
                         )

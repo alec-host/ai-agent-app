@@ -142,7 +142,7 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                         event_draft=db_metadata.get("event_draft"),
                         contact_draft=db_metadata.get("contact_draft"),
                         active_workflow="cleared", 
-                        history=history,
+                        history=[],
                         session_lifecycle="completed"
                     )
                     await services['calendar'].sync_client_session(wipe_payload)
