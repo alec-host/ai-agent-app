@@ -63,7 +63,8 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             client_args=final_args,
             event_draft=db_metadata.get("event_draft"),
             history=history if history else db_history,
-            active_workflow="client"
+            active_workflow="client",
+            metadata=db_metadata # CRITICAL: Preserve existing metadata (contact_draft, remote_access_token, etc)
         )
         
         await services['calendar'].sync_client_session(sync_payload)
