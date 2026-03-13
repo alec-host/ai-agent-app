@@ -170,14 +170,25 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             logger.error(f"Final save failed: {e}")
             return {"status": "error", "message": "The system encountered an error while saving the final record."}
 
-    else:
         # PARTIAL PROGRESS: Lock progress and instruct the AI on exactly what to ask next
-        missing_str = ", ".join(missing)
-        logger.warning(f"[INTAKE-PROGRESS] Captured: {', '.join([k for k,v in final_args.items() if v])} | Missing: {missing_str}")
+        captured = [f.replace('_', ' ').title() for f in REQUIRED_FIELDS if final_args.get(f)]
+        missing_labels = [f.replace('_', ' ').title() for f in missing]
+        next_field = missing[0]
+        next_label = missing_labels[0]
+
+        logger.warning(f"[INTAKE-PROGRESS] Captured: {', '.join(captured)} | Missing: {', '.join(missing_labels)}")
 
         return {
             "status": "partial_success",
             "current_state": final_args,
-            "message": f"Progress saved. Required: {missing_str}.",
-            "response_instruction": f"CRITICAL: Data is missing. Do not confirm the save. Ask for {missing[0]} immediately."
+            "captured_fields": captured,
+            "missing_fields": missing_labels,
+            "next_target": next_field,
+            "message": f"I've updated the draft. We now have the following details: {', '.join(captured)}. I still need the {next_label}.",
+            "response_instruction": (
+                f"VAULT SYNCED: You have successfully saved {', '.join(captured)}. "
+                f"The NEXT required field is '{next_field}'. "
+                f"Acknowledge the info received (briefly) and ask only for the {next_label}. "
+                "Do NOT ask for fields you already have."
+            )
         }
