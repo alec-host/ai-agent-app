@@ -143,9 +143,17 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
         final_metadata["event_draft"] = event_draft
         
     if contact_draft is not None:
+        # GUARD: contact_draft must always be a dict, never a list of messages
+        if isinstance(contact_draft, list):
+            logger.warning("[PAYLOAD-GUARD] contact_draft was a list (corrupt). Wiping to {}")
+            contact_draft = {}
         final_metadata["contact_draft"] = contact_draft
 
     if client_draft is not None:
+        # GUARD: client_draft must always be a dict, never a list of messages
+        if isinstance(client_draft, list):
+            logger.warning("[PAYLOAD-GUARD] client_draft was a list (corrupt). Wiping to {}")
+            client_draft = {}
         final_metadata["client_draft"] = client_draft
         
     if active_workflow:
