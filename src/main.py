@@ -103,6 +103,11 @@ async def verify_tenant_access(
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:]
     
+    if token:
+        logger.info(f"[AUTH-GUARD] Header Token detected for tenant {x_tenant_id} (Length: {len(token)})")
+    else:
+        logger.warning(f"[AUTH-GUARD] No Header Token provided for tenant {x_tenant_id}")
+
     return {
         "tenant_id": x_tenant_id, 
         "role": user_role.lower(), 
@@ -152,14 +157,17 @@ class CalendarServiceClient:
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
         }
+        self._jwt_synced = False
         if access_token:
-            self.set_auth_token(access_token)
+            self.set_auth_token(access_token) # This sets the login token, but it's not the calendar JWT
             
         self.client = http_client 
         self.timeout = httpx.Timeout(15.0)
         
-    def set_auth_token(self, token: str):
+    def set_auth_token(self, token: str, is_jwt: bool = False):
         self.headers["Authorization"] = f"Bearer {token}"
+        if is_jwt:
+            self._jwt_synced = True
         
     def is_authenticated(self) -> bool:
         return "Authorization" in self.headers
@@ -176,20 +184,21 @@ class CalendarServiceClient:
         """
         try:
             url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
+            
+            # Pass BOTH camelCase and snake_case for maximum compatibility
             if self.access_token:
-                # Pass as both query param and in headers for maximum compatibility
-                url += f"&accessToken={self.access_token}"
+                url += f"&accessToken={self.access_token}&access_token={self.access_token}"
                 
             handshake_headers = self.headers.copy()
             if self.access_token:
                 handshake_headers["Authorization"] = f"Bearer {self.access_token}"
             else:
-                # If no login token, at least remove any stale JWT to avoid collision
                 if "Authorization" in handshake_headers:
                     del handshake_headers["Authorization"]
 
             resp = await self.client.get(url, headers=handshake_headers, timeout=10)
             if resp.status_code != 200:
+                logger.error(f"[ACCESS-TOKEN] Provisioner failed ({resp.status_code}) for {self.tenant_id}: {resp.text}")
                 return {
                     "status": "auth_required",
                     "auth_type": "google_calendar",
@@ -197,9 +206,11 @@ class CalendarServiceClient:
                 }
             data = resp.json()
             if data.get("status") == "ready" and data.get("jwtToken"):
-                self.set_auth_token(data["jwtToken"])  # Critical: syncs JWT into headers
+                self.set_auth_token(data["jwtToken"], is_jwt=True)
                 logger.info(f"[ACCESS-TOKEN] JWT synced for tenant {self.tenant_id}")
                 return {"status": "ready"}
+            
+            logger.warning(f"[ACCESS-TOKEN] Provisioner returned non-ready status: {data.get('status')}")
             return {
                 "status": "auth_required",
                 "auth_type": "google_calendar",
@@ -222,7 +233,8 @@ class CalendarServiceClient:
             url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken"
             payload = {
                 "tenant_id": self.tenant_id,
-                "accessToken": self.access_token # CamelCase for Node.js
+                "accessToken": self.access_token,
+                "access_token": self.access_token
             }
             
             refresh_headers = self.headers.copy()
@@ -252,19 +264,29 @@ class CalendarServiceClient:
           { "granted": False, "auth_url": "...", "reason": "..." }     -> Must re-auth
         """
         try:
+            # Step 0: Ensure we have a JWT before even trying. 
+            # This handles cases where the "Intent Gate" was skipped.
+            if not getattr(self, "_jwt_synced", False):
+                logger.info(f"[GRANT-CHECK] JWT not synced yet for {self.tenant_id}. Syncing first...")
+                await self._sync_access_token()
+
             url = f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken?tenant_id={self.tenant_id}"
-            if self.access_token:
-                url += f"&accessToken={self.access_token}"
-                
             # Try with current JWT headers first
             resp = await self.client.get(url, headers=self.headers, timeout=10)
             
-            # If 401/403 and we have an access_token, try once with the login token in header
-            if resp.status_code in [401, 403] and self.access_token:
-                logger.info(f"[GRANT-CHECK] 401 with JWT for {self.tenant_id}. Retrying with Login Token...")
-                alt_headers = self.headers.copy()
-                alt_headers["Authorization"] = f"Bearer {self.access_token}"
-                resp = await self.client.get(url, headers=alt_headers, timeout=10)
+            # If 401/403, immediately try to REFRESH the JWT via Provisioner
+            if resp.status_code in [401, 403]:
+                logger.warning(f"[GRANT-CHECK] 401 on hasGrantToken for {self.tenant_id}. Attempting JWT Sync refresh...")
+                sync_resp = await self._sync_access_token()
+                
+                if sync_resp.get("status") == "ready":
+                    logger.info(f"[GRANT-CHECK] JWT Refreshed. Retrying hasGrantToken...")
+                    resp = await self.client.get(url, headers=self.headers, timeout=10)
+                elif self.access_token:
+                    logger.info(f"[GRANT-CHECK] JWT Sync failed. Retrying with Login Token fallback header...")
+                    alt_headers = self.headers.copy()
+                    alt_headers["Authorization"] = f"Bearer {self.access_token}"
+                    resp = await self.client.get(url, headers=alt_headers, timeout=10)
 
             data = resp.json()
 
@@ -382,28 +404,22 @@ class CalendarServiceClient:
             if is_potential_auth_issue and _retry_on_auth:
                 logger.info(f"[AUTH-HEAL] Potential auth issue ({response.status_code}) for {path}. Verifying session...")
                 
-                # Check internal session status
-                auth_url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
-                auth_check = await self.client.get(auth_url, headers=self.headers)
+                # Re-sync JWT using the hardened provisioner logic
+                auth_data = await self._sync_access_token()
                 
-                if auth_check.status_code == 200:
-                    auth_data = auth_check.json()
-                    # If internal check says "Actually we have a token", try refreshing it
-                    if auth_data.get("status") == "ready" and auth_data.get("jwtToken"):
-                        new_token = auth_data["jwtToken"]
-                        logger.info(f"[AUTH-HEAL] Found session record. Updating local token and retrying {path}...")
-                        self.set_auth_token(new_token)
-                        return await self.request(method, path, json_data, _retry_on_auth=False)
-                    
-                    # If internal check confirms auth is required
-                    if auth_data.get("status") == "auth_required":
-                         logger.warning(f"[AUTH-HEAL] Internal status confirms auth required for {self.tenant_id}.")
-                         return {
-                            "status": "auth_required",
-                            "auth_url": auth_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
-                            "message": "Calendar Access Required",
-                            "code": 401
-                         }
+                if auth_data.get("status") == "ready":
+                    logger.info(f"[AUTH-HEAL] Session successfully synced for {self.tenant_id}. Retrying {path}...")
+                    return await self.request(method, path, json_data, _retry_on_auth=False)
+                
+                # If sync confirms auth is required
+                if auth_data.get("status") == "auth_required":
+                     logger.warning(f"[AUTH-HEAL] Internal status confirms auth required for {self.tenant_id}.")
+                     return {
+                        "status": "auth_required",
+                        "auth_url": auth_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                        "message": "Calendar Access Required",
+                        "code": 401
+                     }
 
             # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
             if is_potential_auth_issue:
@@ -462,11 +478,27 @@ class CalendarServiceClient:
                 return {}
             
             # AUTOMATIC UNWRAPPING: Handle Node.js standard response envelopes
+            actual_data = resp
             if isinstance(resp, dict) and resp.get("status") == "success" and "data" in resp:
                 logger.info(f"[DB-SESSION] Unwrapped session data for {tenant_id}")
-                return resp["data"]
+                actual_data = resp["data"]
+            
+            # TOKEN RECOVERY: If we don't have a token in memory but it's in the DB, harvest it.
+            if isinstance(actual_data, dict):
+                metadata = actual_data.get("metadata", {})
+                if isinstance(metadata, str):
+                    try: metadata = json.loads(metadata)
+                    except: metadata = {}
                 
-            return resp if isinstance(resp, dict) else {}
+                remote_token = metadata.get("remote_access_token")
+                if remote_token and not self.access_token:
+                    logger.info(f"[{tenant_id}] Harvested Login Token from Session Metadata.")
+                    self.access_token = remote_token
+                    # Only override header if it's empty to avoid stomping valid JWTs
+                    if "Authorization" not in self.headers or not self.headers["Authorization"]:
+                        self.set_auth_token(remote_token)
+
+            return actual_data if isinstance(actual_data, dict) else {}
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
             return {}
@@ -552,7 +584,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 if data.get("jwtToken"):
                     # NOTE: This replaces any token passed from verify_tenant_access
                     # with the one from history (which is the most recent JWT).
-                    calendar_service.set_auth_token(data["jwtToken"])
+                    calendar_service.set_auth_token(data["jwtToken"], is_jwt=True)
                     break
             except: continue
 
