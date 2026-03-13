@@ -2,6 +2,8 @@
 import json
 from src.logger import logger
 from src.utils import format_sync_chat_payload
+from src.remote_services.matterminer_core import MatterMinerCoreClient
+from src.config import settings
 
 # The full list of fields required for a complete client record - ORDERED BY PRIORITY
 REQUIRED_FIELDS = ["first_name", "last_name", "client_number", "client_type", "email"]
@@ -88,8 +90,15 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
 
         # ALL FIELDS CAPTURED & AUTHENTICATED: Finalize the record
         try:
-            # Pass the token so save_new_client can use it for the remote call
-            save_result = await services['calendar'].save_new_client(final_args, tenant_id, token=token)
+            # Separation of Concerns: Use the Core Client for Core Services
+            core_client = MatterMinerCoreClient(
+                base_url=settings.NODE_REMOTE_SERVICE_URL,
+                tenant_id=tenant_id
+            )
+            core_client.set_auth_token(token)
+            
+            logger.info(f"[CLIENT] Initiating remote save to MatterMiner Core for tenant {tenant_id}")
+            save_result = await core_client.create_client(final_args)
             logger.info(f"Final record save result: {save_result}")
             
             # CLEAR DRAFT SESSION: Important to prevent the AI from seeing "Locked" data on the next new client
@@ -126,8 +135,9 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                 except Exception as e:
                     logger.error(f"[CLIENT] Sync wipe failed: {e}")
             else:
-                logger.error(f"[CLIENT] Remote save failed (Status: {getattr(save_result, 'status_code', 'Unknown')}). Retaining session.")
-                return {"status": "error", "message": f"The remote system rejected the record. Reason: {getattr(save_result, 'text', 'Unknown error')}"}
+                error_msg = save_result.get("message", "Unknown error")
+                logger.error(f"[CLIENT] Remote save failed. Reason: {error_msg}")
+                return {"status": "error", "message": f"The remote system rejected the record. Reason: {error_msg}"}
 
             # Format the success message with a structured Markdown table for HTML rendering
             summary_table = (
@@ -136,7 +146,7 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                 "| :--- | :--- |\n"
                 f"| **First Name** | {final_args.get('first_name')} |\n"
                 f"| **Last Name** | {final_args.get('last_name')} |\n"
-                f"| **ID Number** | {final_args.get('client_number', 'N/A')} |\n"
+                f"| **Customer Number** | {final_args.get('client_number', 'N/A')} |\n"
                 f"| **Type** | {final_args.get('client_type', 'N/A')} |\n"
                 f"| **Email** | {final_args.get('email', 'N/A')} |\n"
             )

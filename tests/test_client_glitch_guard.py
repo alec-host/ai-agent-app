@@ -59,7 +59,7 @@ async def test_client_id_update_does_not_wipe_name():
     assert sync_payload["client_number"] == "C483838"
 
 @pytest.mark.asyncio
-async def test_client_save_failure_retains_session():
+async def test_client_save_failure_retains_session(monkeypatch):
     """
     Verify that if the remote save fails (e.g. 404), the session is NOT cleared.
     """
@@ -77,11 +77,12 @@ async def test_client_save_failure_retains_session():
     }
     mock_cal_service.thread_id = "test_thread"
     
-    # Mock save_new_client to return a 404 response
-    mock_response = MagicMock()
-    mock_response.status_code = 404
-    mock_response.text = "Not Found"
-    mock_cal_service.save_new_client.return_value = mock_response
+    # Mock MatterMinerCoreClient.create_client to return an error dict
+    mock_core_client = MagicMock()
+    mock_core_client.create_client = AsyncMock(return_value={"status": "error", "message": "Not Found"})
+    mock_core_client.set_auth_token = MagicMock()
+    
+    monkeypatch.setattr("src.agents.client_creation_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
     services = {"calendar": mock_cal_service}
     
@@ -94,7 +95,7 @@ async def test_client_save_failure_retains_session():
     mock_cal_service.clear_client_session.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_client_save_success_clears_session():
+async def test_client_save_success_clears_session(monkeypatch):
     """
     Verify that if the remote save succeeds, the session is cleared.
     """
@@ -112,10 +113,12 @@ async def test_client_save_success_clears_session():
     }
     mock_cal_service.thread_id = "test_thread"
     
-    # Mock save_new_client to return a 201 Created response
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_cal_service.save_new_client.return_value = mock_response
+    # Mock MatterMinerCoreClient.create_client to return success
+    mock_core_client = MagicMock()
+    mock_core_client.create_client = AsyncMock(return_value={"status": "success"})
+    mock_core_client.set_auth_token = MagicMock()
+    
+    monkeypatch.setattr("src.agents.client_creation_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
     services = {"calendar": mock_cal_service}
     
@@ -131,24 +134,23 @@ async def test_client_save_success_clears_session():
 @respx.mock
 async def test_save_new_client_endpoint_resolution():
     """
-    Verify that save_new_client uses the authenticated request wrapper correctly.
+    Verify that create_client hits the correct remote endpoint.
     """
-    from src.main import CalendarServiceClient
+    from src.remote_services.matterminer_core import MatterMinerCoreClient
     
-    client = CalendarServiceClient(
-        tenant_id="12345678", 
-        http_client=httpx.AsyncClient(), 
-        correlation_id="test_corr"
+    client = MatterMinerCoreClient(
+        base_url="https://dev.matterminer.com/api",
+        tenant_id="12345678"
     )
+    client.set_auth_token("test_token")
     
     # Mock the Remote Core endpoint
-    # Note: save_new_client now uses node_remote_service_url (https://dev.matterminer.com/api)
     route = respx.post("https://dev.matterminer.com/api/clients").mock(
         return_value=httpx.Response(201, json={"status": "success"})
     )
     
     client_data = {"first_name": "John", "last_name": "Doe"}
-    resp = await client.save_new_client(client_data, "12345678", token="mock_remote_token")
+    resp = await client.create_client(client_data)
     
     assert route.called
     assert resp["status"] == "success"

@@ -409,53 +409,6 @@ class CalendarServiceClient:
         except Exception as e:
             logger.error(f"[CONFLICT CHECK] Request failed: {e}")
             return False
-    async def save_new_client(self, client_data: dict, tenant_id: str, token: str = None):
-        """
-        Finalizes the client record by moving it from a 'chat session' 
-        to the permanent 'clients' table in MatterMiner Core.
-        """
-        payload = {
-            "tenantId": tenant_id,
-            "client_number": client_data.get("client_number"),
-            "client_type": client_data.get("client_type"),
-            "first_name": client_data.get("first_name"),
-            "last_name": client_data.get("last_name"),
-            "email": client_data.get("email")
-        }
-
-        # If no token is provided, we can't hit the Core services
-        if not token:
-            logger.error(f"[CLIENT-SAVE] Missing remote_access_token for tenant {tenant_id}")
-            return {"status": "error", "message": "Authentication token for MatterMiner Core is missing."}
-
-        # Use the Remote (Core) URL instead of the local Node service URL
-        url = f"{settings.NODE_REMOTE_SERVICE_URL}/clients"
-        
-        # Override headers for the remote Core request
-        remote_headers = {
-            "Content-Type": "application/json",
-            "X-Tenant-ID": tenant_id,
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json"
-        }
-
-        try:
-            logger.info(f"[CLIENT-SAVE] Initiating remote save to {url} for tenant {tenant_id}")
-            resp = await self.client.post(url, json=payload, headers=remote_headers, timeout=20.0)
-            
-            if resp.status_code in [200, 201]:
-                return resp.json()
-            else:
-                try:
-                    error_data = resp.json()
-                except:
-                    error_data = {"message": resp.text}
-                logger.error(f"[CLIENT-SAVE] Remote rejection ({resp.status_code}): {error_data}")
-                return {"status": "error", "message": error_data.get("message", "Remote save failed")}
-        except Exception as e:
-            logger.error(f"[CLIENT-SAVE] Fatal exception during remote save: {e}")
-            return {"status": "error", "message": f"Connection to MatterMiner Core failed: {str(e)}"}
-    
     async def get_client_session(self, tenant_id: str):
         """Fetches partial intake data from the Node.js chatsessions table."""
         try:

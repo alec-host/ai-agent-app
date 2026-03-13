@@ -101,6 +101,18 @@ class MatterMinerCoreClient:
         """Creates a new contact record in the remote system."""
         return await self.request("POST", "/contacts", json_data=payload)
 
+    async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registers a new client record in MatterMiner Core."""
+        payload = {
+            "tenantId": self.tenant_id,
+            "client_number": client_data.get("client_number"),
+            "client_type": client_data.get("client_type"),
+            "first_name": client_data.get("first_name"),
+            "last_name": client_data.get("last_name"),
+            "email": client_data.get("email")
+        }
+        return await self.request("POST", "/clients", json_data=payload)
+
     async def get_countries(self, search: str = "", page: int = 1, per_page: int = 15) -> Dict[str, Any]:
         """Retrieves a list of countries based on search and pagination."""
         params = {
