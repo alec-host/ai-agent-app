@@ -200,46 +200,51 @@ def get_starter_chips():
         {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None, client_draft=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
+    
+    STRICT SEPARATION:
+    - metadata['client_draft']: For the 'Register New Client' workflow.
+    - metadata['contact_draft']: For the 'Create Contact' workflow.
+    - metadata['event_draft']: For the 'Calendar' workflow.
     """
     client_data = client_args or {}
     
-    # BASE METADATA: Start with what's passed, but PRESERVE others if they exist in the existing metadata
-    # We omit this from sys_metadata creation to avoid wiping keys during partial syncs
-    sys_metadata = {
-        "chat_history": history if history is not None else [],
-        "event_draft": event_draft if event_draft is not None else {},
-        "active_workflow": active_workflow, 
-        "session_lifecycle": session_lifecycle
-    }
+    # 1. Start with the existing metadata as the base (Additive Sync)
+    final_metadata = (metadata.copy() if metadata else {}).copy()
     
-    # If contact_draft is passed (e.g. from core_agent), include it
+    # 2. Update namespaces if explicitly provided
+    if history is not None:
+        final_metadata["chat_history"] = history
+    
+    if event_draft is not None:
+        final_metadata["event_draft"] = event_draft
+        
     if contact_draft is not None:
-        sys_metadata["contact_draft"] = contact_draft
+        final_metadata["contact_draft"] = contact_draft
+
+    if client_draft is not None:
+        final_metadata["client_draft"] = client_draft
+        
+    if active_workflow:
+        final_metadata["active_workflow"] = active_workflow
+        
+    if session_lifecycle:
+        final_metadata["session_lifecycle"] = session_lifecycle
     
-    # If a full metadata dict is provided (from the agent), use it as the base and merge sys fields
-    if metadata:
-        final_metadata = metadata.copy()
-        # Ensure we don't accidentally wipe history if it was passed separately
-        if history is not None: final_metadata["chat_history"] = history
-        if event_draft is not None: final_metadata["event_draft"] = event_draft
-        if contact_draft is not None: final_metadata["contact_draft"] = contact_draft
-        if active_workflow: final_metadata["active_workflow"] = active_workflow
-        if session_lifecycle: final_metadata["session_lifecycle"] = session_lifecycle
-    else:
-        final_metadata = sys_metadata
-    
+    # 3. Construct the flat payload for the database
+    # Top-level columns are treated as the 'Identity' of the row.
     payload = {
         "tenantId": tenant_id,
         "threadId": thread_id,
-        "first_name": client_data.get("first_name"),
-        "last_name": client_data.get("last_name"),
-        "client_number": client_data.get("client_number"),
-        "client_type": client_data.get("client_type"),
-        "email": client_data.get("email"),
+        # Sync identity columns from the provided client_args (or client_draft fallback)
+        "first_name": client_data.get("first_name") or (client_draft.get("first_name") if client_draft else None),
+        "last_name": client_data.get("last_name") or (client_draft.get("last_name") if client_draft else None),
+        "client_number": client_data.get("client_number") or (client_draft.get("client_number") if client_draft else None),
+        "client_type": client_data.get("client_type") or (client_draft.get("client_type") if client_draft else None),
+        "email": client_data.get("email") or (client_draft.get("email") if client_draft else None),
         "metadata": final_metadata
     }
     return payload

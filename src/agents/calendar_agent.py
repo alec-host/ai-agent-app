@@ -80,7 +80,14 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             # Validation
             if not current_draft.get("startTime") or not current_draft.get("title"):
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
+                    format_sync_chat_payload(
+                        tenant_id=tenant_id, 
+                        client_args=db_data, 
+                        event_draft=current_draft, 
+                        history=history, 
+                        active_workflow="calendar", 
+                        thread_id=thread_id
+                    )
                 )
                 missing = []
                 if not current_draft.get("title"): missing.append("an Event Title")
@@ -95,7 +102,14 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             if not current_draft.get("summary_requested"):
                 current_draft["summary_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
+                    format_sync_chat_payload(
+                        tenant_id=tenant_id, 
+                        client_args=db_data, 
+                        event_draft=current_draft, 
+                        history=history, 
+                        active_workflow="calendar", 
+                        thread_id=thread_id
+                    )
                 )
                 return {
                     "status": "partial_success",
@@ -106,7 +120,14 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             if not current_draft.get("attendees_requested"):
                 current_draft["attendees_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
+                    format_sync_chat_payload(
+                        tenant_id=tenant_id, 
+                        client_args=db_data, 
+                        event_draft=current_draft, 
+                        history=history, 
+                        active_workflow="calendar", 
+                        thread_id=thread_id
+                    )
                 )
                 return {
                     "status": "partial_success",
@@ -117,7 +138,14 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             if not current_draft.get("location_requested"):
                 current_draft["location_requested"] = True
                 await calendar_service.sync_client_session(
-                    format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
+                    format_sync_chat_payload(
+                        tenant_id=tenant_id, 
+                        client_args=db_data, 
+                        event_draft=current_draft, 
+                        history=history, 
+                        active_workflow="calendar", 
+                        thread_id=thread_id
+                    )
                 )
                 return {
                     "status": "partial_success",
@@ -145,7 +173,14 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
             # PRE-FLIGHT SYNC
             await calendar_service.sync_client_session(
-                format_sync_chat_payload(tenant_id, db_data, current_draft, history, active_workflow="calendar", thread_id=thread_id)
+                format_sync_chat_payload(
+                    tenant_id=tenant_id, 
+                    client_args=db_data, 
+                    event_draft=current_draft, 
+                    history=history, 
+                    active_workflow="calendar", 
+                    thread_id=thread_id
+                )
             )
 
             # Execute save to actual calendar

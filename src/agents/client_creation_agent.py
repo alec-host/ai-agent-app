@@ -28,20 +28,21 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
             services['calendar'].thread_id = discovered_thread_id
             logger.info(f"[{tenant_id}] Client Thread self-discovered: {discovered_thread_id}")
 
-        db_metadata = db_data.get("metadata", {})
-        # Recover chat history from metadata if available
-        db_history = db_metadata.get("chat_history", [])
     except Exception as e:
         logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
-        db_history = []
 
-    # 2. INITIALIZE & SAFE MERGE (Prioritize new args, fallback to DB)
+    db_metadata = db_data.get("metadata", {})
+    client_draft = db_metadata.get("client_draft", {})
+    # Recover chat history from metadata if available
+    db_history = db_metadata.get("chat_history", [])
+
+    # 2. INITIALIZE & SAFE MERGE (Prioritize new args, fallback to Draft)
     final_args = {
-        "first_name": args.get("first_name") or db_data.get("first_name"),
-        "last_name": args.get("last_name") or db_data.get("last_name"),
-        "client_number": args.get("client_number") or db_data.get("client_number"),
-        "client_type": args.get("client_type") or db_data.get("client_type"),
-        "email": args.get("email") or db_data.get("email")          
+        "first_name": args.get("first_name") or client_draft.get("first_name"),
+        "last_name": args.get("last_name") or client_draft.get("last_name"),
+        "client_number": args.get("client_number") or client_draft.get("client_number"),
+        "client_type": args.get("client_type") or client_draft.get("client_type"),
+        "email": args.get("email") or client_draft.get("email")          
     }
     
     # 2.5 GLITCH GUARD: Prevent ID format from leaking into last_name
@@ -62,11 +63,13 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
         # Use the unified payload formatter
         sync_payload = format_sync_chat_payload(
             tenant_id=tenant_id,
-            client_args=final_args,
+            client_args=db_data, # Use existing identity
+            client_draft=final_args, # Isolated workflow draft
             event_draft=db_metadata.get("event_draft"),
+            contact_draft=db_metadata.get("contact_draft"),
             history=history if history else db_history,
             active_workflow="client",
-            metadata=db_metadata # CRITICAL: Preserve existing metadata (contact_draft, remote_access_token, etc)
+            metadata=db_metadata # Maintain all other keys (tokens, etc)
         )
         
         await services['calendar'].sync_client_session(sync_payload)
@@ -113,19 +116,16 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
                 try:
                     wipe_payload = format_sync_chat_payload(
                         tenant_id=tenant_id,
-                        client_args={
+                        client_args=db_data, # Maintain identity if needed, but the session is being cleared anyway
+                        client_draft={
                             "first_name": None,
                             "last_name": None,
                             "client_number": None,
                             "client_type": None,
                             "email": None
                         },
-                        event_draft={
-                            "title": None, 
-                            "startTime": None,
-                            "summary": None,
-                            "optional_fields_requested": False
-                        },
+                        event_draft=db_metadata.get("event_draft"),
+                        contact_draft=db_metadata.get("contact_draft"),
                         active_workflow="cleared", 
                         history=history,
                         session_lifecycle="completed"

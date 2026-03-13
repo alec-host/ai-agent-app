@@ -28,8 +28,11 @@ async def test_client_glitch_guard_id_collision():
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
     # Glitch guard should have reset last_name to None because it matched the alphanumeric ID
+    # Check top-level (mapped) and metadata (raw draft)
     assert sync_payload["last_name"] is None
+    assert sync_payload["metadata"]["client_draft"]["last_name"] is None
     assert sync_payload["client_number"] == "C483838"
+    assert sync_payload["metadata"]["client_draft"]["client_number"] == "C483838"
 
 @pytest.mark.asyncio
 async def test_client_id_update_does_not_wipe_name():
@@ -38,11 +41,15 @@ async def test_client_id_update_does_not_wipe_name():
     does not accidentally wipe an existing valid last_name.
     """
     mock_cal_service = AsyncMock()
-    # Mock DB already has the correct name
+    # Mock DB already has the correct name in the client_draft namespace
     mock_cal_service.get_client_session.return_value = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "client_number": None
+        "metadata": {
+            "client_draft": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "client_number": None
+            }
+        }
     }
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
@@ -54,9 +61,9 @@ async def test_client_id_update_does_not_wipe_name():
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
-    # The name should STILL be "Doe"
-    assert sync_payload["last_name"] == "Doe"
-    assert sync_payload["client_number"] == "C483838"
+    # The name should STILL be "Doe" in the client_draft
+    assert sync_payload["metadata"]["client_draft"]["last_name"] == "Doe"
+    assert sync_payload["metadata"]["client_draft"]["client_number"] == "C483838"
 
 @pytest.mark.asyncio
 async def test_client_save_failure_retains_session(monkeypatch):
@@ -65,12 +72,14 @@ async def test_client_save_failure_retains_session(monkeypatch):
     """
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "client_number": "C123",
-        "client_type": "individual",
-        "email": "john@test.com",
         "metadata": {
+            "client_draft": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "client_number": "C123",
+                "client_type": "individual",
+                "email": "john@test.com"
+            },
             "active_workflow": "client",
             "remote_access_token": "valid_mock_token"
         }
@@ -101,12 +110,14 @@ async def test_client_save_success_clears_session(monkeypatch):
     """
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "client_number": "C123",
-        "client_type": "individual",
-        "email": "john@test.com",
         "metadata": {
+            "client_draft": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "client_number": "C123",
+                "client_type": "individual",
+                "email": "john@test.com"
+            },
             "active_workflow": "client",
             "remote_access_token": "valid_mock_token"
         }
