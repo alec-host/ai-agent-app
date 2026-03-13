@@ -157,6 +157,23 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             duration = int(current_draft.get("duration_minutes", 60))
             try:
                 end_time = calendar_service.calculate_end_time(current_draft["startTime"], duration, reference_time=ref_time)
+                if not end_time:
+                    current_draft["startTime"] = None
+                    await calendar_service.sync_client_session(
+                        format_sync_chat_payload(
+                            tenant_id=tenant_id, 
+                            client_args=db_data, 
+                            event_draft=current_draft, 
+                            history=[], 
+                            active_workflow="calendar", 
+                            thread_id=thread_id
+                        )
+                    )
+                    return {
+                        "status": "partial_success",
+                        "message": "Start time must be a strict ISO 8601 string.",
+                        "response_instruction": f"You provided an invalid time format ({args.get('startTime')}). Rely on the SYSTEM STATE for the actual current date, then format the user's requested time exactly as an ISO 8601 string (e.g., 2026-03-14T08:00:00Z). Briefly ask the user again if needed."
+                    }
                 current_draft["endTime"] = end_time
             except Exception as e:
                 return {"status": "error", "message": f"Invalid time format: {e}"}

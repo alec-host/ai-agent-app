@@ -757,7 +757,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
-        current_now_utc = datetime.now(timezone.utc).strftime("%I:%M %p UTC")
+        current_now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %I:%M %p UTC")
 
         state_injection = {
             "role": "system", 
