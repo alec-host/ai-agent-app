@@ -92,11 +92,23 @@ async def health_check(request: Request):
 async def verify_tenant_access(
     x_tenant_id: str = Header(...), 
     x_user_timezone: str = Header("UTC"),
-    user_role: str = Header("Associate")
+    user_role: str = Header("Associate"),
+    authorization: Optional[str] = Header(None)
 ):
     if not x_tenant_id:
         raise HTTPException(status_code=401, detail="X-Tenant-ID is required.")
-    return {"tenant_id": x_tenant_id, "role": user_role.lower(), "timezone": x_user_timezone}
+    
+    # Extract token if "Bearer " prefix exists
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:]
+    
+    return {
+        "tenant_id": x_tenant_id, 
+        "role": user_role.lower(), 
+        "timezone": x_user_timezone,
+        "token": token
+    }
 
 # ---0. Track token usage ---
 async def update_tenant_wallet(tenant_id: str, usage_object, calendar_service):
@@ -129,18 +141,20 @@ async def update_tenant_wallet(tenant_id: str, usage_object, calendar_service):
 # --- 3. Node.js Backend API Client ---            
 class CalendarServiceClient:
     """Async client to communicate with the existing Node.js Microservice."""
-    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None):
+
+    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None, access_token: str = None):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
-        # SELF-HEALING: If no thread_id provided (legacy/direct call), 
-        # use a stable fallback to restore amnesia-fix memory while preventing 
-        # Node.js 'undefined' crashes.
         self.thread_id = thread_id or "default_session"
+        self.access_token = access_token # The token passed from frontend
         self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
         }
+        if access_token:
+            self.set_auth_token(access_token)
+            
         self.client = http_client 
         self.timeout = httpx.Timeout(15.0)
         
@@ -162,9 +176,18 @@ class CalendarServiceClient:
         """
         try:
             url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
-            # CLEAN HANDSHAKE: Do not pass the existing Authorization header here.
-            # If we pass an expired Bearer token to the provisioner, it might reject the request!
-            handshake_headers = {k: v for k, v in self.headers.items() if k != "Authorization"}
+            if self.access_token:
+                # Pass as both query param and in headers for maximum compatibility
+                url += f"&accessToken={self.access_token}"
+                
+            handshake_headers = self.headers.copy()
+            if self.access_token:
+                handshake_headers["Authorization"] = f"Bearer {self.access_token}"
+            else:
+                # If no login token, at least remove any stale JWT to avoid collision
+                if "Authorization" in handshake_headers:
+                    del handshake_headers["Authorization"]
+
             resp = await self.client.get(url, headers=handshake_headers, timeout=10)
             if resp.status_code != 200:
                 return {
@@ -197,9 +220,17 @@ class CalendarServiceClient:
         """
         try:
             url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken"
-            payload = {"tenant_id": self.tenant_id}
-            # Bearer Token is already in self.headers from _sync_access_token()
-            resp = await self.client.post(url, json=payload, headers=self.headers, timeout=10)
+            payload = {
+                "tenant_id": self.tenant_id,
+                "accessToken": self.access_token # CamelCase for Node.js
+            }
+            
+            refresh_headers = self.headers.copy()
+            if self.access_token:
+                # Use the login token for auth-management endpoints
+                refresh_headers["Authorization"] = f"Bearer {self.access_token}"
+
+            resp = await self.client.post(url, json=payload, headers=refresh_headers, timeout=10)
             data = resp.json()
             if data.get("success"):
                 logger.info(f"[SILENT-REFRESH] Successfully refreshed Google token for {self.tenant_id}")
@@ -222,8 +253,19 @@ class CalendarServiceClient:
         """
         try:
             url = f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken?tenant_id={self.tenant_id}"
-            # self.headers already contains Authorization: Bearer <jwt> from _sync_access_token()
+            if self.access_token:
+                url += f"&accessToken={self.access_token}"
+                
+            # Try with current JWT headers first
             resp = await self.client.get(url, headers=self.headers, timeout=10)
+            
+            # If 401/403 and we have an access_token, try once with the login token in header
+            if resp.status_code in [401, 403] and self.access_token:
+                logger.info(f"[GRANT-CHECK] 401 with JWT for {self.tenant_id}. Retrying with Login Token...")
+                alt_headers = self.headers.copy()
+                alt_headers["Authorization"] = f"Bearer {self.access_token}"
+                resp = await self.client.get(url, headers=alt_headers, timeout=10)
+
             data = resp.json()
 
             # 1. SUCCESS: Grant is valid
@@ -492,7 +534,13 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         return {"response": "Conversation history cleared.", "history": []}
 
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
-    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id, thread_id=req.thread_id)
+    calendar_service = CalendarServiceClient(
+        tenant_id, 
+        request.app.state.http_client, 
+        correlation_id=corr_id, 
+        thread_id=req.thread_id,
+        access_token=auth.get("token")
+    )
     
     # Session Recovery: Restore JWT from history if present (CRITICAL: Fixes auth-healing on first turn)
     cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
@@ -502,6 +550,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             try:
                 data = json.loads(content)
                 if data.get("jwtToken"):
+                    # NOTE: This replaces any token passed from verify_tenant_access
+                    # with the one from history (which is the most recent JWT).
                     calendar_service.set_auth_token(data["jwtToken"])
                     break
             except: continue
