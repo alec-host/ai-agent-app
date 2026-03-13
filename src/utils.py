@@ -95,8 +95,14 @@ async def get_rehydration_context(tenant_id, services):
         if not resp or not isinstance(resp, dict):
             return None
 
-        # 0. LIFECYCLE CHECK
+        # 0. LIFECYCLE CHECK & METADATA PARSING
         metadata = resp.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+        
         lifecycle = metadata.get("session_lifecycle", "active")
         if lifecycle == "completed":
             logger.info(f"[REHYDRATION] Skipping completed session for tenant: {tenant_id}")
@@ -111,33 +117,37 @@ async def get_rehydration_context(tenant_id, services):
             "email": resp.get("email")
         }.items() if v}
 
-        # 3. OAUTH RE-HYDRATION DETECTION
-        # Check if we just returned from OAuth (Status Ready + Existing Draft)
-        metadata = resp.get("metadata", {})
+        # 1.5 CLIENT DRAFT RE-HYDRATION
+        client_draft = metadata.get("client_draft", {})
         event_draft = metadata.get("event_draft", {})
         active_workflow = metadata.get("active_workflow")
-        
+
+        # 3. OAUTH RE-HYDRATION DETECTION
+        # Check if we just returned from OAuth (Status Ready + Existing Draft)
         auth_status = await calendar_service._sync_access_token()
         is_newly_ready = isinstance(auth_status, dict) and auth_status.get("status") == "ready"
-        
+
         # Construct segments
         blocks = []
         recovery_instruction = ""
 
-        if vault_state:
-            # Detect which fields are missing to formulate a recovery prompt
-            required = ["first_name", "last_name", "client_number", "client_type", "email"]
-            missing = [f for f in required if not vault_state.get(f)]
+        if (vault_state or client_draft) and active_workflow == "client":
+            # Prefer namespaced draft if available, else top-level
+            full_client_state = {**vault_state, **{k:v for k,v in client_draft.items() if v}}
             
-            if missing:
-                recovery_instruction = (
-                    "### RECOVERY MODE: PARTIAL DATA DETECTED ###\n"
-                    f"The user was previously registering a client. Known: {list(vault_state.keys())}. "
-                    "In your first message, you MUST acknowledge this and ask: 'I see we have a partial registration for "
-                    f"{vault_state.get('first_name', 'a client')}. Would you like to resume or start fresh?'"
-                )
-            
-            blocks.append(f"CLIENT PROFILE:\n{json.dumps(vault_state, indent=2)}")
+            if full_client_state:
+                # Detect which fields are missing to formulate a recovery prompt
+                required = ["first_name", "last_name", "client_number", "client_type", "email"]
+                missing = [f.replace('_', ' ').title() for f in required if not full_client_state.get(f)]
+                
+                if missing:
+                    recovery_instruction = (
+                        "### RECOVERY MODE: CLIENT INTAKE DETECTED ###\n"
+                        f"The user was previously registering a client. Known: {list(full_client_state.keys())}. "
+                        f"Acknowledge the partial info and ask for the {missing[0]}."
+                    )
+                
+                blocks.append(f"CLIENT PROFILE:\n{json.dumps(full_client_state, indent=2)}")
 
         if event_draft and active_workflow == "calendar" and any(v is not None for v in event_draft.values()):
             # Mask sensitive internal fields

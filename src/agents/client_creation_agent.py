@@ -31,18 +31,27 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
     except Exception as e:
         logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
 
-    db_metadata = db_data.get("metadata", {})
+    # 1.5 ROBUST METADATA RECOVERY
+    raw_metadata = db_data.get("metadata", {})
+    if isinstance(raw_metadata, str):
+        try:
+            db_metadata = json.loads(raw_metadata)
+        except:
+            db_metadata = {}
+    else:
+        db_metadata = raw_metadata or {}
+
     client_draft = db_metadata.get("client_draft", {})
     # Recover chat history from metadata if available
     db_history = db_metadata.get("chat_history", [])
 
-    # 2. INITIALIZE & SAFE MERGE (Prioritize new args, fallback to Draft)
+    # 2. INITIALIZE & SAFE MERGE (Prioritize new args -> then Draft -> then top-level DB)
     final_args = {
-        "first_name": args.get("first_name") or client_draft.get("first_name"),
-        "last_name": args.get("last_name") or client_draft.get("last_name"),
-        "client_number": args.get("client_number") or client_draft.get("client_number"),
-        "client_type": args.get("client_type") or client_draft.get("client_type"),
-        "email": args.get("email") or client_draft.get("email")          
+        "first_name": args.get("first_name") or client_draft.get("first_name") or db_data.get("first_name"),
+        "last_name": args.get("last_name") or client_draft.get("last_name") or db_data.get("last_name"),
+        "client_number": args.get("client_number") or client_draft.get("client_number") or db_data.get("client_number"),
+        "client_type": args.get("client_type") or client_draft.get("client_type") or db_data.get("client_type"),
+        "email": args.get("email") or client_draft.get("email") or db_data.get("email")
     }
     
     # 2.5 GLITCH GUARD: Prevent ID format from leaking into last_name

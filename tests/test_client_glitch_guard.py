@@ -165,3 +165,33 @@ async def test_save_new_client_endpoint_resolution():
     
     assert route.called
     assert resp["status"] == "success"
+@pytest.mark.asyncio
+async def test_client_creation_stringified_metadata():
+    """
+    Verify that the agent correctly parses stringified metadata returned by the database.
+    """
+    mock_cal_service = AsyncMock()
+    # Database returns metadata as a JSON string
+    mock_cal_service.get_client_session.return_value = {
+        "metadata": json.dumps({
+            "client_draft": {
+                "first_name": "String",
+                "last_name": "Parsing"
+            },
+            "active_workflow": "client"
+        })
+    }
+    mock_cal_service.thread_id = "test_thread"
+    services = {"calendar": mock_cal_service}
+    
+    # AI provides a new field
+    args = {"email": "string@test.com"}
+    
+    await handle_client_creation("create_client_record", args, services, "12345678", [])
+    
+    # Verify sync call args
+    sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
+    # Existing fields should have been recovered from the stringified metadata
+    assert sync_payload["metadata"]["client_draft"]["first_name"] == "String"
+    assert sync_payload["metadata"]["client_draft"]["last_name"] == "Parsing"
+    assert sync_payload["metadata"]["client_draft"]["email"] == "string@test.com"
