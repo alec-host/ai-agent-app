@@ -32,6 +32,33 @@ async def test_client_glitch_guard_id_collision():
     assert sync_payload["client_number"] == "C483838"
 
 @pytest.mark.asyncio
+async def test_client_id_update_does_not_wipe_name():
+    """
+    REGRESSION TEST: Verify that providing ONLY the client_number 
+    does not accidentally wipe an existing valid last_name.
+    """
+    mock_cal_service = AsyncMock()
+    # Mock DB already has the correct name
+    mock_cal_service.get_client_session.return_value = {
+        "first_name": "John",
+        "last_name": "Doe",
+        "client_number": None
+    }
+    mock_cal_service.thread_id = "test_thread"
+    services = {"calendar": mock_cal_service}
+    
+    # AI only provides the number in this turn
+    args = {"client_number": "C483838"}
+    
+    await handle_client_creation("create_client_record", args, services, "12345678", [])
+    
+    # Verify sync call args
+    sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
+    # The name should STILL be "Doe"
+    assert sync_payload["last_name"] == "Doe"
+    assert sync_payload["client_number"] == "C483838"
+
+@pytest.mark.asyncio
 async def test_client_save_failure_retains_session():
     """
     Verify that if the remote save fails (e.g. 404), the session is NOT cleared.

@@ -43,13 +43,14 @@ async def handle_client_creation(func_name, args, services, tenant_id, history):
     }
     
     # 2.5 GLITCH GUARD: Prevent ID format from leaking into last_name
-    # If last_name matches the client_number and contains numbers, it's likely a mapping error
-    if final_args.get("last_name") == final_args.get("client_number") and final_args.get("client_number"):
-        import re
-        if any(char.isdigit() for char in str(final_args["last_name"])):
-            logger.warning(f"[GLITCH-GUARD] ID {final_args['client_number']} detected in last_name. Resetting.")
-            # If the tool call explicitly provided a name that isn't the number, use it; otherwise reset
-            final_args["last_name"] = args.get("last_name") if args.get("last_name") != args.get("client_number") else None
+    # Trigger ONLY if the incoming tool call is explicitly providing a numeric string for last_name
+    incoming_last_name = args.get("last_name")
+    if incoming_last_name and any(char.isdigit() for char in str(incoming_last_name)):
+        # If it matches the client number, it's a mapping error
+        if incoming_last_name == final_args.get("client_number"):
+            logger.warning(f"[GLITCH-GUARD] Blocking ID {incoming_last_name} from being saved as last_name.")
+            # Restore from DB or set to None (to avoid saving the numeric value)
+            final_args["last_name"] = db_data.get("last_name") if db_data.get("last_name") != incoming_last_name else None
 
     # 3. SYNC TO DATABASE (Incremental Persistence)
     try:

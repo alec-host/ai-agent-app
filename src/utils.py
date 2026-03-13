@@ -207,13 +207,18 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
     """
     client_data = client_args or {}
     
-    # Base metadata structure
+    # BASE METADATA: Start with what's passed, but PRESERVE others if they exist in the existing metadata
+    # We omit this from sys_metadata creation to avoid wiping keys during partial syncs
     sys_metadata = {
         "chat_history": history if history is not None else [],
         "event_draft": event_draft if event_draft is not None else {},
         "active_workflow": active_workflow, 
         "session_lifecycle": session_lifecycle
     }
+    
+    # If contact_draft is passed (e.g. from core_agent), include it
+    if contact_draft is not None:
+        sys_metadata["contact_draft"] = contact_draft
     
     # If a full metadata dict is provided (from the agent), use it as the base and merge sys fields
     if metadata:
