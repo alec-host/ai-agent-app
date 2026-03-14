@@ -244,12 +244,23 @@ async def handle_create_client(args, services, tenant_id, history):
         # Cascade search: arg alias -> exact arg -> draft -> db
         search_keys = [key] + field.get("aliases", [])
         for k in search_keys:
-            if args.get(k):
-                val = args.get(k)
+            candidate = args.get(k)
+            # Use candidate if it's a non-empty string or non-None
+            if candidate is not None and (not isinstance(candidate, str) or candidate.strip()):
+                val = candidate
                 break
         
-        if not val:
-            val = client_draft.get(key) or db_data.get(key)
+        if val is None:
+            # Fallback to existing state, matching dynamic schema keys
+            val = client_draft.get(key)
+            if val is None:
+                val = db_data.get(key)
+        
+        # --- DATA INTEGRITY GUARDS ---
+        # 1. Email-as-Type Guard: Prevent email addresses from polluting client_type
+        if key == "client_type" and val and "@" in str(val) and "." in str(val):
+            logger.warning(f"[STORY-GUARD] Blocking email '{val}' from being saved as client_type.")
+            val = client_draft.get("client_type") or db_data.get("client_type")
             
         final_args[key] = val
     
