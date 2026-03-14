@@ -4,7 +4,8 @@ from ..utils import format_sync_chat_payload
 from ..remote_services.matterminer_core import MatterMinerCoreClient
 from ..config import settings
 
-CLIENT_REQUIRED_FIELDS = ["first_name", "last_name", "client_number", "client_type", "email"]
+from ..dynamic_schema.client_schema import CLIENT_SCHEMA
+from ..dynamic_schema.contact_schema import CONTACT_SCHEMA
 
 def _get_auth_required_response(message, response_instruction):
     return {
@@ -104,25 +105,29 @@ async def handle_create_contact(args, services, tenant_id, history):
     draft = metadata.get("contact_draft", {})
     
     # 2. Update draft with new args (preserving what we already have)
-    for key in ["contact_type", "title", "first_name", "middle_name", "last_name", 
-                "email", "country_code", "phone_number", "model_type", "model_id", 
-                "active", "featured", "country_id"]:
-        if args.get(key) is not None:
-            draft[key] = args[key]
+    for field in CONTACT_SCHEMA:
+        key = field["key"]
+        val = None
+        # Cascade search: arg alias -> exact arg
+        search_keys = [key] + field.get("aliases", [])
+        for k in search_keys:
+            if args.get(k) is not None:
+                val = args[k]
+                break
+        
+        if val is not None:
+            draft[key] = val
             
     # Always set defaults if not present
-    draft.setdefault("contact_type", "primary")
-    draft.setdefault("active", True)
-    draft.setdefault("featured", False)
+    for field in CONTACT_SCHEMA:
+        if "default" in field:
+            draft.setdefault(field["key"], field["default"])
     
     metadata["contact_draft"] = draft
     metadata["active_workflow"] = "contact"
     
     # 3. Gating Logic: Check for mandatory fields
-    missing = []
-    if not draft.get("first_name"): missing.append("First Name")
-    if not draft.get("last_name"): missing.append("Last Name")
-    if not draft.get("email"): missing.append("Email Address")
+    missing = [f for f in CONTACT_SCHEMA if f.get("required") and not draft.get(f["key"])]
     
     # 4. Scenario A: Still drafting
     if missing:
@@ -138,8 +143,8 @@ async def handle_create_contact(args, services, tenant_id, history):
         
         return {
             "status": "partial_success",
-            "message": f"Captured {', '.join([k.replace('_', ' ').title() for k in args.keys() if k in draft])}.",
-            "response_instruction": f"Acknowledge the info received. Then, politely ask for the {missing[0]}."
+            "message": f"Captured {', '.join([f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])])}.",
+            "response_instruction": f"Acknowledge the info received. Then, politely ask for the {missing[0]['label']}."
         }
         
     # 5. Scenario B: Ready to commit - Check Authentication
@@ -232,15 +237,23 @@ async def handle_create_client(args, services, tenant_id, history):
     db_history = db_metadata.get("chat_history", [])
 
     # 2. INITIALIZE & SAFE MERGE
-    final_args = {
-        "first_name": args.get("first_name") or client_draft.get("first_name") or db_data.get("first_name"),
-        "last_name": args.get("last_name") or client_draft.get("last_name") or db_data.get("last_name"),
-        "client_number": args.get("client_number") or client_draft.get("client_number") or db_data.get("client_number"),
-        "client_type": args.get("client_type") or client_draft.get("client_type") or db_data.get("client_type"),
-        "email": args.get("email") or client_draft.get("email") or db_data.get("email")
-    }
+    final_args = {}
+    for field in CLIENT_SCHEMA:
+        key = field["key"]
+        val = None
+        # Cascade search: arg alias -> exact arg -> draft -> db
+        search_keys = [key] + field.get("aliases", [])
+        for k in search_keys:
+            if args.get(k):
+                val = args.get(k)
+                break
+        
+        if not val:
+            val = client_draft.get(key) or db_data.get(key)
+            
+        final_args[key] = val
     
-    logger.info(f"[{tenant_id}] Recovered State: First={final_args['first_name']}, Last={final_args['last_name']}, Email={final_args['email']}")
+    logger.info(f"[{tenant_id}] Recovered State: {final_args}")
 
     incoming_last_name = args.get("last_name")
     if incoming_last_name and any(char.isdigit() for char in str(incoming_last_name)):
@@ -267,7 +280,7 @@ async def handle_create_client(args, services, tenant_id, history):
         logger.error(f"[DB-SYNC] Failed to sync session: {e}", exc_info=True)
 
     # 5. CHECK FOR COMPLETION
-    missing = [f for f in CLIENT_REQUIRED_FIELDS if not final_args.get(f)]
+    missing = [f for f in CLIENT_SCHEMA if f.get("required") and not final_args.get(f["key"])]
 
     if not missing:
         # 6. GATING: Check for MatterMiner Core Authentication
@@ -293,13 +306,7 @@ async def handle_create_client(args, services, tenant_id, history):
                     wipe_payload = format_sync_chat_payload(
                         tenant_id=tenant_id,
                         client_args=db_data,
-                        client_draft={
-                            "first_name": None,
-                            "last_name": None,
-                            "client_number": None,
-                            "client_type": None,
-                            "email": None
-                        },
+                        client_draft={f["key"]: None for f in CLIENT_SCHEMA},
                         event_draft=db_metadata.get("event_draft"),
                         contact_draft=db_metadata.get("contact_draft"),
                         active_workflow="cleared", 
@@ -314,15 +321,12 @@ async def handle_create_client(args, services, tenant_id, history):
                 error_msg = save_result.get("message", "Unknown error")
                 return {"status": "error", "message": f"The remote system rejected the record. Reason: {error_msg}"}
 
+            summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {final_args.get(f['key'], 'N/A')} |" for f in CLIENT_SCHEMA])
             summary_table = (
                 "### FINAL SUMMARY: CLIENT REGISTERED\n\n"
                 "| Field | Value |\n"
                 "| :--- | :--- |\n"
-                f"| **First Name** | {final_args.get('first_name')} |\n"
-                f"| **Last Name** | {final_args.get('last_name')} |\n"
-                f"| **Customer Number** | {final_args.get('client_number', 'N/A')} |\n"
-                f"| **Type** | {final_args.get('client_type', 'N/A')} |\n"
-                f"| **Email** | {final_args.get('email', 'N/A')} |\n"
+                f"{summary_rows}"
             )
 
             return {
@@ -338,9 +342,9 @@ async def handle_create_client(args, services, tenant_id, history):
             await core_client.close()
 
     else:
-        captured = [f.replace('_', ' ').title() for f in CLIENT_REQUIRED_FIELDS if final_args.get(f)]
-        missing_labels = [f.replace('_', ' ').title() for f in missing]
-        next_field = missing[0]
+        captured = [f["label"] for f in CLIENT_SCHEMA if final_args.get(f["key"])]
+        missing_labels = [f["label"] for f in missing]
+        next_field = missing[0]["key"]
         next_label = missing_labels[0]
 
         return {
@@ -370,9 +374,6 @@ def get_workflow_recovery(metadata, db_data):
 
     if active_workflow == "contact":
         contact_draft = metadata.get("contact_draft", {})
-        if not contact_draft or not any(v is not None for v in contact_draft.values()):
-            return None
-
         # Filter sensitive keys
         sensitive_keys = ["password", "token", "access_token"]
         clean_contact = {k: v for k, v in contact_draft.items() if v is not None and k not in sensitive_keys}
@@ -380,8 +381,7 @@ def get_workflow_recovery(metadata, db_data):
         if not clean_contact:
             return None
 
-        required_contact = ["first_name", "last_name", "email"]
-        missing_contact = [f.replace('_', ' ').title() for f in required_contact if not clean_contact.get(f)]
+        missing_contact = [f["label"] for f in CONTACT_SCHEMA if f.get("required") and not clean_contact.get(f["key"])]
 
         recovery = {
             "header": "### PENDING CONTACT RECORD ###",
@@ -403,12 +403,12 @@ def get_workflow_recovery(metadata, db_data):
         full_state = {**db_data, **{k:v for k,v in client_draft.items() if v}}
         
         # Filter to only relevant fields
-        recov_data = {f: full_state.get(f) for f in CLIENT_REQUIRED_FIELDS if full_state.get(f)}
+        recov_data = {f["key"]: full_state.get(f["key"]) for f in CLIENT_SCHEMA if full_state.get(f["key"])}
 
         if not recov_data:
             return None
 
-        missing = [f.replace('_', ' ').title() for f in CLIENT_REQUIRED_FIELDS if not recov_data.get(f)]
+        missing = [f["label"] for f in CLIENT_SCHEMA if f.get("required") and not recov_data.get(f["key"])]
         
         if not missing:
             return None
