@@ -2,7 +2,7 @@ import pytest
 import respx
 import httpx
 import json
-from src.agents.client_creation_agent import handle_client_creation
+from src.agents.core_agent import handle_core_ops
 from unittest.mock import AsyncMock, MagicMock
 
 @pytest.mark.asyncio
@@ -23,7 +23,7 @@ async def test_client_glitch_guard_id_collision():
         "client_number": "C483838"
     }
     
-    result = await handle_client_creation("create_client_record", args, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", args, services, "12345678", [])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
@@ -57,7 +57,7 @@ async def test_client_id_update_does_not_wipe_name():
     # AI only provides the number in this turn
     args = {"client_number": "C483838"}
     
-    await handle_client_creation("create_client_record", args, services, "12345678", [])
+    await handle_core_ops("create_client_record", args, services, "12345678", [])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
@@ -90,12 +90,13 @@ async def test_client_save_failure_retains_session(monkeypatch):
     mock_core_client = MagicMock()
     mock_core_client.create_client = AsyncMock(return_value={"status": "error", "message": "Not Found"})
     mock_core_client.set_auth_token = MagicMock()
+    mock_core_client.close = AsyncMock()
     
-    monkeypatch.setattr("src.agents.client_creation_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
+    monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
     services = {"calendar": mock_cal_service}
     
-    result = await handle_client_creation("create_client_record", {}, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", {}, services, "12345678", [])
     
     assert result["status"] == "error"
     assert "Not Found" in result["message"]
@@ -128,12 +129,13 @@ async def test_client_save_success_clears_session(monkeypatch):
     mock_core_client = MagicMock()
     mock_core_client.create_client = AsyncMock(return_value={"status": "success"})
     mock_core_client.set_auth_token = MagicMock()
+    mock_core_client.close = AsyncMock()
     
-    monkeypatch.setattr("src.agents.client_creation_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
+    monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
     services = {"calendar": mock_cal_service}
     
-    result = await handle_client_creation("create_client_record", {}, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", {}, services, "12345678", [])
     
     assert result["status"] == "success"
     
@@ -187,7 +189,7 @@ async def test_client_creation_stringified_metadata():
     # AI provides a new field
     args = {"email": "string@test.com"}
     
-    await handle_client_creation("create_client_record", args, services, "12345678", [])
+    await handle_core_ops("create_client_record", args, services, "12345678", [])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]

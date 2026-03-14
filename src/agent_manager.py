@@ -5,7 +5,6 @@ from .logger import logger
 
 # Import Specialized Agents
 from .agents.calendar_agent import handle_calendar
-from .agents.client_creation_agent import handle_client_creation
 from .agents.rag_agent import handle_rag_lookup
 from .agents.core_agent import handle_core_ops, get_workflow_recovery as core_recovery
 
@@ -41,10 +40,9 @@ async def get_rehydration_context(tenant_id, services):
 
         # 2. AGENT REGISTRY FOR RECOVERY
         from .agents.calendar_agent import get_workflow_recovery as cal_recovery
-        from .agents.client_creation_agent import get_workflow_recovery as client_recovery
         # core_recovery is already imported above
 
-        agent_hooks = [cal_recovery, client_recovery, core_recovery]
+        agent_hooks = [cal_recovery, core_recovery]
         
         for hook in agent_hooks:
             recovery = hook(metadata, db_session)
@@ -144,7 +142,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
             if active_workflow == "calendar" and not is_session_done:
                 return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
 
-            return await handle_client_creation(func_name, args, services, tenant_id, history)
+            return await handle_core_ops(func_name, args, services, tenant_id, history)
             
         elif func_name in core_funcs:
             return await handle_core_ops(func_name, args, services, tenant_id, history)
