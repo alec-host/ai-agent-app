@@ -19,7 +19,11 @@ async def test_contact_token_persistence_on_success():
         "contact_draft": {
             "first_name": "John",
             "last_name": "Doe",
-            "email": "john@example.com"
+            "email": "john@example.com",
+            "title": "Mr",
+            "middle_name": "Alan",
+            "country_code": "US",
+            "phone_number": "+1234567890"
         },
         "active_workflow": "contact"
     }

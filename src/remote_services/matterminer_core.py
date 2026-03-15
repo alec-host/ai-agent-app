@@ -105,11 +105,7 @@ class MatterMinerCoreClient:
         """Registers a new client record in MatterMiner Core."""
         payload = {
             "tenantId": self.tenant_id,
-            "client_number": client_data.get("client_number"),
-            "client_type": client_data.get("client_type"),
-            "first_name": client_data.get("first_name"),
-            "last_name": client_data.get("last_name"),
-            "email": client_data.get("email")
+            **client_data
         }
         return await self.request("POST", "/clients", json_data=payload)
 

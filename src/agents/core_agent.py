@@ -111,17 +111,21 @@ async def handle_create_contact(args, services, tenant_id, history):
         # Cascade search: arg alias -> exact arg
         search_keys = [key] + field.get("aliases", [])
         for k in search_keys:
-            if args.get(k) is not None:
-                val = args[k]
+            candidate = args.get(k)
+            # Use candidate if it's a non-empty string or non-None
+            if candidate is not None and (not isinstance(candidate, str) or candidate.strip()):
+                val = candidate
                 break
         
         if val is not None:
             draft[key] = val
             
-    # Always set defaults if not present
+    # Always set defaults if not present or empty
     for field in CONTACT_SCHEMA:
         if "default" in field:
-            draft.setdefault(field["key"], field["default"])
+            current_val = draft.get(field["key"])
+            if current_val is None or (isinstance(current_val, str) and not current_val.strip()):
+                draft[field["key"]] = field["default"]
     
     metadata["contact_draft"] = draft
     metadata["active_workflow"] = "contact"
@@ -263,6 +267,13 @@ async def handle_create_client(args, services, tenant_id, history):
             val = client_draft.get("client_type") or db_data.get("client_type")
             
         final_args[key] = val
+        
+    # Always set defaults if not present or empty
+    for field in CLIENT_SCHEMA:
+        if "default" in field:
+            current_val = final_args.get(field["key"])
+            if current_val is None or (isinstance(current_val, str) and not current_val.strip()):
+                final_args[field["key"]] = field["default"]
     
     logger.info(f"[{tenant_id}] Recovered State: {final_args}")
 
