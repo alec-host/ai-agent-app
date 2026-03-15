@@ -87,6 +87,11 @@ async def handle_lookup_countries(args, services, tenant_id):
                 "response_instruction": "Display the results to the user. If they have selected one, remember the ID to use as 'country_id' in client/contact creation."
             }
         else:
+            if resp.get("code") == 401:
+                return _get_auth_required_response(
+                    "Authentication expired for MatterMiner Core.",
+                    "Your session has expired. Please login again to continue looking up countries. Display the login card."
+                )
             return {
                 "status": "error",
                 "message": resp.get("message", "Failed to retrieve countries."),
@@ -198,6 +203,11 @@ async def handle_create_contact(args, services, tenant_id, history):
                 "response_instruction": "Confirm the contact has been saved to MatterMiner Core and ask if they need anything else."
             }
         else:
+            if resp.get("code") == 401:
+                return _get_auth_required_response(
+                    "Authentication expired for MatterMiner Core.",
+                    "Your session has expired. Please login again to save the contact. Display the login card."
+                )
             return {
                 "status": "error",
                 "message": resp.get("message", "Failed to create contact."),
@@ -340,6 +350,11 @@ async def handle_create_client(args, services, tenant_id, history):
                 except Exception as e:
                     logger.error(f"[CLIENT] Sync wipe failed: {e}")
             else:
+                if isinstance(save_result, dict) and save_result.get("code") == 401:
+                    return _get_auth_required_response(
+                        "Authentication expired for MatterMiner Core.",
+                        "Your session has expired. Please login again to complete the registration. Display the login card."
+                    )
                 error_msg = save_result.get("message", "Unknown error")
                 return {"status": "error", "message": f"The remote system rejected the record. Reason: {error_msg}"}
 
