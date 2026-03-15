@@ -846,7 +846,13 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 @app.post("/ai/chat/stream")
 async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
-    calendar_service = CalendarServiceClient(tenant_id, request.app.state.http_client, correlation_id=corr_id, thread_id=req.thread_id)
+    calendar_service = CalendarServiceClient(
+        tenant_id, 
+        request.app.state.http_client, 
+        correlation_id=corr_id, 
+        thread_id=req.thread_id,
+        access_token=auth.get("token")
+    )
     ai_client = request.app.state.ai_client
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service}
@@ -859,7 +865,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             try:
                 data = json.loads(content)
                 if data.get("jwtToken"):
-                    calendar_service.set_auth_token(data["jwtToken"])
+                    calendar_service.set_auth_token(data["jwtToken"], is_jwt=True)
                     break
             except: continue
 
@@ -1079,7 +1085,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 # --- 7. Utility Route for Google Sync ---
 @app.post("/ai/sync")
 async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_access)):
-    calendar = CalendarServiceClient(auth["tenant_id"], request.app.state.http_client, getattr(request.state, "correlation_id", str(uuid.uuid4())))
+    calendar = CalendarServiceClient(
+        auth["tenant_id"], 
+        request.app.state.http_client, 
+        getattr(request.state, "correlation_id", str(uuid.uuid4())),
+        access_token=auth.get("token")
+    )
     return await calendar.request("POST", "/events/sync-google")
 
 @app.middleware("http")

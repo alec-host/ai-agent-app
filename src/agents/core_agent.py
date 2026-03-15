@@ -53,8 +53,18 @@ async def handle_lookup_countries(args, services, tenant_id):
     # 1. Fetch existing session to get the token
     session = await services['calendar'].get_client_session(tenant_id)
     metadata = session.get("metadata", {})
-    token = metadata.get("remote_access_token")
     
+    # Robust Token Harvest: check metadata first, then fall back to service client (header token)
+    token = metadata.get("remote_access_token") or services['calendar'].access_token
+    
+    if token and not metadata.get("remote_access_token"):
+        metadata["remote_access_token"] = token
+        # Sync the harvested token back to the session for persistence
+        try:
+            payload = format_sync_chat_payload(tenant_id=tenant_id, metadata=metadata, thread_id=services['calendar'].thread_id)
+            await services['calendar'].sync_client_session(payload)
+        except: pass
+
     if not token:
         return _get_auth_required_response(
             "Authentication required to lookup countries.",
@@ -157,7 +167,12 @@ async def handle_create_contact(args, services, tenant_id, history):
         }
         
     # 5. Scenario B: Ready to commit - Check Authentication
-    token = metadata.get("remote_access_token")
+    # Robust Token Harvest
+    token = metadata.get("remote_access_token") or services['calendar'].access_token
+    
+    if token and not metadata.get("remote_access_token"):
+        metadata["remote_access_token"] = token
+
     if not token:
         # Save progress but stop for auth
         payload = format_sync_chat_payload(
@@ -316,7 +331,12 @@ async def handle_create_client(args, services, tenant_id, history):
 
     if not missing:
         # 6. GATING: Check for MatterMiner Core Authentication
-        token = db_metadata.get("remote_access_token")
+        # Robust Token Harvest
+        token = db_metadata.get("remote_access_token") or services['calendar'].access_token
+        
+        if token and not db_metadata.get("remote_access_token"):
+            db_metadata["remote_access_token"] = token
+
         if not token:
              return _get_auth_required_response(
                 "Authentication required for MatterMiner Core.",
