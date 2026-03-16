@@ -86,6 +86,15 @@ class MatterMinerCoreClient:
         }
         return await self.request("GET", "/countries", params=params)
 
+    async def has_valid_token(self, email: str) -> Dict[str, Any]:
+        """
+        Proactively checks if a user has a valid auth token on the remote system.
+        Calls GET /hasValidToken?email=...&tenantId=...
+        Returns the raw response; 404 triggers auth_required via self.request().
+        """
+        params = {"email": email, "tenantId": self.tenant_id}
+        return await self.request("GET", "/hasValidToken", params=params)
+
     def _get_headers(self) -> Dict[str, str]:
         """Constructs headers with necessary context."""
         headers = {

@@ -93,6 +93,7 @@ async def verify_tenant_access(
     x_tenant_id: str = Header(...), 
     x_user_timezone: str = Header("UTC"),
     user_role: str = Header("Associate"),
+    x_user_email: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)
 ):
     if not x_tenant_id:
@@ -112,7 +113,8 @@ async def verify_tenant_access(
         "tenant_id": x_tenant_id, 
         "role": user_role.lower(), 
         "timezone": x_user_timezone,
-        "token": token
+        "token": token,
+        "user_email": x_user_email
     }
 
 # ---0. Track token usage ---
@@ -566,6 +568,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         return {"response": "Conversation history cleared.", "history": []}
 
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
+    user_email = auth.get("user_email")
     calendar_service = CalendarServiceClient(
         tenant_id, 
         request.app.state.http_client, 
@@ -587,18 +590,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                     calendar_service.set_auth_token(data["jwtToken"], is_jwt=True)
                     break
             except: continue
-
-    # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
-    # Keywords scoped tightly to Google Calendar EVENT operations only.
-    # Broad words like 'create', 'add', 'call' are intentionally excluded
-    # to prevent triggering check_grant_token() for non-event workflows
-    # (e.g. client creation, RAG queries).
+    # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
         "schedule", "event", "meeting", "book", "appointment", "calendar",
         "set up a meeting", "setup a meeting", "arrange a meeting",
         "organize a meeting", "reschedule", "deposition"
     ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+
+    core_keywords = [
+        "register", "onboard", "new client", "create client", "setup client",
+        "contact", "country", "countries", "matterminer", "client", "investigate"
+    ]
+    is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     
     if is_calendar_intent:
         logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
@@ -632,7 +636,36 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 "auth_url": grant["auth_url"],
                 "history": req.history
             }
-        logger.info(f"[{tenant_id}] Auth Handshake successful. Proceeding to LLM.")
+
+    if is_core_intent:
+        logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
+        if not user_email:
+            logger.warning(f"[CHAT] [{tenant_id}] No X-User-Email header. Surface login card.")
+            return {
+                "role": "assistant",
+                "content": "Authentication Required",
+                "message": "Please login to MatterMiner Core to proceed.",
+                "status": "auth_required",
+                "auth_type": "matterminer_core",
+                "history": cleaned_history
+            }
+        from .remote_services.matterminer_core import MatterMinerCoreClient
+        core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
+        try:
+            status = await core_client.has_valid_token(user_email)
+            if status.get("status") == "auth_required":
+                 logger.warning(f"[CHAT] [{tenant_id}] Token invalid for {user_email}. Surface login card.")
+                 return {
+                    "role": "assistant",
+                    "content": "Authentication Required",
+                    "message": "Your MatterMiner session has expired. Please login again.",
+                    "status": "auth_required",
+                    "auth_type": "matterminer_core",
+                    "history": cleaned_history
+                 }
+            logger.info(f"[CHAT] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
+        finally:
+            await core_client.close()
 
 	# DROP-IN PRE-FLIGHT CHECK
     # wallet_check = await calendar_service.request("GET", f"/wallet/check-balance?tenantId={tenant_id}")
@@ -723,11 +756,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         # Segment 1: Client Fields
         client_vault = {k: v for k, v in {
-            "client_number": db_session.get("client_number"),
             "client_type": db_session.get("client_type"),
             "first_name": db_session.get("first_name"),
             "last_name": db_session.get("last_name"),
-            "email": db_session.get("email")
+            "client_email": db_session.get("email")
         }.items() if v}
         
         # Segment 2: Event Draft (from metadata)
@@ -846,6 +878,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 @app.post("/ai/chat/stream")
 async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
+    user_email = auth.get("user_email")
     calendar_service = CalendarServiceClient(
         tenant_id, 
         request.app.state.http_client, 
@@ -875,12 +908,19 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     # Broad words like 'create', 'add', 'call' are intentionally excluded
     # to prevent triggering check_grant_token() for non-event workflows
     # (e.g. client creation, RAG queries).
+    # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
         "schedule", "event", "meeting", "book", "appointment", "calendar",
         "set up a meeting", "setup a meeting", "arrange a meeting",
         "organize a meeting", "reschedule", "deposition"
     ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+
+    core_keywords = [
+        "register", "onboard", "new client", "create client", "setup client",
+        "contact", "country", "countries", "matterminer", "client", "investigate"
+    ]
+    is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
 
     if is_calendar_intent:
         logger.info(f"[STREAM] [{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
@@ -901,6 +941,26 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             async def _no_grant_gen():
                 yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']})}\n\n"
             return StreamingResponse(_no_grant_gen(), media_type="text/event-stream")
+
+    if is_core_intent:
+        logger.info(f"[STREAM] [{tenant_id}] Core intent detected. Checking token validity.")
+        if not user_email:
+            logger.warning(f"[STREAM] [{tenant_id}] No X-User-Email header. Surface login card.")
+            async def _no_email_gen():
+                yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Please login to MatterMiner Core to proceed.'})}\n\n"
+            return StreamingResponse(_no_email_gen(), media_type="text/event-stream")
+        from .remote_services.matterminer_core import MatterMinerCoreClient
+        core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
+        try:
+            status = await core_client.has_valid_token(user_email)
+            if status.get("status") == "auth_required":
+                 logger.warning(f"[STREAM] [{tenant_id}] Token invalid for {user_email}. Surface login card.")
+                 async def _no_core_gen():
+                     yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Your MatterMiner session has expired. Please login again.'})}\n\n"
+                 return StreamingResponse(_no_core_gen(), media_type="text/event-stream")
+            logger.info(f"[STREAM] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
+        finally:
+            await core_client.close()
 
     # Standard check for CLEAR
     if user_prompt_raw in ["clear", "reset", "/clear"]:
@@ -950,8 +1010,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
             client_vault = {k: v for k, v in {
-                "client_number": db_session.get("client_number"), "client_type": db_session.get("client_type"),
-                "first_name": db_session.get("first_name"), "last_name": db_session.get("last_name"), "email": db_session.get("email")
+                "client_type": db_session.get("client_type"),
+                "first_name": db_session.get("first_name"), "last_name": db_session.get("last_name"), 
+                "client_email": db_session.get("email")
             }.items() if v}
             # Segment 2: Event Draft (from metadata)
             # metadata is already defined above in the gatekeeper check
@@ -972,7 +1033,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                  vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
 
             vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
-            logger.info(f"[STREAM] STARTING ROUND {i} | Vault: {vault_str}")
+            logger.info(f"[STREAM] STARTING ROUND {i+1} | Vault: {vault_str}")
 
             state_injection = {
                 "role": "system",
