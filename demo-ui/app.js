@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modal: document.getElementById('settingsModal'),
         tenantInput: document.getElementById('tenantInput'),
         roleSelect: document.getElementById('roleSelect'),
+        emailInput: document.getElementById('emailInput'),
         timezoneInput: document.getElementById('timezoneInput'),
         saveBtn: document.getElementById('saveSettingsBtn'),
         themeToggle: document.getElementById('themeToggle')
@@ -57,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sessionSettings = {
         tenantId: safeStorage.get('tenantId', null),
         userRole: safeStorage.get('userRole', 'Associate'),
+        userEmail: safeStorage.get('userEmail', ''),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     };
 
@@ -66,6 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (nodes.badgeTenant) nodes.badgeTenant.textContent = sessionSettings.tenantId;
         if (nodes.tenantInput) nodes.tenantInput.value = sessionSettings.tenantId;
         if (nodes.roleSelect) nodes.roleSelect.value = sessionSettings.userRole;
+        if (nodes.emailInput) nodes.emailInput.value = sessionSettings.userEmail;
         if (nodes.timezoneInput) nodes.timezoneInput.value = sessionSettings.timezone;
     }
 
@@ -99,9 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             sessionSettings.tenantId = newTenant;
             sessionSettings.userRole = nodes.roleSelect.value;
+            sessionSettings.userEmail = nodes.emailInput.value.trim();
 
             safeStorage.set('tenantId', sessionSettings.tenantId);
             safeStorage.set('userRole', sessionSettings.userRole);
+            safeStorage.set('userEmail', sessionSettings.userEmail);
 
             updateUIIdentity();
             window.toggleIdentityModal(false);
@@ -161,6 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Tenant-ID': sessionSettings.tenantId,
+                    'X-User-Email': sessionSettings.userEmail,
                     'X-User-Timezone': sessionSettings.timezone,
                     'User-Role': sessionSettings.userRole
                 },
