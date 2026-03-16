@@ -8,7 +8,6 @@
 CLIENT_SCHEMA = [
     {"key": "first_name", "label": "First Name", "required": True, "aliases": ["firstName"]},
     {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName"]},
-    {"key": "client_number", "label": "Client Number", "required": True, "aliases": ["clientNumber", "customer_number", "customerNumber", "number"]},
     {"key": "client_type", "label": "Client Type", "required": True, "aliases": ["clientType", "type", "customer_type", "customerType"]},
-    {"key": "email", "label": "Email", "required": True, "aliases": ["email_address", "emailAddress"]}
+    {"key": "client_email", "label": "Client Email", "required": True, "aliases": ["email","client_email", "clientEmail", "client_email_address", "clientEmailAddress"]}
 ]

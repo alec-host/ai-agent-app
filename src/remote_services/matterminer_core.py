@@ -7,14 +7,12 @@ logger = logging.getLogger("legal-agentic-ai")
 class MatterMinerCoreClient:
     """
     Client for interacting with the MatterMiner Core remote system.
-    Handles authentication, token management, and provides a reusable request wrapper.
+    Authentication is handled by the backend; this client passes tenant context.
     """
     def __init__(self, base_url: str, tenant_id: str, correlation_id: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
-        self.access_token: Optional[str] = None
-        self.user_profile: Optional[Dict[str, Any]] = None
         
         # Internal async client
         self.client = httpx.AsyncClient(
@@ -22,53 +20,13 @@ class MatterMinerCoreClient:
             verify=False  # Assuming dev environment might have self-signed certs
         )
 
-    def set_auth_token(self, token: str):
-        """Sets the Bearer token for authenticated requests."""
-        self.access_token = token
-
-    async def login(self, email: str, password: str) -> Dict[str, Any]:
-        """
-        Authenticates a user and retrieves the access token and profile.
-        
-        Args:
-            email: User's email address.
-            password: User's password.
-            
-        Returns:
-            The full API response as a dictionary.
-        """
-        url = f"{self.base_url}/login"
-        payload = {
-            "email": email,
-            "password": password
-        }
-        
-        try:
-            headers = self._get_headers()
-            response = await self.client.post(url, json=payload, headers=headers)
-            
-            data = response.json()
-            if response.status_code == 200 and data.get("status") == "success":
-                token_data = data.get("token", {})
-                self.access_token = token_data.get("access_token")
-                self.user_profile = data.get("data")
-                logger.info(f"[CORE-AUTH] Login successful for: {email}")
-            else:
-                logger.warning(f"[CORE-AUTH] Login failed for {email}: {data.get('message', 'Unknown error')}")
-                
-            return data
-            
-        except Exception as e:
-            logger.error(f"[CORE-AUTH] Exception during login: {e}")
-            return {"status": "error", "message": str(e)}
-
     async def request(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Reusable and scalable method for calling various operations thereafter.
-        Automatically injects Bearer token and correlation IDs.
+        Reusable method for calling remote operations.
+        Passes tenant information via headers.
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        headers = self._get_headers(authenticated=True)
+        headers = self._get_headers()
         
         try:
             response = await self.client.request(
@@ -79,12 +37,20 @@ class MatterMinerCoreClient:
                 headers=headers
             )
             
+            # --- REACTIVE AUTH DETECTION ---
+            # If the service returns 404 "Not found", it signals that a login is required.
+            if response.status_code == 404:
+                try:
+                    data = response.json()
+                    if data.get("success") is False and data.get("message") == "Not found":
+                        logger.warning(f"[CORE-API] 404 Not Found received for {endpoint}. Triggering login workflow.")
+                        return {"status": "auth_required", "code": 404, "message": "Authentication required."}
+                except:
+                    pass
+
             # Scalable result handling
             if response.status_code in [200, 201]:
                 return response.json()
-            elif response.status_code == 401:
-                logger.warning(f"[CORE-API] 401 Unauthorized for {endpoint}. Token might be expired.")
-                return {"status": "error", "code": 401, "message": "Unauthorized"}
             else:
                 try:
                     error_data = response.json()
@@ -120,7 +86,7 @@ class MatterMinerCoreClient:
         }
         return await self.request("GET", "/countries", params=params)
 
-    def _get_headers(self, authenticated: bool = False) -> Dict[str, str]:
+    def _get_headers(self) -> Dict[str, str]:
         """Constructs headers with necessary context."""
         headers = {
             "Content-Type": "application/json",
@@ -130,9 +96,6 @@ class MatterMinerCoreClient:
         
         if self.correlation_id:
             headers["X-Correlation-ID"] = self.correlation_id
-            
-        if authenticated and self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
             
         return headers
 

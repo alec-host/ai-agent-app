@@ -175,12 +175,12 @@ TOOLS = [
           "parameters": {
              "type": "object",
              "properties": {
-                 "client_number": {"type": "string", "description": "The unique identifier or ID assigned to the client."},
-                 "client_type": {"type": "string", "description": "The category of the client (e.g., individual, corporate, associate)."},
                  "first_name": {"type": "string", "description": "The client's legal first name. NEVER use an alphanumeric ID here."},
                  "last_name": {"type": "string", "description": "The client's legal last name. NEVER use an alphanumeric ID here."},
-                 "email": {"type": "string", "description": "The primary contact email address for the client."}
-             }
+                 "client_email": {"type": "string", "description": "The primary client's email address."},
+                 "client_type": {"type": "string", "description": "The category of the client (e.g., individual, corporate, associate)."}
+             },
+             "required": ["first_name", "last_name", "client_email", "client_type"]
           }
       }
    },

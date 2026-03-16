@@ -33,12 +33,8 @@ async def get_rehydration_context(tenant_id, services):
         if lifecycle == "completed":
             return None
 
-        # 1. CORE AUTH STATUS (ALWAYS SHIELDED)
+        # 1. AGENT REGISTRY FOR RECOVERY
         blocks = []
-        is_core_auth = bool(metadata.get("remote_access_token"))
-        blocks.append(f"CORE SYSTEM STATUS:\n{{\"is_authenticated\": {str(is_core_auth).lower()}}}")
-
-        # 2. AGENT REGISTRY FOR RECOVERY
         from .agents.calendar_agent import get_workflow_recovery as cal_recovery
         # core_recovery is already imported above
 

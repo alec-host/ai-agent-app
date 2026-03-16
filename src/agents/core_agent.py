@@ -15,13 +15,11 @@ def _get_auth_required_response(message, response_instruction):
         "response_instruction": response_instruction
     }
 
-def _get_authenticated_core_client(token, tenant_id):
-    core_client = MatterMinerCoreClient(
+def _get_core_client(tenant_id):
+    return MatterMinerCoreClient(
         base_url=settings.NODE_REMOTE_SERVICE_URL,
         tenant_id=tenant_id
     )
-    core_client.set_auth_token(token)
-    return core_client
 
 async def handle_core_ops(func_name, args, services, tenant_id, history):
     """
@@ -50,29 +48,8 @@ async def handle_lookup_countries(args, services, tenant_id):
     """
     Handles searching for country information.
     """
-    # 1. Fetch existing session to get the token
-    session = await services['calendar'].get_client_session(tenant_id)
-    metadata = session.get("metadata", {})
-    
-    # Robust Token Harvest: check metadata first, then fall back to service client (header token)
-    token = metadata.get("remote_access_token") or services['calendar'].access_token
-    
-    if token and not metadata.get("remote_access_token"):
-        metadata["remote_access_token"] = token
-        # Sync the harvested token back to the session for persistence
-        try:
-            payload = format_sync_chat_payload(tenant_id=tenant_id, metadata=metadata, thread_id=services['calendar'].thread_id)
-            await services['calendar'].sync_client_session(payload)
-        except: pass
-
-    if not token:
-        return _get_auth_required_response(
-            "Authentication required to lookup countries.",
-            "Inform the user that you need them to login to MatterMiner to fetch the country list. Display the login card."
-        )
-        
-    # 2. Call the Remote Service
-    core_client = _get_authenticated_core_client(token, tenant_id)
+    # 1. Initialize Client
+    core_client = _get_core_client(tenant_id)
     
     try:
         search = args.get("search", "")
@@ -96,12 +73,12 @@ async def handle_lookup_countries(args, services, tenant_id):
                 "raw_data": countries_data,
                 "response_instruction": "Display the results to the user. If they have selected one, remember the ID to use as 'country_id' in client/contact creation."
             }
+        elif resp.get("status") == "auth_required":
+            return _get_auth_required_response(
+                "Authentication required for MatterMiner Core.",
+                "To search for countries, you need to be logged into MatterMiner. Display the login card."
+            )
         else:
-            if resp.get("code") == 401:
-                return _get_auth_required_response(
-                    "Authentication expired for MatterMiner Core.",
-                    "Your session has expired. Please login again to continue looking up countries. Display the login card."
-                )
             return {
                 "status": "error",
                 "message": resp.get("message", "Failed to retrieve countries."),
@@ -166,32 +143,8 @@ async def handle_create_contact(args, services, tenant_id, history):
             "response_instruction": f"Acknowledge the info received. Then, politely ask for the {missing[0]['label']}."
         }
         
-    # 5. Scenario B: Ready to commit - Check Authentication
-    # Robust Token Harvest
-    token = metadata.get("remote_access_token") or services['calendar'].access_token
-    
-    if token and not metadata.get("remote_access_token"):
-        metadata["remote_access_token"] = token
-
-    if not token:
-        # Save progress but stop for auth
-        payload = format_sync_chat_payload(
-            tenant_id=tenant_id,
-            client_args=session,
-            contact_draft=draft,
-            metadata=metadata,
-            history=[],
-            thread_id=services['calendar'].thread_id
-        )
-        await services['calendar'].sync_client_session(payload)
-        
-        return _get_auth_required_response(
-            "Authentication required for MatterMiner Core.",
-            "Tell the user that you have all the contact details ready, but they need to login to MatterMiner first. Display the login card."
-        )
-        
-    # 6. Final Execution: POST to remote API
-    core_client = _get_authenticated_core_client(token, tenant_id)
+    # 5. Final Execution: POST to remote API
+    core_client = _get_core_client(tenant_id)
     
     try:
         resp = await core_client.create_contact(draft)
@@ -217,12 +170,22 @@ async def handle_create_contact(args, services, tenant_id, history):
                 "message": f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}",
                 "response_instruction": "Confirm the contact has been saved to MatterMiner Core and ask if they need anything else."
             }
+        elif resp.get("status") == "auth_required":
+            # Save progress so user can resume after login
+            payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=session,
+                contact_draft=draft,
+                metadata=metadata,
+                history=[],
+                thread_id=services['calendar'].thread_id
+            )
+            await services['calendar'].sync_client_session(payload)
+            return _get_auth_required_response(
+                "Authentication required for MatterMiner Core.",
+                "Display the login card. I have all the details ready to save once you are logged in."
+            )
         else:
-            if resp.get("code") == 401:
-                return _get_auth_required_response(
-                    "Authentication expired for MatterMiner Core.",
-                    "Your session has expired. Please login again to save the contact. Display the login card."
-                )
             return {
                 "status": "error",
                 "message": resp.get("message", "Failed to create contact."),
@@ -301,15 +264,7 @@ async def handle_create_client(args, services, tenant_id, history):
                 final_args[field["key"]] = field["default"]
     
     logger.info(f"[{tenant_id}] Recovered State: {final_args}")
-
-    incoming_last_name = args.get("last_name")
-    if incoming_last_name and any(char.isdigit() for char in str(incoming_last_name)):
-        if incoming_last_name == final_args.get("client_number"):
-            logger.warning(f"[GLITCH-GUARD] Blocking ID {incoming_last_name} from being saved as last_name.")
-            final_args["last_name"] = client_draft.get("last_name") or db_data.get("last_name")
-            if final_args["last_name"] == incoming_last_name:
-                 final_args["last_name"] = None 
-
+    
     # 3. SYNC TO DATABASE
     try:
         sync_payload = format_sync_chat_payload(
@@ -330,30 +285,11 @@ async def handle_create_client(args, services, tenant_id, history):
     missing = [f for f in CLIENT_SCHEMA if f.get("required") and not final_args.get(f["key"])]
 
     if not missing:
-        # 6. GATING: Check for MatterMiner Core Authentication
-        # Robust Token Harvest
-        token = db_metadata.get("remote_access_token") or services['calendar'].access_token
-        
-        if token and not db_metadata.get("remote_access_token"):
-            db_metadata["remote_access_token"] = token
-
-        if not token:
-             return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "Acknowledge the info received. Tell the user you have all the details, but they need to login to MatterMiner to complete the registration. Display the login card."
-            )
-
-        core_client = _get_authenticated_core_client(token, tenant_id)
+        core_client = _get_core_client(tenant_id)
         try:
             save_result = await core_client.create_client(final_args)
             
-            is_truly_saved = False
-            if hasattr(save_result, 'status_code'):
-                 is_truly_saved = save_result.status_code in [200, 201]
-            elif isinstance(save_result, dict):
-                 is_truly_saved = save_result.get("status") == "success"
-
-            if is_truly_saved:
+            if save_result.get("status") == "success":
                 try:
                     wipe_payload = format_sync_chat_payload(
                         tenant_id=tenant_id,
@@ -369,12 +305,13 @@ async def handle_create_client(args, services, tenant_id, history):
                     await services['calendar'].clear_client_session(tenant_id)
                 except Exception as e:
                     logger.error(f"[CLIENT] Sync wipe failed: {e}")
+                
+            elif save_result.get("status") == "auth_required":
+                return _get_auth_required_response(
+                    "Authentication required for MatterMiner Core.",
+                    "Almost done! Just login to MatterMiner to complete the registration. Display the login card."
+                )
             else:
-                if isinstance(save_result, dict) and save_result.get("code") == 401:
-                    return _get_auth_required_response(
-                        "Authentication expired for MatterMiner Core.",
-                        "Your session has expired. Please login again to complete the registration. Display the login card."
-                    )
                 error_msg = save_result.get("message", "Unknown error")
                 return {"status": "error", "message": f"The remote system rejected the record. Reason: {error_msg}"}
 
