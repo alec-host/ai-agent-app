@@ -172,6 +172,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 body: JSON.stringify({ prompt: text, history })
             });
+            console.log(`[DEBUG] Sending request with headers:`, {
+                'X-Tenant-ID': sessionSettings.tenantId,
+                'X-User-Email': sessionSettings.userEmail
+            });
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -338,6 +342,11 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.disabled = true;
             e.target.textContent = 'Logging in...';
             
+            // Auto-update identity so subsequent requests have the header
+            sessionSettings.userEmail = email;
+            safeStorage.set('userEmail', email);
+            updateUIIdentity();
+
             sendMessage(prompt);
         }
     });
