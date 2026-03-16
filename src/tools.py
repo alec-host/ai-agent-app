@@ -227,7 +227,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "authenticate_to_core",
-           "description": "Authenticates the user with the MatterMiner Core system. If the user provided credentials in the login card, call this to secure the session.",
+           "description": "CRITICAL: Use this IMMEDIATELY when a user provides their email and password to log in. This is the only authorized way to secure the MatterMiner session using credentials from the login card.",
            "parameters": {
                "type": "object",
                "properties": {
