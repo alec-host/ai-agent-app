@@ -653,8 +653,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
         try:
             status = await core_client.has_valid_token(user_email)
-            if status.get("status") == "auth_required":
-                 logger.warning(f"[CHAT] [{tenant_id}] Token invalid for {user_email}. Surface login card.")
+            if status.get("status") == "auth_required" or status.get("code") == 404:
+                 logger.warning(f"[CHAT] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
                  return {
                     "role": "assistant",
                     "content": "Authentication Required",
@@ -953,8 +953,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
         try:
             status = await core_client.has_valid_token(user_email)
-            if status.get("status") == "auth_required":
-                 logger.warning(f"[STREAM] [{tenant_id}] Token invalid for {user_email}. Surface login card.")
+            if status.get("status") == "auth_required" or status.get("code") == 404:
+                 logger.warning(f"[STREAM] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
                  async def _no_core_gen():
                      yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Your MatterMiner session has expired. Please login again.'})}\n\n"
                  return StreamingResponse(_no_core_gen(), media_type="text/event-stream")

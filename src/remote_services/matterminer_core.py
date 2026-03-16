@@ -38,12 +38,15 @@ class MatterMinerCoreClient:
             )
             
             # --- REACTIVE AUTH DETECTION ---
-            # If the service returns 404 "Not found", it signals that a login is required.
+            # If the service returns 404 with a "Not found" message, it signals session expiration.
             if response.status_code == 404:
                 try:
                     data = response.json()
-                    if data.get("success") is False and data.get("message") == "Not found":
-                        logger.warning(f"[CORE-API] 404 Not Found received for {endpoint}. Triggering login workflow.")
+                    msg = str(data.get("message", "")).lower()
+                    success = data.get("success")
+                    # Catch "success": false/None and "Not found" (case-insensitive)
+                    if msg == "not found":
+                        logger.warning(f"[CORE-API] 404 Session Missing detected for {endpoint}. Triggering login workflow.")
                         return {"status": "auth_required", "code": 404, "message": "Authentication required."}
                 except:
                     pass
