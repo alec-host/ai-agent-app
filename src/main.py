@@ -600,10 +600,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "matterminer", "client", "investigate"
+        "contact", "country", "countries", "client", "investigate"
     ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
-    
+    is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
     if is_calendar_intent:
         logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
 
@@ -637,7 +637,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 "history": req.history
             }
 
-    if is_core_intent:
+    if is_core_intent and not is_login_attempt:
         logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
         if not user_email:
             logger.warning(f"[CHAT] [{tenant_id}] No X-User-Email header. Surface login card.")
@@ -918,9 +918,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "matterminer", "client", "investigate"
+        "contact", "country", "countries", "client", "investigate"
     ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
+    is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
 
     if is_calendar_intent:
         logger.info(f"[STREAM] [{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
@@ -942,7 +943,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']})}\n\n"
             return StreamingResponse(_no_grant_gen(), media_type="text/event-stream")
 
-    if is_core_intent:
+    if is_core_intent and not is_login_attempt:
         logger.info(f"[STREAM] [{tenant_id}] Core intent detected. Checking token validity.")
         if not user_email:
             logger.warning(f"[STREAM] [{tenant_id}] No X-User-Email header. Surface login card.")
