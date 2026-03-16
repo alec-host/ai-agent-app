@@ -222,6 +222,21 @@ TOOLS = [
                }
            }
        }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "authenticate_to_core",
+           "description": "Authenticates the user with the MatterMiner Core system. If the user provided credentials in the login card, call this to secure the session.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "email": {"type": "string", "description": "The user's login email address."},
+                   "password": {"type": "string", "description": "The user's secret password."}
+               },
+               "required": ["email", "password"]
+           }
+       }
     }
 ]
 

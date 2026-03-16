@@ -26,12 +26,31 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
     Handles operations for the MatterMiner Core remote system.
     """
     if func_name == "authenticate_to_core":
-        # DEPRECATED: Handled by Node.js UI. 
-        # If the LLM somehow calls this (e.g. from cache), steer it to auth_required.
-        return _get_auth_required_response(
-            "Authentication must be performed via the login card.",
-            "The login tool is deprecated. Display the login card to the user instead."
-        )
+        email = args.get("email")
+        password = args.get("password")
+        
+        if not email or not password:
+            return {"status": "error", "message": "Email and password are required for login."}
+            
+        core_client = _get_core_client(tenant_id)
+        try:
+            result = await core_client.login(email, password)
+            if result.get("success") is True:
+                logger.info(f"[CORE-AUTH] Login successful for {email}")
+                return {
+                    "status": "success",
+                    "message": f"Successfully authenticated as {email}. You can now proceed with your request.",
+                    "data": result
+                }
+            else:
+                logger.warning(f"[CORE-AUTH] Login failed for {email}: {result.get('message')}")
+                return {
+                    "status": "error",
+                    "code": result.get("code", 401),
+                    "message": f"Authentication failed: {result.get('message', 'Invalid credentials')}"
+                }
+        finally:
+            await core_client.close()
 
     elif func_name == "create_contact":
         return await handle_create_contact(args, services, tenant_id, history)

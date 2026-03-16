@@ -98,6 +98,18 @@ class MatterMinerCoreClient:
         params = {"email": email, "tenantId": self.tenant_id}
         return await self.request("GET", "/hasValidToken", params=params)
 
+    async def login(self, email: str, password: str) -> Dict[str, Any]:
+        """
+        Authenticates a user with the remote system.
+        POST /login { email, password, tenantId }
+        """
+        payload = {
+            "email": email,
+            "password": password,
+            "tenantId": self.tenant_id
+        }
+        return await self.request("POST", "/login", json_data=payload)
+
     def _get_headers(self) -> Dict[str, str]:
         """Constructs headers with necessary context."""
         headers = {
