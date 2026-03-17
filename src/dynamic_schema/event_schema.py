@@ -1,66 +1,23 @@
 # src/dynamic_schema/event_schema.py
 
-EVENT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title": {
-            "type": "string",
-            "description": "The title of the event (e.g., 'Client Meeting - Case Review')."
-        },
-        "start_datetime": {
-            "type": "string",
-            "description": "The ISO 8601 formatted start date and time (e.g., '2025-01-20T10:00:00')."
-        },
-        "end_datetime": {
-            "type": "string",
-            "description": "The ISO 8601 formatted end date and time (e.g., '2025-01-20T11:30:00')."
-        },
-        "description": {
-            "type": "string",
-            "description": "A detailed summary or agenda for the event."
-        },
-        "location": {
-            "type": "string",
-            "description": "The physical or virtual location of the event."
-        },
-        "timezone": {
-            "type": "string",
-            "description": "The timezone for the event (e.g., 'America/New_York'). Defaults to 'UTC' if not specified."
-        },
-        "is_all_day": {
-            "type": "boolean",
-            "description": "Whether the event lasts the entire day."
-        },
-        "matter_id": {
-            "type": ["string", "integer", "null"],
-            "description": "The unique ID of the legal matter associated with this event."
-        },
-        "visibility": {
-            "type": "string",
-            "enum": ["public", "private", "busy"],
-            "description": "The visibility level of the event."
-        },
-        "status": {
-            "type": "string",
-            "enum": ["confirmed", "tentative", "cancelled"],
-            "description": "The current status of the event."
-        },
-        "attendees": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "A list of email addresses of people attending the event."
-        },
-        "reminders": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "method": {"type": "string", "enum": ["email", "popup"]},
-                    "minutes": {"type": "integer"}
-                }
-            },
-            "description": "Automatic notification rules for the event."
-        }
-    },
-    "required": ["title", "start_datetime", "end_datetime"]
-}
+# Schema for a standard timed meeting or appointment
+STANDARD_EVENT_SCHEMA = [
+    {"key": "title", "label": "Event Title", "required": True},
+    {"key": "start_datetime", "label": "Start Time", "required": True},
+    {"key": "end_datetime", "label": "End Time", "required": True},
+    {"key": "description", "label": "Description", "required": False},
+    {"key": "location", "label": "Location", "required": False},
+    {"key": "timezone", "label": "Timezone", "required": False, "default": "UTC"},
+    {"key": "attendees", "label": "Attendees", "required": False, "type": "list"}
+]
+
+# Schema for an all-day event or deadline
+ALL_DAY_EVENT_SCHEMA = [
+    {"key": "title", "label": "Deadline Title", "required": True},
+    {"key": "start_datetime", "label": "Start Date", "required": True},
+    {"key": "end_datetime", "label": "End Date", "required": True},
+    {"key": "description", "label": "Deadline Details", "required": False}
+]
+
+# Keep generic for back-compat if needed, but the AI should prefer the specific ones
+EVENT_SCHEMA = STANDARD_EVENT_SCHEMA

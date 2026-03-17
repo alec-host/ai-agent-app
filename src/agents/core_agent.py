@@ -67,7 +67,12 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
     elif func_name == "lookup_countries":
         return await handle_lookup_countries(args, services, tenant_id)
 
-    elif func_name == "create_core_event":
+    elif func_name == "create_standard_event":
+        args["is_all_day"] = False
+        return await handle_create_event(args, services, tenant_id, history)
+
+    elif func_name == "create_all_day_event":
+        args["is_all_day"] = True
         return await handle_create_event(args, services, tenant_id, history)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
@@ -126,11 +131,12 @@ async def handle_create_event(args, services, tenant_id, history):
         # 2. Extract and Prepare Payload
         # We pass args directly as the tool definition matches the desired payload
         # but we filter for known keys to be safe.
-        event_keys = [
-            "title", "start_datetime", "end_datetime", "description", 
-            "location", "timezone", "is_all_day", "matter_id", 
-            "visibility", "status", "attendees", "reminders"
-        ]
+        # Determine key subset based on event type to avoid overlap/garbage
+        if args.get("is_all_day"):
+            event_keys = ["title", "start_datetime", "end_datetime", "description", "is_all_day"]
+        else:
+            event_keys = ["title", "start_datetime", "end_datetime", "description", "location", "timezone", "attendees", "is_all_day"]
+            
         payload = {k: args[k] for k in event_keys if k in args}
         
         # 3. Request Creation

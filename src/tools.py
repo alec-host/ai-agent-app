@@ -32,8 +32,8 @@ TOOLS = [
             "name": "initialize_calendar_session",
             "description": "Verifies or generates a fresh access token for the tenant. Call this before first-time calendar access. Pass summary/startTime if already known to preserve context.",
             "parameters": {
-               "type": "object",
-               "properties": {
+                "type": "object",
+                "properties": {
                     "tenant_id": {
                         "type": "string",
                         "description": "The unique UUID of a tenant."
@@ -46,8 +46,8 @@ TOOLS = [
                         "type": "string",
                         "description": "The time discussed so far (to keep in memory)."
                     }             
-               },
-               "required": ["tenant_id"]
+                },
+                "required": ["tenant_id"]
             }
         } 
     },
@@ -148,7 +148,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                   "query": {"type": "string", "description": "The workflow step Nuru needs help with."}
+                    "query": {"type": "string", "description": "The workflow step Nuru needs help with."}
                 }
             }
         }
@@ -241,36 +241,42 @@ TOOLS = [
     {
        "type": "function",
        "function": {
-           "name": "create_core_event",
-           "description": "Saves or DRAFTS a calendar event in the MatterMiner Core system. Use this for both standard meetings and all-day deadlines/events.",
+           "name": "create_standard_event",
+           "description": "Creates a standard timed meeting or appointment in MatterMiner Core.",
            "parameters": {
                "type": "object",
                "properties": {
-                   "title": {"type": "string", "description": "The title of the event."},
+                   "title": {"type": "string", "description": "The title of the meeting."},
                    "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-20T10:00:00)."},
                    "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-20T11:30:00)."},
-                   "description": {"type": "string", "description": "Notes or agenda."},
-                   "location": {"type": "string", "description": "Location of the meeting."},
-                   "is_all_day": {"type": "boolean", "description": "True if this is an all-day event or deadline."},
+                   "description": {"type": "string", "description": "Agenda or notes."},
+                   "location": {"type": "string", "description": "Venue or virtual link."},
+                   "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York)."},
                    "attendees": {
                        "type": "array",
                        "items": {"type": "string"},
                        "description": "List of attendee emails."
-                   },
-                   "reminders": {
-                       "type": "array",
-                       "items": {
-                           "type": "object",
-                           "properties": {
-                               "method": {"type": "string", "enum": ["email", "popup"]},
-                               "minutes": {"type": "integer"}
-                           }
-                       }
                    }
+               },
+               "required": ["title", "start_datetime", "end_datetime"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "create_all_day_event",
+           "description": "Creates an all-day event or deadline (e.g. Court Filing Deadline) in MatterMiner Core.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "title": {"type": "string", "description": "The title of the deadline or event."},
+                   "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-25T00:00:00)."},
+                   "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-25T23:59:59)."},
+                   "description": {"type": "string", "description": "Details about the deadline."}
                },
                "required": ["title", "start_datetime", "end_datetime"]
            }
        }
     }
 ]
-```
