@@ -76,7 +76,7 @@ class MatterMinerCoreClient:
             "tenantId": self.tenant_id,
             **client_data
         }
-        return await self.request("POST", "/clients", json_data=payload)
+        return await self.request("POST", "/client", json_data=payload)
 
     async def get_countries(self, search: str = "", page: int = 1, per_page: int = 15) -> Dict[str, Any]:
         """Retrieves a list of countries based on search and pagination."""
