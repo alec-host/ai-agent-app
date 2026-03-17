@@ -237,7 +237,40 @@ TOOLS = [
                "required": ["email", "password"]
            }
        }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "create_core_event",
+           "description": "Saves or DRAFTS a calendar event in the MatterMiner Core system. Use this for both standard meetings and all-day deadlines/events.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "title": {"type": "string", "description": "The title of the event."},
+                   "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-20T10:00:00)."},
+                   "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-20T11:30:00)."},
+                   "description": {"type": "string", "description": "Notes or agenda."},
+                   "location": {"type": "string", "description": "Location of the meeting."},
+                   "is_all_day": {"type": "boolean", "description": "True if this is an all-day event or deadline."},
+                   "attendees": {
+                       "type": "array",
+                       "items": {"type": "string"},
+                       "description": "List of attendee emails."
+                   },
+                   "reminders": {
+                       "type": "array",
+                       "items": {
+                           "type": "object",
+                           "properties": {
+                               "method": {"type": "string", "enum": ["email", "popup"]},
+                               "minutes": {"type": "integer"}
+                           }
+                       }
+                   }
+               },
+               "required": ["title", "start_datetime", "end_datetime"]
+           }
+       }
     }
 ]
-
-
+```

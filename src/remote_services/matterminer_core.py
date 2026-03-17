@@ -78,6 +78,14 @@ class MatterMinerCoreClient:
         }
         return await self.request("POST", "/client", json_data=payload)
 
+    async def create_core_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates a calendar event in the MatterMiner Core system."""
+        payload = {
+            "tenantId": self.tenant_id,
+            **event_data
+        }
+        return await self.request("POST", "/events", json_data=payload)
+
     async def get_countries(self, search: str = "", page: int = 1, per_page: int = 15) -> Dict[str, Any]:
         """Retrieves a list of countries based on search and pagination."""
         params = {

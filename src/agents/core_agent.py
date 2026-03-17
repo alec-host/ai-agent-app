@@ -6,6 +6,7 @@ from ..config import settings
 
 from ..dynamic_schema.client_schema import CLIENT_SCHEMA
 from ..dynamic_schema.contact_schema import CONTACT_SCHEMA
+from ..dynamic_schema.event_schema import EVENT_SCHEMA
 
 def _get_auth_required_response(message, response_instruction):
     return {
@@ -66,6 +67,9 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
     elif func_name == "lookup_countries":
         return await handle_lookup_countries(args, services, tenant_id)
 
+    elif func_name == "create_core_event":
+        return await handle_create_event(args, services, tenant_id, history)
+
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
 
 async def handle_lookup_countries(args, services, tenant_id):
@@ -107,6 +111,52 @@ async def handle_lookup_countries(args, services, tenant_id):
                 "status": "error",
                 "message": resp.get("message", "Failed to retrieve countries."),
                 "response_instruction": "Inform the user that the search failed and ask them to try a different keyword."
+            }
+    finally:
+        await core_client.close()
+
+async def handle_create_event(args, services, tenant_id, history):
+    """
+    Handles immediate creation of a calendar event in MatterMiner Core.
+    """
+    # 1. Initialize Client
+    core_client = _get_core_client(tenant_id)
+    
+    try:
+        # 2. Extract and Prepare Payload
+        # We pass args directly as the tool definition matches the desired payload
+        # but we filter for known keys to be safe.
+        event_keys = [
+            "title", "start_datetime", "end_datetime", "description", 
+            "location", "timezone", "is_all_day", "matter_id", 
+            "visibility", "status", "attendees", "reminders"
+        ]
+        payload = {k: args[k] for k in event_keys if k in args}
+        
+        # 3. Request Creation
+        resp = await core_client.create_core_event(payload)
+        
+        # 4. Handle Response
+        if resp.get("status") == "success" or resp.get("success") is True:
+            # Clear any stale session state since this is a terminal "call immediately" tool
+            await services['calendar'].clear_chat_session(tenant_id)
+            
+            return {
+                "status": "success",
+                "message": f"Event '{payload.get('title')}' has been successfully saved to MatterMiner Core.",
+                "data": resp,
+                "response_instruction": "Confirm the successful scheduling with the user."
+            }
+        elif resp.get("status") == "auth_required" or resp.get("code") == 404:
+            return _get_auth_required_response(
+                "Authentication required for MatterMiner Core.",
+                "To save this event, you need a valid MatterMiner session. Display the login card."
+            )
+        else:
+            return {
+                "status": "error",
+                "message": resp.get("message", "Failed to create event in Core system."),
+                "response_instruction": "Inform the user about the error and ask if they'd like to try again."
             }
     finally:
         await core_client.close()
