@@ -35,7 +35,11 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
         core_client = _get_core_client(tenant_id)
         try:
             result = await core_client.login(email, password)
-            if result.get("success") is True:
+            
+            # Robust success check: JSON boolean, string "true", or status wrapper
+            is_success = result.get("success") is True or str(result.get("success")).lower() == "true"
+            # If client.request caught a non-200 code, it adds status="error"
+            if is_success and result.get("status") != "error":
                 logger.info(f"[CORE-AUTH] Login successful for {email}")
                 return {
                     "status": "success",
@@ -43,7 +47,8 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
                     "data": result
                 }
             else:
-                logger.warning(f"[CORE-AUTH] Login failed for {email}: {result.get('message')}")
+                msg = result.get("message", "Invalid credentials")
+                logger.warning(f"[CORE-AUTH] Login failed for {email}: {msg}")
                 return {
                     "status": "error",
                     "code": result.get("code", 401),
