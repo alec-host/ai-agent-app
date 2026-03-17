@@ -67,7 +67,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 client_args=db_data,
                 event_draft=current_draft,
                 history=[],
-                active_workflow="calendar",
+                active_workflow="google_calendar",
                 thread_id=thread_id
             )
             await calendar_service.sync_client_session(sync_payload)
@@ -85,7 +85,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         client_args=db_data, 
                         event_draft=current_draft, 
                         history=[], 
-                        active_workflow="calendar", 
+                        active_workflow="google_calendar", 
                         thread_id=thread_id
                     )
                 )
@@ -107,7 +107,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         client_args=db_data, 
                         event_draft=current_draft, 
                         history=[], 
-                        active_workflow="calendar", 
+                        active_workflow="google_calendar", 
                         thread_id=thread_id
                     )
                 )
@@ -125,7 +125,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         client_args=db_data, 
                         event_draft=current_draft, 
                         history=[], 
-                        active_workflow="calendar", 
+                        active_workflow="google_calendar", 
                         thread_id=thread_id
                     )
                 )
@@ -143,7 +143,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                         client_args=db_data, 
                         event_draft=current_draft, 
                         history=[], 
-                        active_workflow="calendar", 
+                        active_workflow="google_calendar", 
                         thread_id=thread_id
                     )
                 )
@@ -165,7 +165,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                             client_args=db_data, 
                             event_draft=current_draft, 
                             history=[], 
-                            active_workflow="calendar", 
+                            active_workflow="google_calendar", 
                             thread_id=thread_id
                         )
                     )
@@ -195,7 +195,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                     client_args=db_data, 
                     event_draft=current_draft, 
                     history=[], 
-                    active_workflow="calendar", 
+                    active_workflow="google_calendar", 
                     thread_id=thread_id
                 )
             )

@@ -5,7 +5,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "schedule_event",
-            "description": "Schedules or DRAFTS a calendar event. Call this IMMEDIATELY as soon as you have ANY detail (like just the title or just the time) to save progress to the database vault.",
+            "description": "Schedules or DRAFTS an event on the user's EXTERNAL Google Calendar. Call this ONLY if 'Google' or 'Personal' calendar is explicitly mentioned.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -30,7 +30,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "initialize_calendar_session",
-            "description": "Verifies or generates a fresh access token for the tenant. Call this before first-time calendar access. Pass summary/startTime if already known to preserve context.",
+            "description": "Handshake for EXTERNAL Google Calendar access. Call this ONLY if the user specifically requests to use their Google/Personal calendar. DO NOT call this for MatterMiner Core events.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -242,7 +242,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_standard_event",
-           "description": "Creates a standard timed meeting or appointment in MatterMiner Core.",
+           "description": "Creates a standard timed meeting in the INTERNAL MatterMiner Core system. Use this as the default for all firm/matter-related appointments.",
            "parameters": {
                "type": "object",
                "properties": {
@@ -266,7 +266,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_all_day_event",
-           "description": "Creates an all-day event or deadline (e.g. Court Filing Deadline) in MatterMiner Core.",
+           "description": "Creates an all-day deadline in the INTERNAL MatterMiner Core system. Use this for all firm/matter-related deadlines.",
            "parameters": {
                "type": "object",
                "properties": {

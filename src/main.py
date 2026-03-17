@@ -597,14 +597,20 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         "organize a meeting", "reschedule", "deposition"
     ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+    # Explicit system mentions to prevent cross-auth confusion
+    is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
+    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
 
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
         "contact", "country", "countries", "client", "investigate"
-    ]
+    ] + ["matter", "firm", "internal", "matterminer", "deadline", "filing"]
+    
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
-    if is_calendar_intent:
+    
+    # Only trigger Google Pre-flight if it is EXPLICITLY external OR if no firm keywords are present
+    if is_calendar_intent and (is_explicit_google or not is_explicit_core) and not is_login_attempt:
         logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
 
         # STEP 1: Sync JWT — fetches access token from Node.js and sets it in headers.
@@ -775,7 +781,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if client_vault: 
             clean_client = {k: v for k, v in client_vault.items() if v is not None}
             if clean_client: vault_segments.append(f"CLIENT: {clean_client}")
-        if event_draft and active_workflow == "calendar": 
+        if event_draft and active_workflow == "google_calendar": 
             vault_segments.append(f"EVENT_DRAFT: {event_draft}")
         
         # Segment 3: Contact Draft (from metadata)
@@ -993,7 +999,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 # Treat 'cleared' workflow or 'completed' lifecycle as no active lock
                 if active_workflow == "cleared" or lifecycle == "completed":
                     active_workflow = None
-                if i == 0 and active_workflow == "calendar" and is_calendar_intent:
+                if i == 0 and active_workflow == "google_calendar" and is_calendar_intent:
                      logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
                      # MANDATORY: Sync JWT before grant-check
                      token_status = await services['calendar']._sync_access_token()
@@ -1022,7 +1028,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             vault_segments = []
             if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
-            if event_draft and active_workflow == "calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+            if event_draft and active_workflow == "google_calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
             
             # Segment 3: Contact Draft (from metadata)
             # Try both metadata key and top-level key (for redundancy)

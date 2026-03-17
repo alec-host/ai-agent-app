@@ -112,6 +112,8 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         # Treat 'cleared' active_workflow AND 'completed' lifecycle as both meaning "no active lock"
         is_session_done = lifecycle == "completed" or metadata.get("active_workflow") in ["cleared", None]
         active_workflow = metadata.get("active_workflow") if not is_session_done else None
+        # Normalize internal 'calendar' mode to 'google_calendar' for logic checks
+        if active_workflow == "calendar": active_workflow = "google_calendar"
         
         # Define strict demarcation
         is_calendar_tool = func_name in calendar_funcs
@@ -135,7 +137,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         elif is_client_tool:
             # GATING: If we are in an active Calendar workflow, block client tools.
             # BYPASS: If session is done (lifecycle=completed OR active_workflow=cleared), allow new workflows.
-            if active_workflow == "calendar" and not is_session_done:
+            if active_workflow == "google_calendar" and not is_session_done:
                 return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
 
             return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
