@@ -837,7 +837,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         terminal_success_msg = None
         for tool_call in assistant_msg.tool_calls:
             # Dispatch directly to Agent Manager
-            result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages)
+            result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages, user_email=user_email)
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
             if isinstance(result, dict):
@@ -1116,7 +1116,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 tool_name = tool_call_data['function']['name']
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 
-                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages)
+                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email)
                 messages.append({"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)})
                 
                 if isinstance(result, dict):

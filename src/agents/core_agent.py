@@ -16,13 +16,14 @@ def _get_auth_required_response(message, response_instruction):
         "response_instruction": response_instruction
     }
 
-def _get_core_client(tenant_id):
+def _get_core_client(tenant_id, user_email=None):
     return MatterMinerCoreClient(
         base_url=settings.NODE_REMOTE_SERVICE_URL,
-        tenant_id=tenant_id
+        tenant_id=tenant_id,
+        user_email=user_email
     )
 
-async def handle_core_ops(func_name, args, services, tenant_id, history):
+async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None):
     """
     Handles operations for the MatterMiner Core remote system.
     """
@@ -33,7 +34,7 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
         if not email or not password:
             return {"status": "error", "message": "Email and password are required for login."}
             
-        core_client = _get_core_client(tenant_id)
+        core_client = _get_core_client(tenant_id, user_email)
         try:
             result = await core_client.login(email, password)
             
@@ -59,30 +60,30 @@ async def handle_core_ops(func_name, args, services, tenant_id, history):
             await core_client.close()
 
     elif func_name == "create_contact":
-        return await handle_create_contact(args, services, tenant_id, history)
+        return await handle_create_contact(args, services, tenant_id, history, user_email=user_email)
         
     elif func_name in ["create_client_record", "setup_client"]:
-        return await handle_create_client(args, services, tenant_id, history)
+        return await handle_create_client(args, services, tenant_id, history, user_email=user_email)
 
     elif func_name == "lookup_countries":
-        return await handle_lookup_countries(args, services, tenant_id)
+        return await handle_lookup_countries(args, services, tenant_id, user_email=user_email)
 
     elif func_name == "create_standard_event":
         args["is_all_day"] = False
-        return await handle_create_event(args, services, tenant_id, history)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
 
     elif func_name == "create_all_day_event":
         args["is_all_day"] = True
-        return await handle_create_event(args, services, tenant_id, history)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
 
-async def handle_lookup_countries(args, services, tenant_id):
+async def handle_lookup_countries(args, services, tenant_id, user_email=None):
     """
     Handles searching for country information.
     """
     # 1. Initialize Client
-    core_client = _get_core_client(tenant_id)
+    core_client = _get_core_client(tenant_id, user_email)
     
     try:
         search = args.get("search", "")
@@ -120,12 +121,12 @@ async def handle_lookup_countries(args, services, tenant_id):
     finally:
         await core_client.close()
 
-async def handle_create_event(args, services, tenant_id, history):
+async def handle_create_event(args, services, tenant_id, history, user_email=None):
     """
     Handles immediate creation of a calendar event in MatterMiner Core.
     """
     # 1. Initialize Client
-    core_client = _get_core_client(tenant_id)
+    core_client = _get_core_client(tenant_id, user_email)
     
     try:
         # 2. Extract and Prepare Payload
@@ -167,7 +168,7 @@ async def handle_create_event(args, services, tenant_id, history):
     finally:
         await core_client.close()
 
-async def handle_create_contact(args, services, tenant_id, history):
+async def handle_create_contact(args, services, tenant_id, history, user_email=None):
     """
     Handles conversational contact creation with drafting.
     """
@@ -224,7 +225,7 @@ async def handle_create_contact(args, services, tenant_id, history):
         }
         
     # 5. Final Execution: POST to remote API
-    core_client = _get_core_client(tenant_id)
+    core_client = _get_core_client(tenant_id, user_email)
     
     try:
         resp = await core_client.create_contact(draft)
@@ -274,7 +275,7 @@ async def handle_create_contact(args, services, tenant_id, history):
     finally:
         await core_client.close()
 
-async def handle_create_client(args, services, tenant_id, history):
+async def handle_create_client(args, services, tenant_id, history, user_email=None):
     """
     Handles all logic related to client record creation and sequential conversation intake.
     """
@@ -365,7 +366,7 @@ async def handle_create_client(args, services, tenant_id, history):
     missing = [f for f in CLIENT_SCHEMA if f.get("required") and not final_args.get(f["key"])]
 
     if not missing:
-        core_client = _get_core_client(tenant_id)
+        core_client = _get_core_client(tenant_id, user_email)
         try:
             save_result = await core_client.create_client(final_args)
             

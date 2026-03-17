@@ -9,9 +9,10 @@ class MatterMinerCoreClient:
     Client for interacting with the MatterMiner Core remote system.
     Authentication is handled by the backend; this client passes tenant context.
     """
-    def __init__(self, base_url: str, tenant_id: str, correlation_id: Optional[str] = None):
+    def __init__(self, base_url: str, tenant_id: str, user_email: Optional[str] = None, correlation_id: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.tenant_id = tenant_id
+        self.user_email = user_email
         self.correlation_id = correlation_id
         
         # Internal async client
@@ -126,6 +127,9 @@ class MatterMinerCoreClient:
             "Accept": "application/json"
         }
         
+        if self.user_email:
+            headers["X-User-Email"] = self.user_email
+            
         if self.correlation_id:
             headers["X-Correlation-ID"] = self.correlation_id
             

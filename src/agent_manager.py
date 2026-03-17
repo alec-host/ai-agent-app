@@ -64,7 +64,7 @@ async def get_rehydration_context(tenant_id, services):
         return None
 
 
-async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
+async def execute_tool_call(tool_call, services, user_role, tenant_id, history, user_email: str = None):
     """
     Acts as a central Dispatcher (Router).
     Injects shared context and routes tool calls to specialized agent handlers.
@@ -138,10 +138,10 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history):
             if active_workflow == "calendar" and not is_session_done:
                 return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
 
-            return await handle_core_ops(func_name, args, services, tenant_id, history)
+            return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
             
         elif func_name in core_funcs:
-            return await handle_core_ops(func_name, args, services, tenant_id, history)
+            return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
             
         elif func_name in rag_funcs:
             return await handle_rag_lookup(func_name, args, services, tenant_id)
