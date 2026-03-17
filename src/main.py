@@ -603,14 +603,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "client", "investigate"
-    ] + ["matter", "firm", "internal", "matterminer", "deadline", "filing"]
-    
+        "contact", "country", "countries", "client", "investigate",
+        "matter", "firm", "internal", "matterminer", "deadline", "filing"
+    ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
     
-    # Only trigger Google Pre-flight if it is EXPLICITLY external OR if no firm keywords are present
-    if is_calendar_intent and (is_explicit_google or not is_explicit_core) and not is_login_attempt:
+    # Only trigger Google Pre-flight if it is EXPLICITLY external
+    if is_calendar_intent and is_explicit_google and not is_login_attempt:
         logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
 
         # STEP 1: Sync JWT — fetches access token from Node.js and sets it in headers.
@@ -914,22 +914,20 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     # Broad words like 'create', 'add', 'call' are intentionally excluded
     # to prevent triggering check_grant_token() for non-event workflows
     # (e.g. client creation, RAG queries).
-    # --- Intent Gating (Proactive Auth Checks) ---
-    calendar_keywords = [
-        "schedule", "event", "meeting", "book", "appointment", "calendar",
-        "set up a meeting", "setup a meeting", "arrange a meeting",
-        "organize a meeting", "reschedule", "deposition"
-    ]
-    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
-
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "client", "investigate"
+        "contact", "country", "countries", "client", "investigate",
+        "matter", "firm", "internal", "matterminer", "deadline", "filing"
     ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
 
-    if is_calendar_intent:
+    # Explicit system mentions to prevent cross-auth confusion
+    is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
+    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
+
+    # Only trigger Google Pre-flight if it is EXPLICITLY external
+    if is_calendar_intent and is_explicit_google and not is_login_attempt:
         logger.info(f"[STREAM] [{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
 
         # STEP 1: Sync JWT — fetches access token from Node.js and sets it in headers.
