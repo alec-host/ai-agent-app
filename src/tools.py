@@ -251,7 +251,7 @@ TOOLS = [
                    "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-20T11:30:00)."},
                    "description": {"type": "string", "description": "Agenda or notes."},
                    "location": {"type": "string", "description": "Venue or virtual link."},
-                   "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York)."},
+                   "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
                    "attendees": {
                        "type": "array",
                        "items": {"type": "string"},

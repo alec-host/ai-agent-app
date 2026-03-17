@@ -701,7 +701,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     rehydration_data = await get_rehydration_context(tenant_id, services)
     
     user_tz = auth.get("timezone", "UTC")
-    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz)}]
+    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz, settings.SUPPORTED_TIMEZONES)}]
     
     if rehydration_data:
         messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
@@ -970,7 +970,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         return StreamingResponse(clear_gen(), media_type="text/event-stream")
 
     rehydration_data = await get_rehydration_context(tenant_id, services)
-    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz)}]
+    messages = [{"role": "system", "content": get_legal_system_prompt(tenant_id, user_role, user_tz, settings.SUPPORTED_TIMEZONES)}]
     if rehydration_data:
         messages[0]["content"] += f"\n\n{rehydration_data.get('injection', '')}"
     messages.extend(sanitize_history(cleaned_history))

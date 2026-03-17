@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     # Sentry
     SENTRY_DSN: str = "11111111"
 
+    # Supported Timezones for Event Creation
+    SUPPORTED_TIMEZONES: list = [
+        {"label": "Nairobi (EAT)", "value": "Africa/Nairobi"},
+        {"label": "US Eastern (EST/EDT)", "value": "America/New_York"},
+        {"label": "US Pacific (PST/PDT)", "value": "America/Los_Angeles"},
+        {"label": "Europe London (GMT/BST)", "value": "Europe/London"},
+        {"label": "UTC", "value": "UTC"}
+    ]
+
     # This config tells Pydantic to look for a .env file
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
