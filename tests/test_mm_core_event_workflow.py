@@ -144,7 +144,7 @@ async def test_mm_core_event_final_submission():
     existing_session = {"tenantId": tenant_id, "metadata": {"active_workflow": "standard_event", "event_draft": full_draft}}
     respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json=existing_session))
     # Mock Core API call
-    core_mock = respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/calendar/core/standard-event").mock(
+    core_mock = respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/standard-event").mock(
         return_value=Response(200, json={"status": "success", "id": 999})
     )
     sync_mock = respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))

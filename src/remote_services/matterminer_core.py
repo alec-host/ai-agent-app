@@ -84,7 +84,7 @@ class MatterMinerCoreClient:
         is_all_day = event_data.get("is_all_day", False)
         
         # Determine the correct routing path
-        endpoint = "/calendar/core/all-event" if is_all_day else "/calendar/core/standard-event"
+        endpoint = "/all-event" if is_all_day else "/standard-event"
         
         payload = {
             "tenantId": self.tenant_id,
