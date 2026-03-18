@@ -910,10 +910,15 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
-    # Keywords scoped tightly to Google Calendar EVENT operations only.
-    # Broad words like 'create', 'add', 'call' are intentionally excluded
-    # to prevent triggering check_grant_token() for non-event workflows
-    # (e.g. client creation, RAG queries).
+    
+    # 1. Define Boolean Flags
+    calendar_keywords = [
+        "schedule", "event", "meeting", "book", "appointment", "calendar",
+        "set up a meeting", "setup a meeting", "arrange a meeting",
+        "organize a meeting", "reschedule", "deposition"
+    ]
+    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
         "contact", "country", "countries", "client", "investigate",
@@ -922,11 +927,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
 
-    # Explicit system mentions to prevent cross-auth confusion
     is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
     is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
 
-    # Only trigger Google Pre-flight if it is EXPLICITLY external
+    # 2. Pre-LLM Auth Guard
     if is_calendar_intent and is_explicit_google and not is_login_attempt:
         logger.info(f"[STREAM] [{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
 
