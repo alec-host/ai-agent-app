@@ -6,7 +6,8 @@ from ..config import settings
 
 from ..dynamic_schema.client_schema import CLIENT_SCHEMA
 from ..dynamic_schema.contact_schema import CONTACT_SCHEMA
-from ..dynamic_schema.event_schema import EVENT_SCHEMA
+from ..dynamic_schema.event_schema import STANDARD_EVENT_SCHEMA, ALL_DAY_EVENT_SCHEMA, EVENT_SCHEMA
+from ..config import settings
 
 def _get_auth_required_response(message, response_instruction):
     return {
@@ -123,47 +124,102 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
 
 async def handle_create_event(args, services, tenant_id, history, user_email=None):
     """
-    Handles immediate creation of a calendar event in MatterMiner Core.
+    Handles conversational drafting and final submission of an event to MatterMiner Core.
     """
-    # 1. Initialize Client
-    core_client = _get_core_client(tenant_id, user_email)
+    is_all_day = args.get("is_all_day", False)
+    schema = ALL_DAY_EVENT_SCHEMA if is_all_day else STANDARD_EVENT_SCHEMA
+    workflow_key = "all_day_event" if is_all_day else "standard_event"
+
+    # 1. Fetch Session
+    session = await services['calendar'].get_client_session(tenant_id)
+    metadata = session.get("metadata", {})
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
     
-    try:
-        # 2. Extract and Prepare Payload
-        # We pass args directly as the tool definition matches the desired payload
-        # but we filter for known keys to be safe.
-        # Determine key subset based on event type to avoid overlap/garbage
-        if args.get("is_all_day"):
-            event_keys = ["title", "start_datetime", "end_datetime", "description", "is_all_day"]
-        else:
-            event_keys = ["title", "start_datetime", "end_datetime", "description", "location", "timezone", "attendees", "is_all_day"]
+    draft = metadata.get("event_draft", {})
+    
+    # 2. Update Draft
+    for field in schema:
+        key = field["key"]
+        val = args.get(key)
+        if val is not None and (not isinstance(val, str) or val.strip()):
+            draft[key] = val
             
-        payload = {k: args[k] for k in event_keys if k in args}
+    # Always set workflow context
+    metadata["event_draft"] = draft
+    metadata["active_workflow"] = workflow_key
+    
+    # 3. Check for Completion
+    required_fields = [f for f in schema if f.get("required", True)]
+    missing = [f for f in required_fields if not draft.get(f["key"])]
+    
+    # Case A: Still Drafting
+    if missing:
+        payload = format_sync_chat_payload(
+            tenant_id=tenant_id,
+            client_args=session,
+            event_draft=draft,
+            metadata=metadata,
+            history=history,
+            thread_id=services['calendar'].thread_id
+        )
+        await services['calendar'].sync_client_session(payload)
         
-        # 3. Request Creation
+        next_field = missing[0]
+        msg = f"Capture received! We have: {', '.join([f['label'] for f in schema if draft.get(f['key'])])}."
+        
+        instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
+        if next_field['key'] == 'timezone':
+            instruction += f"\n\nFor Timezone, instruct the user to pick from common options like: {', '.join([tz['label'] for tz in settings.SUPPORTED_TIMEZONES])}. Use the value like '{settings.SUPPORTED_TIMEZONES[0]['value']}'."
+
+        return {
+            "status": "partial_success",
+            "message": msg,
+            "response_instruction": instruction
+        }
+        
+    # Case B: Ready to Submit
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        # Pass is_all_day flag to handle end_datetime logic if needed
+        payload = {**draft, "is_all_day": is_all_day}
         resp = await core_client.create_core_event(payload)
         
-        # 4. Handle Response
         if resp.get("status") == "success" or resp.get("success") is True:
-            # Clear any stale session state since this is a terminal "call immediately" tool
-            await services['calendar'].clear_chat_session(tenant_id)
+            # Final cleanup
+            metadata["event_draft"] = {}
+            metadata["active_workflow"] = None
+            
+            sync_payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=session,
+                active_workflow="cleared",
+                session_lifecycle="completed",
+                event_draft={},
+                metadata=metadata,
+                history=history,
+                thread_id=services['calendar'].thread_id
+            )
+            await services['calendar'].sync_client_session(sync_payload)
+            await services['calendar'].clear_client_session(tenant_id)
             
             return {
                 "status": "success",
-                "message": f"Event '{payload.get('title')}' has been successfully saved to MatterMiner Core.",
+                "message": f"Successfully created your event: {payload.get('title')}",
                 "data": resp,
-                "response_instruction": "Confirm the successful scheduling with the user."
+                "response_instruction": "Confirm success and ask if they need anything else."
             }
         elif resp.get("status") == "auth_required" or resp.get("code") == 404:
             return _get_auth_required_response(
                 "Authentication required for MatterMiner Core.",
-                "To save this event, you need a valid MatterMiner session. Display the login card."
+                "Display the login card. All event details are preserved in the vault."
             )
         else:
             return {
                 "status": "error",
-                "message": resp.get("message", "Failed to create event in Core system."),
-                "response_instruction": "Inform the user about the error and ask if they'd like to try again."
+                "message": resp.get("message", "Failed to create event."),
+                "response_instruction": "Inform the user about the rejection and ask to try again or modify."
             }
     finally:
         await core_client.close()
@@ -493,5 +549,22 @@ def get_workflow_recovery(metadata, db_data):
             "data": recov_data,
             "instruction": f"The user was previously registering a client. Known: {list(recov_data.keys())}. Acknowledge the partial info and ask for the {missing[0]}."
         }
+
+    elif active_workflow in ["standard_event", "all_day_event"]:
+        event_draft = metadata.get("event_draft", {})
+        if not event_draft:
+            return None
+        
+        is_all_day = active_workflow == "all_day_event"
+        schema = ALL_DAY_EVENT_SCHEMA if is_all_day else STANDARD_EVENT_SCHEMA
+        missing = [f["label"] for f in schema if f.get("required") and not event_draft.get(f["key"])]
+        
+        recovery = {
+            "header": "### PENDING EVENT RECORD ###",
+            "data": event_draft
+        }
+        if missing:
+            recovery["instruction"] = f"Acknowledge the partial info. Ask ONLY for the {missing[0]}."
+        return recovery
 
     return None

@@ -781,7 +781,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if client_vault: 
             clean_client = {k: v for k, v in client_vault.items() if v is not None}
             if clean_client: vault_segments.append(f"CLIENT: {clean_client}")
-        if event_draft and active_workflow == "google_calendar": 
+        if event_draft and active_workflow in ["google_calendar", "standard_event", "all_day_event"]: 
             vault_segments.append(f"EVENT_DRAFT: {event_draft}")
         
         # Segment 3: Contact Draft (from metadata)
@@ -1030,7 +1030,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             vault_segments = []
             if client_vault: vault_segments.append(f"CLIENT: {client_vault}")
-            if event_draft and active_workflow == "google_calendar": vault_segments.append(f"EVENT_DRAFT: {event_draft}")
+            if event_draft and active_workflow in ["google_calendar", "standard_event", "all_day_event"]: vault_segments.append(f"EVENT_DRAFT: {event_draft}")
             
             # Segment 3: Contact Draft (from metadata)
             # Try both metadata key and top-level key (for redundancy)
