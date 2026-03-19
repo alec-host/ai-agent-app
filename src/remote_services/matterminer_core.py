@@ -69,7 +69,7 @@ class MatterMinerCoreClient:
 
     async def create_contact(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Creates a new contact record in the remote system."""
-        return await self.request("POST", "/contacts", json_data=payload)
+        return await self.request("POST", "/contact", json_data=payload)
 
     async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Registers a new client record in MatterMiner Core."""
