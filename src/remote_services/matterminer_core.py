@@ -67,8 +67,12 @@ class MatterMinerCoreClient:
             logger.error(f"[CORE-API] Exception for {endpoint}: {e}")
             return {"status": "error", "message": str(e)}
 
-    async def create_contact(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_contact(self, contact_data: Dict[str, Any]) -> Dict[str, Any]:
         """Creates a new contact record in the remote system."""
+        payload = {
+            "tenantId": self.tenant_id,
+            **contact_data
+        }
         return await self.request("POST", "/contact", json_data=payload)
 
     async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
