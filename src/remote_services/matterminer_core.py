@@ -75,6 +75,14 @@ class MatterMinerCoreClient:
         }
         return await self.request("POST", "/contact", json_data=payload)
 
+    async def search_contact_by_email(self, email: str) -> Dict[str, Any]:
+        """Searches for a contact by email and returns their contact_id."""
+        params = {
+            "search_email": email,
+            "tenantId": self.tenant_id
+        }
+        return await self.request("GET", "/search-contact", params=params)
+
     async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Registers a new client record in MatterMiner Core."""
         payload = {

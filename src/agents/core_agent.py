@@ -66,6 +66,9 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
     elif func_name in ["create_client_record", "setup_client"]:
         return await handle_create_client(args, services, tenant_id, history, user_email=user_email)
 
+    elif func_name == "search_contact_by_email":
+        return await handle_search_contact(args, tenant_id, user_email=user_email)
+
     elif func_name == "lookup_countries":
         return await handle_lookup_countries(args, services, tenant_id, user_email=user_email)
 
@@ -78,6 +81,56 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
         return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
+
+async def handle_search_contact(args, tenant_id, user_email=None):
+    """
+    Searches for a contact by email via the backend.
+    """
+    email = args.get("email")
+    if not email:
+        return {
+            "status": "error",
+            "message": "Email address is required to search for a contact.",
+            "response_instruction": "Ask the user for the email address to search."
+        }
+
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        resp = await core_client.search_contact_by_email(email)
+
+        if resp.get("status") == "auth_required":
+            return _get_auth_required_response(
+                "Authentication required for MatterMiner Core.",
+                "To search for contacts, you need to be logged into MatterMiner. Display the login card."
+            )
+
+        if resp.get("status") == "success" or resp.get("contact_id") or (resp.get("data") and "contact_id" in resp.get("data", {})):
+            # Handle variations in API payload success wrappers
+            contact_id = resp.get("contact_id") or (resp.get("data", {})).get("contact_id")
+            
+            if contact_id:
+                return {
+                    "status": "success",
+                    "message": f"Contact found! ID is {contact_id}.",
+                    "data": resp,
+                    "response_instruction": f"Inform the user that the contact was found (ID: {contact_id}) and ask what they would like to do next."
+                }
+                
+        # Handle 404 or any other not found/error implicitly mapping to creation
+        if resp.get("code") == 404 or resp.get("status") == "error":
+            return {
+                "status": "not_found",
+                "message": f"No contact found for {email}.",
+                "response_instruction": "Inform the user that no contact was found with that email. Ask if they would like to create a new contact instead."
+            }
+
+        return {
+            "status": "error",
+            "message": resp.get("message", "Unknown error while searching for contact."),
+            "response_instruction": "Inform the user that the search failed and ask them to try again later."
+        }
+    finally:
+        await core_client.close()
 
 async def handle_lookup_countries(args, services, tenant_id, user_email=None):
     """

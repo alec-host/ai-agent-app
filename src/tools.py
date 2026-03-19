@@ -211,6 +211,20 @@ TOOLS = [
     {
        "type": "function",
        "function": {
+           "name": "search_contact_by_email",
+           "description": "Searches the MatterMiner Core database for an existing contact using their email address. Use this when you need a contact_id, or to verify if a contact already exists.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "email": {"type": "string", "description": "The email address of the contact to look up."}
+               },
+               "required": ["email"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
            "name": "lookup_countries",
            "description": "Searches for country information (name, id, etc.) in the MatterMiner Core system. Use this to find the correct country_id for client or contact creation.",
            "parameters": {
