@@ -151,8 +151,8 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     metadata["active_workflow"] = workflow_key
     
     # 3. Check for Completion
-    required_fields = [f for f in schema if f.get("required", True)]
-    missing = [f for f in required_fields if not draft.get(f["key"])]
+    # Treat all fields as missing until explicitly provided or skipped
+    missing = [f for f in schema if not draft.get(f["key"])]
     
     # Case A: Still Drafting
     if missing:
@@ -170,6 +170,9 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
         msg = f"Capture received! We have: {', '.join([f['label'] for f in schema if draft.get(f['key'])])}."
         
         instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
+        if not next_field.get("required", True):
+            instruction += f" Explicitly tell the user: '(You can say \"skip\" to leave this blank)'."
+            
         if next_field['key'] == 'timezone':
             instruction += f"\n\nFor Timezone, instruct the user to pick from common options like: {', '.join([tz['label'] for tz in settings.SUPPORTED_TIMEZONES])}. Use the value like '{settings.SUPPORTED_TIMEZONES[0]['value']}'."
 
@@ -182,8 +185,11 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     # Case B: Ready to Submit
     core_client = _get_core_client(tenant_id, user_email)
     try:
+        # Clean out skipped values before submission
+        clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
+        
         # Pass is_all_day flag to handle end_datetime logic if needed
-        payload = {**draft, "is_all_day": is_all_day}
+        payload = {**clean_draft, "is_all_day": is_all_day}
         resp = await core_client.create_core_event(payload)
         
         if resp.get("status") == "success" or resp.get("success") is True:
@@ -204,11 +210,19 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
             await services['calendar'].sync_client_session(sync_payload)
             await services['calendar'].clear_client_session(tenant_id)
             
+            summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {payload.get(f['key'], 'N/A')} |" for f in schema])
+            summary_table = (
+                "### FINAL SUMMARY: EVENT CREATED\n\n"
+                "| Field | Value |\n"
+                "| :--- | :--- |\n"
+                f"{summary_rows}"
+            )
+            
             return {
                 "status": "success",
-                "message": f"Successfully created your event: {payload.get('title')}",
+                "message": f"Successfully created your event: {payload.get('title')}\n\n{summary_table}",
                 "data": resp,
-                "response_instruction": "Confirm success and ask if they need anything else."
+                "response_instruction": "Confirm success, output the markdown table summary, remind the user it can be copied easily, and ask if they need anything else."
             }
         elif resp.get("status") == "auth_required" or resp.get("code") == 404:
             return _get_auth_required_response(
@@ -557,7 +571,7 @@ def get_workflow_recovery(metadata, db_data):
         
         is_all_day = active_workflow == "all_day_event"
         schema = ALL_DAY_EVENT_SCHEMA if is_all_day else STANDARD_EVENT_SCHEMA
-        missing = [f["label"] for f in schema if f.get("required") and not event_draft.get(f["key"])]
+        missing = [f["label"] for f in schema if not event_draft.get(f["key"])]
         
         recovery = {
             "header": "### PENDING EVENT RECORD ###",
