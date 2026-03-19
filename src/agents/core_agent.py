@@ -274,7 +274,8 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     metadata["active_workflow"] = "contact"
     
     # 3. Gating Logic: Check for mandatory fields
-    missing = [f for f in CONTACT_SCHEMA if f.get("required") and not draft.get(f["key"])]
+    # Treat all non-system fields as missing until explicitly provided or skipped
+    missing = [f for f in CONTACT_SCHEMA if not f.get("system_only") and not draft.get(f["key"])]
     
     # 4. Scenario A: Still drafting
     if missing:
@@ -288,17 +289,41 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
         )
         await services['calendar'].sync_client_session(payload)
         
+        next_field = missing[0]
+        instruction = f"Acknowledge the info received. Then, politely ask for the {next_field['label']}."
+        
+        if not next_field.get("required", True):
+            instruction += f" Explicitly tell the user: '(You can say \"skip\" to use the default or leave it blank)'."
+            
+        if next_field['key'] == 'country_code':
+            # Attempt to pull network_country_code from session/metadata if passed by proxy
+            detected_cc = metadata.get("network_country_code") or session.get("network_country_code")
+            if detected_cc:
+                instruction += f"\n\nHint: The network detected they might be in a region with code '{detected_cc}'. Suggest this code and ask if it's correct for their phone number."
+            else:
+                instruction += f"\n\nHint: Many users don't know their country dialing code. Do NOT just ask for 'Country Code'. Ask which country their number belongs to (e.g. 'Canada'), then use your `lookup_countries` tool to find the correct dial code automatically."
+        
         return {
             "status": "partial_success",
             "message": f"Captured {', '.join([f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])])}.",
-            "response_instruction": f"Acknowledge the info received. Then, politely ask for the {missing[0]['label']}."
+            "response_instruction": instruction
         }
         
     # 5. Final Execution: POST to remote API
     core_client = _get_core_client(tenant_id, user_email)
     
     try:
-        resp = await core_client.create_contact(draft)
+        # Clean out skipped values before submission, but preserve defaults if available
+        clean_draft = {}
+        for k, v in draft.items():
+            if str(v).lower().strip() in ["skip", "skipped", "none", "n/a", ""]:
+                schema_field_list = [f for f in CONTACT_SCHEMA if f["key"] == k]
+                if schema_field_list and "default" in schema_field_list[0]:
+                    clean_draft[k] = schema_field_list[0]["default"]
+                continue
+            clean_draft[k] = v
+            
+        resp = await core_client.create_contact(clean_draft)
         
         if resp.get("status") == "success":
             metadata["contact_draft"] = {}
@@ -526,7 +551,7 @@ def get_workflow_recovery(metadata, db_data):
         if not clean_contact:
             return None
 
-        missing_contact = [f["label"] for f in CONTACT_SCHEMA if f.get("required") and not clean_contact.get(f["key"])]
+        missing_contact = [f["label"] for f in CONTACT_SCHEMA if not f.get("system_only") and not clean_contact.get(f["key"])]
 
         recovery = {
             "header": "### PENDING CONTACT RECORD ###",

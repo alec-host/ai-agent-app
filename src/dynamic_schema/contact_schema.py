@@ -10,8 +10,8 @@ CONTACT_SCHEMA = [
     {"key": "middle_name", "label": "Middle Name", "required": True, "aliases": ["middleName"]},
     {"key": "country_code", "label": "Country Code", "required": True, "aliases": ["countryCode", "country_id", "countryId"]},
     {"key": "phone_number", "label": "Phone Number", "required": True, "aliases": ["phoneNumber", "mobile", "tel"]},
-    {"key": "model_type", "label": "Model Type", "required": False, "default": "App\\Models\\Prospect"},
-    {"key": "model_id", "label": "Model ID", "required": False, "default": 1},
-    {"key": "active", "label": "Active", "required": False, "default": "Active"},
-    {"key": "featured", "label": "Featured", "required": False, "default": False}
+    {"key": "model_type", "label": "Model Type", "required": False, "default": "App\\Models\\Prospect", "system_only": True},
+    {"key": "model_id", "label": "Model ID", "required": False, "default": 1, "system_only": True},
+    {"key": "active", "label": "Active", "required": False, "default": "Active", "system_only": True},
+    {"key": "featured", "label": "Featured", "required": False, "default": False, "system_only": True}
 ]
