@@ -289,8 +289,11 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
         )
         await services['calendar'].sync_client_session(payload)
         
+        captured_labels = [f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])]
+        msg = f"Captured {', '.join(captured_labels)}." if captured_labels else "Initiated contact drafting."
+        
         next_field = missing[0]
-        instruction = f"Acknowledge the info received. Then, politely ask for the {next_field['label']}."
+        instruction = f"Acknowledge the context. Then, ask ONLY for ONE piece of information: the {next_field['label']}. NEVER ask for multiple fields at once."
         
         if not next_field.get("required", True):
             instruction += f" Explicitly tell the user: '(You can say \"skip\" to use the default or leave it blank)'."
@@ -305,7 +308,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
         
         return {
             "status": "partial_success",
-            "message": f"Captured {', '.join([f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])])}.",
+            "message": msg,
             "response_instruction": instruction
         }
         

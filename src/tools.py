@@ -188,7 +188,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_contact",
-           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Call this IMMEDIATELY as soon as you have ANY piece of information (like first name or email) to save progress to the database vault.",
+           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Call this IMMEDIATELY when the user wants to create a contact, even if you have NO information yet (pass empty object), so the gating system can guide you strictly one step at a time.",
            "parameters": {
                "type": "object",
                "properties": {
