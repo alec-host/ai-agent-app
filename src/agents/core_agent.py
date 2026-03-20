@@ -445,20 +445,16 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     core_client = _get_core_client(tenant_id, user_email)
     
     try:
-        # Clean out skipped values before submission, but preserve defaults if available
-        clean_draft = {}
-        for k, v in draft.items():
-            if str(v).lower().strip() in ["skip", "skipped", "none", "n/a", ""]:
-                schema_field_list = [f for f in CONTACT_SCHEMA if f["key"] == k]
-                if schema_field_list and "default" in schema_field_list[0]:
-                    clean_draft[k] = schema_field_list[0]["default"]
-                continue
-            
-            # --- BACKEND COMPATIBILITY: Map client_email -> email ---
-            if k == "client_email":
-                clean_draft["email"] = v
-            else:
-                clean_draft[k] = v
+        # Map to EXACT backend parameters (tenantId handled by CoreClient)
+        clean_draft = {
+            "title": draft.get("title"),
+            "first_name": draft.get("first_name"),
+            "middle_name": draft.get("middle_name"),
+            "last_name": draft.get("last_name"),
+            "contact_email": draft.get("client_email"),
+            "country_code": draft.get("country_code"),
+            "phone_number": draft.get("phone_number")
+        }
             
         resp = await core_client.create_contact(clean_draft)
         
@@ -671,7 +667,16 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     if not missing:
         core_client = _get_core_client(tenant_id, user_email)
         try:
-            save_result = await core_client.create_client(final_args)
+            # Map to EXACT backend parameters (tenantId handled by CoreClient)
+            strict_payload = {
+                "first_name": final_args.get("first_name"),
+                "last_name": final_args.get("last_name"),
+                "client_type": final_args.get("client_type"),
+                "client_email": final_args.get("client_email"),
+                "country_id": final_args.get("country_id"),
+                "street": final_args.get("street")
+            }
+            save_result = await core_client.create_client(strict_payload)
             
             # Robust success check
             is_success = save_result.get("status") == "success" or save_result.get("success") is True
