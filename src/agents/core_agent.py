@@ -63,11 +63,11 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
     elif func_name == "create_contact":
         return await handle_create_contact(args, services, tenant_id, history, user_email=user_email)
         
-    elif func_name in ["create_client_record", "setup_client"]:
+    elif func_name in ["create_client_record", "setup_client", "promote_contact_to_client"]:
         return await handle_create_client(args, services, tenant_id, history, user_email=user_email)
 
     elif func_name == "search_contact_by_email":
-        return await handle_search_contact(args, tenant_id, user_email=user_email)
+        return await handle_search_contact(args, services, tenant_id, user_email=user_email)
 
     elif func_name == "lookup_countries":
         return await handle_lookup_countries(args, services, tenant_id, user_email=user_email)
@@ -82,7 +82,7 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
 
-async def handle_search_contact(args, tenant_id, user_email=None):
+async def handle_search_contact(args, services, tenant_id, user_email=None):
     """
     Searches for a contact by email via the backend.
     """
@@ -109,15 +109,45 @@ async def handle_search_contact(args, tenant_id, user_email=None):
             contact_id = resp.get("contact_id") or (resp.get("data", {})).get("contact_id")
             
             if contact_id:
+                # --- PATTERN: LINKING DISCOVERED DATA ---
+                # Attempt to pre-fill client_draft for future client registration
+                try:
+                    session = await services['calendar'].get_client_session(tenant_id)
+                    metadata = session.get("metadata", {})
+                    if isinstance(metadata, str): metadata = json.loads(metadata)
+                    
+                    client_draft = metadata.get("client_draft", {})
+                    client_draft["contact_id"] = contact_id
+                    metadata["client_draft"] = client_draft
+                    
+                    sync_payload = format_sync_chat_payload(
+                        tenant_id=tenant_id,
+                        client_args=session,
+                        client_draft=client_draft,
+                        metadata=metadata,
+                        history=[],
+                        thread_id=services['calendar'].thread_id
+                    )
+                    await services['calendar'].sync_client_session(sync_payload)
+                except Exception as e:
+                    logger.error(f"[SEARCH-LINK] Failed to sync contact_id to client_draft: {e}")
+
                 return {
                     "status": "success",
                     "message": f"Contact found! ID is {contact_id}.",
                     "data": resp,
-                    "response_instruction": f"Inform the user that the contact was found (ID: {contact_id}) and ask what they would like to do next."
+                    "response_instruction": f"The contact has been discovered (ID: {contact_id}) and linked to the current draft. You can now proceed to create a client record for them if that was the user's intent, or ask what else they need."
+                }
+            else:
+                # 200 OK but no contact_id present (empty result)
+                return {
+                    "status": "not_found",
+                    "message": f"No contact found for {email}.",
+                    "response_instruction": "Inform the user that no contact was found with that email. Ask if they would like to create a new contact instead."
                 }
                 
-        # Handle 404 or any other not found/error implicitly mapping to creation
-        if resp.get("code") == 404 or resp.get("status") == "error":
+        # Handle 404 or explicit 'not_found' status mapping to creation
+        if resp.get("code") == 404 or resp.get("status") == "not_found":
             return {
                 "status": "not_found",
                 "message": f"No contact found for {email}.",
@@ -154,12 +184,37 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
                 cid = c.get("id")
                 formatted_list.append(f"{name} (ID: {cid})")
                 
+            # --- PATTERN: LINKING DISCOVERED DATA ---
+            # If only one match is found, auto-link it to the draft context
+            if len(countries_data) == 1:
+                try:
+                    country_id = countries_data[0].get("id")
+                    session = await services['calendar'].get_client_session(tenant_id)
+                    metadata = session.get("metadata", {})
+                    if isinstance(metadata, str): metadata = json.loads(metadata)
+                    
+                    client_draft = metadata.get("client_draft", {})
+                    client_draft["country_id"] = country_id
+                    metadata["client_draft"] = client_draft
+                    
+                    sync_payload = format_sync_chat_payload(
+                        tenant_id=tenant_id,
+                        client_args=session,
+                        client_draft=client_draft,
+                        metadata=metadata,
+                        history=[],
+                        thread_id=services['calendar'].thread_id
+                    )
+                    await services['calendar'].sync_client_session(sync_payload)
+                except Exception as e:
+                    logger.error(f"[COUNTRY-LINK] Failed to sync country_id: {e}")
+
             return {
                 "status": "success",
                 "message": f"Found {len(formatted_list)} matches.",
                 "countries": formatted_list,
                 "raw_data": countries_data,
-                "response_instruction": "Display the results to the user. If they have selected one, remember the ID to use as 'country_id' in client/contact creation."
+                "response_instruction": "Display the results to the user. Once a country is identified, its ID will be automatically linked to any drafts. You can now ask for the next missing field in the setup workflow."
             }
         elif resp.get("status") == "auth_required":
             return _get_auth_required_response(
@@ -382,13 +437,23 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
         resp = await core_client.create_contact(clean_draft)
         
         if resp.get("status") == "success":
+            # --- PATTERN: LINKING FRESH DATA ---
+            # Clear contact workflow but save the ID if we are heading towards a client
+            contact_id = resp.get("contact_id") or resp.get("data", {}).get("contact_id")
+            
             metadata["contact_draft"] = {}
             metadata["active_workflow"] = None
+            
+            client_draft = metadata.get("client_draft", {})
+            if contact_id:
+                client_draft["contact_id"] = contact_id
+            metadata["client_draft"] = client_draft
             
             payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
                 client_args=session,
                 contact_draft={},
+                client_draft=client_draft,
                 metadata=metadata,
                 history=[],
                 thread_id=services['calendar'].thread_id,
@@ -397,10 +462,14 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             )
             await services['calendar'].sync_client_session(payload)
             await services['calendar'].clear_client_session(tenant_id)
+            
+            msg = f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}"
+            if contact_id: msg += f" (ID: {contact_id})"
+            
             return {
                 "status": "success",
-                "message": f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}",
-                "response_instruction": "Confirm the contact has been saved to MatterMiner Core and ask if they need anything else."
+                "message": msg,
+                "response_instruction": "Confirm the contact has been saved. If the user's goal was client registration, you now have the contact_id and can proceed with that workflow."
             }
         elif resp.get("status") == "auth_required":
             # Save progress so user can resume after login

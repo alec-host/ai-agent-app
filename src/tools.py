@@ -178,12 +178,32 @@ TOOLS = [
                  "first_name": {"type": "string", "description": "The client's legal first name. NEVER use an alphanumeric ID here."},
                  "last_name": {"type": "string", "description": "The client's legal last name. NEVER use an alphanumeric ID here."},
                  "client_email": {"type": "string", "description": "The primary client's email address."},
-                 "client_type": {"type": "string", "description": "The category of the client (e.g., individual, corporate, associate)."}
+                 "client_type": {"type": "string", "description": "The category of the client (e.g., individual, corporate, associate)."},
+                 "contact_id": {"type": "string", "description": "Relational link: The UUID of the contact record obtained via lookup or creation."},
+                 "country_id": {"type": "integer", "description": "Relational link: The ID of the country obtained via lookup_countries."},
+                 "street": {"type": "string", "description": "The client's physical street address."}
              },
-             "required": ["first_name", "last_name", "client_email", "client_type"]
+             "required": ["first_name", "last_name", "client_email", "client_type", "contact_id", "country_id", "street"]
           }
       }
    },
+    {
+       "type": "function",
+       "function": {
+           "name": "promote_contact_to_client",
+           "description": "Converts an existing contact record into a formal client profile. Use this when you have a contact_id but need to finalize client-specific details.",
+           "parameters": {
+              "type": "object",
+              "properties": {
+                  "contact_id": {"type": "string", "description": "The UUID of the existing contact."},
+                  "client_type": {"type": "string", "enum": ["individual", "corporate"], "description": "The category of the profile."},
+                  "country_id": {"type": "integer", "description": "The ID of the country (lookup via lookup_countries)."},
+                  "street": {"type": "string", "description": "The client's physical address."}
+              },
+              "required": ["contact_id", "client_type", "country_id", "street"]
+           }
+       }
+    },
     {
        "type": "function",
        "function": {

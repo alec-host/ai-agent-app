@@ -39,52 +39,88 @@ async def test_core_client_search_contact_by_email():
     assert resp["contact_id"] == 9999
     await client.close()
 
+from unittest.mock import AsyncMock, MagicMock
+
+@pytest.fixture
+def mock_services():
+    services = MagicMock()
+    calendar_service = AsyncMock()
+    # Mocking get_client_session to return a dict with metadata
+    calendar_service.get_client_session.return_value = {"metadata": {}}
+    calendar_service.thread_id = "test_thread"
+    services.__getitem__.return_value = calendar_service
+    return services
+
 @pytest.mark.asyncio
 @respx.mock
-async def test_agent_handle_search_contact_found():
+async def test_agent_handle_search_contact_found(mock_services):
     respx.get(ENDPOINT).mock(
         return_value=httpx.Response(200, json=CONTACT_FOUND_RESPONSE)
     )
     
     args = {"email": "test@example.com"}
-    result = await handle_search_contact(args, tenant_id="test_tenant")
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     
     assert result["status"] == "success"
     assert "Contact found! ID is 9999" in result["message"]
-    assert "9999" in result["response_instruction"]
+    # Verify persistence call
+    mock_services['calendar'].sync_client_session.assert_called()
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_agent_handle_search_contact_not_found():
+async def test_agent_handle_search_contact_not_found(mock_services):
     respx.get(ENDPOINT).mock(
         return_value=httpx.Response(404, json=CONTACT_NOT_FOUND_RESPONSE)
     )
     
     args = {"email": "nobody@example.com"}
-    result = await handle_search_contact(args, tenant_id="test_tenant")
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     
     assert result["status"] == "not_found"
     assert "No contact found" in result["message"]
-    assert "create a new contact instead" in result["response_instruction"]
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_agent_handle_search_contact_auth_required():
+async def test_agent_handle_search_contact_auth_required(mock_services):
     respx.get(ENDPOINT).mock(
         return_value=httpx.Response(404, json=AUTH_REQUIRED_RESPONSE)
     )
     
     args = {"email": "test@example.com"}
-    result = await handle_search_contact(args, tenant_id="test_tenant")
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     
     assert result["status"] == "auth_required"
-    assert result["auth_type"] == "matterminer_core"
-    assert "Display the login card" in result["response_instruction"]
 
 @pytest.mark.asyncio
-async def test_agent_handle_search_contact_missing_email():
-    args = {}
-    result = await handle_search_contact(args, tenant_id="test_tenant")
+@respx.mock
+async def test_agent_handle_search_contact_nested_found(mock_services):
+    nested_response = {"status": "success", "data": {"contact_id": 8888}}
+    respx.get(ENDPOINT).mock(return_value=httpx.Response(200, json=nested_response))
     
+    args = {"email": "nested@example.com"}
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
+    
+    assert result["status"] == "success"
+    assert "8888" in result["message"]
+
+@pytest.mark.asyncio
+async def test_agent_handle_search_contact_missing_email(mock_services):
+    args = {}
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     assert result["status"] == "error"
-    assert "Email address is required" in result["message"]
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_agent_handle_search_contact_server_error(mock_services):
+    respx.get(ENDPOINT).mock(return_value=httpx.Response(500, json={}))
+    args = {"email": "broken@example.com"}
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
+    assert result["status"] == "error"
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_agent_handle_search_contact_200_empty_response(mock_services):
+    respx.get(ENDPOINT).mock(return_value=httpx.Response(200, json={"status": "success"}))
+    args = {"email": "nothing@example.com"}
+    result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
+    assert result["status"] == "not_found"

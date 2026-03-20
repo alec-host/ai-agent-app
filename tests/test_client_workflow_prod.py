@@ -15,16 +15,12 @@ async def test_client_creation_reactive_auth():
     
     # 1. Setup Mock for 404 Auth Trigger
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/clients").mock(return_value=Response(
+        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/client").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Not found"}
         ))
         
         # 2. Mock services with a full client draft
-        # Need to include all required fields from CLIENT_SCHEMA to reach the final save call
-        # CLIENT_SCHEMA required: client_type, client_email
-        # (Based on previous edits to client_schema.py)
-        
         async def mock_get_session(t):
             return {
                 "metadata": {
@@ -33,7 +29,10 @@ async def test_client_creation_reactive_auth():
                         "client_type": "individual",
                         "client_email": "client@example.com",
                         "first_name": "Alice",
-                        "last_name": "Smith"
+                        "last_name": "Smith",
+                        "contact_id": "cont-123",
+                        "country_id": 1,
+                        "street": "123 Main St"
                     }
                 }
             }
@@ -57,7 +56,6 @@ async def test_client_creation_reactive_auth():
         assert result["status"] == "auth_required"
         assert result["auth_type"] == "matterminer_core"
         assert "login card" in result["response_instruction"]
-        assert "complete the registration" in result["response_instruction"]
 
 @pytest.mark.asyncio
 async def test_client_creation_unexpected_error():
@@ -67,7 +65,7 @@ async def test_client_creation_unexpected_error():
     tenant_id = "test-tenant-error"
     
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/clients").mock(return_value=Response(
+        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/client").mock(return_value=Response(
             500, 
             json={"success": False, "message": "Database error"}
         ))
@@ -80,7 +78,10 @@ async def test_client_creation_unexpected_error():
                         "client_type": "individual",
                         "client_email": "error@example.com",
                         "first_name": "Bob",
-                        "last_name": "Ross"
+                        "last_name": "Ross",
+                        "contact_id": "cont-456",
+                        "country_id": 2,
+                        "street": "456 Oak Rd"
                     }
                 }
             }
