@@ -566,6 +566,15 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         db_metadata = raw_metadata or {}
 
     client_draft = db_metadata.get("client_draft", {})
+    if isinstance(client_draft, str):
+        try: client_draft = json.loads(client_draft)
+        except: client_draft = {}
+    
+    contact_draft = db_metadata.get("contact_draft", {})
+    if isinstance(contact_draft, str):
+        try: contact_draft = json.loads(contact_draft)
+        except: contact_draft = {}
+
     db_history = db_metadata.get("chat_history", [])
 
     # 2. INITIALIZE & SAFE MERGE
@@ -624,6 +633,9 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             if contact_id:
                 logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
                 final_args["contact_id"] = contact_id
+                # CRITICAL: Clear the creation flag now that we have the ID
+                db_metadata["_must_create_contact"] = False
+                
                 # Back-fill the email context just in case
                 if not final_args.get("client_email"):
                     final_args["client_email"] = email

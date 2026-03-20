@@ -89,6 +89,7 @@ class MatterMinerCoreClient:
             "tenantId": self.tenant_id,
             **client_data
         }
+        logger.info(f"[CLIENT-POST] Payload: {payload}")
         return await self.request("POST", "/client", json_data=payload)
 
     async def create_core_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
