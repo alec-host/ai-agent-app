@@ -176,25 +176,42 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
         
         resp = await core_client.get_countries(search=search, page=page, per_page=per_page)
         
-        if resp.get("status") == "success":
+        # Robust success check for either status:success or success:true
+        is_success = resp.get("status") == "success" or resp.get("success") is True
+        
+        if is_success:
+            # 2.A: Check for Direct ID Reward Pattern (The nodejs payload below)
+            # { "success": true, "country_id": 15, "message": "Retreived country id successfully" }
+            direct_id = resp.get("country_id")
+            
             countries_data = resp.get("data", [])
+            # If we don't have a list but we have a direct ID, treat it as single result
+            if direct_id and not countries_data:
+                countries_data = [{"id": direct_id, "name": search or "Identified Country"}]
+
             formatted_list = []
             for c in countries_data:
                 name = c.get("name")
                 cid = c.get("id")
-                formatted_list.append(f"{name} (ID: {cid})")
+                if name and cid:
+                    formatted_list.append(f"{name} (ID: {cid})")
                 
             # --- PATTERN: LINKING DISCOVERED DATA ---
-            # If only one match is found, auto-link it to the draft context
-            if len(countries_data) == 1:
+            # If only one match is found (either via direct ID or list of 1), auto-link it
+            linked_id = None
+            if direct_id:
+                linked_id = direct_id
+            elif len(countries_data) == 1:
+                linked_id = countries_data[0].get("id")
+
+            if linked_id:
                 try:
-                    country_id = countries_data[0].get("id")
                     session = await services['calendar'].get_client_session(tenant_id)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
                     client_draft = metadata.get("client_draft", {})
-                    client_draft["country_id"] = country_id
+                    client_draft["country_id"] = linked_id
                     metadata["client_draft"] = client_draft
                     
                     sync_payload = format_sync_chat_payload(
@@ -206,15 +223,17 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
                         thread_id=services['calendar'].thread_id
                     )
                     await services['calendar'].sync_client_session(sync_payload)
+                    logger.info(f"[{tenant_id}] Auto-linked country_id: {linked_id}")
                 except Exception as e:
                     logger.error(f"[COUNTRY-LINK] Failed to sync country_id: {e}")
 
             return {
                 "status": "success",
-                "message": f"Found {len(formatted_list)} matches.",
+                "message": resp.get("message", f"Found {len(formatted_list)} matches."),
                 "countries": formatted_list,
+                "country_id": linked_id,
                 "raw_data": countries_data,
-                "response_instruction": "Display the results to the user. Once a country is identified, its ID will be automatically linked to any drafts. You can now ask for the next missing field in the setup workflow."
+                "response_instruction": "Display the result to the user. Since the country is identified, its ID has been automatically linked. You can move to the next field."
             }
         elif resp.get("status") == "auth_required":
             return _get_auth_required_response(
