@@ -815,9 +815,17 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         logger.info(f"[AGENT-LOOP] Iteration {i} | Vault: {vault_str}")
 
-        response = await ai_client.chat.completions.create(
-            model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto"
-        )
+        # --- RATE LIMIT PROTECTION: Backoff + Throttling ---
+        if i > 0: await asyncio.sleep(0.5) 
+        
+        async def _call_openai():
+            return await ai_client.chat.completions.create(
+                model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto"
+            )
+        
+        # Wrapped in backoff to handle 429s gracefully
+        from src.utils import retry_with_backoff 
+        response = await retry_with_backoff(retries=2, backoff_in_seconds=2)(_call_openai)()
         
         assistant_msg = response.choices[0].message
         
@@ -858,6 +866,17 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                         "auth_type": result.get("auth_type"),
                         "auth_url": result.get("auth_url"),
                         "history": messages[1:]
+                    }
+                
+                # --- OPTIMIZATION: SHORT-CIRCUIT LOOP ON DATA COLLECTION ---
+                # If a tool says "we are partially done, ask for X", don't go back to OpenAI.
+                # Just return the tool's instruction directly to the user.
+                if result.get("status") == "partial_success":
+                    logger.info(f"[THROTTLE] Short-circuiting loop on partial_success for {tool_call.function.name}")
+                    return {
+                        "response": result.get("message"), 
+                        "history": messages[1:],
+                        "vault_data": await services['calendar'].get_client_session(tenant_id)
                     }
 
                 if result.get("_exit_loop") and result.get("status") == "success":
@@ -1055,11 +1074,17 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             loop_messages = [messages[0], state_injection] + messages[1:]
             logger.info(f"[STREAM] Sending messages to OpenAI...")
 
-            # START STREAM
-            try:
-                stream = await ai_client.chat.completions.create(
+            # --- RATE LIMIT PROTECTION: Backoff + Throttling ---
+            if i > 0: await asyncio.sleep(0.5)
+            
+            async def _call_openai_stream():
+                return await ai_client.chat.completions.create(
                     model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
                 )
+            
+            try:
+                from src.utils import retry_with_backoff
+                stream = await retry_with_backoff(retries=2, backoff_in_seconds=2)(_call_openai_stream)()
             except Exception as e:
                 logger.error(f"[STREAM] OpenAI error: {e}")
                 yield f"data: {json.dumps({'content': f'OpenAI error: {str(e)}', 'done': True})}\n\n"
@@ -1134,6 +1159,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                         # TERMINATE THE ENTIRE GENERATOR IMMEDIATELY
                         logger.warning("[STREAM-AUTH] Killing generator due to auth_required.")
                         return 
+                    
+                    # --- OPTIMIZATION: SHORT-CIRCUIT STREAM LOOP ON DATA COLLECTION ---
+                    if result.get("status") == "partial_success":
+                        logger.info(f"[STREAM-THROTTLE] Short-circuiting loop on partial_success for {tool_name}")
+                        yield f"data: {json.dumps({'content': result.get('message'), 'done': True, 'history': messages[1:]})}\n\n"
+                        return
                     
                     if result.get("_exit_loop") and result.get("status") == "success":
                         terminal_success_msg = result.get("message")
