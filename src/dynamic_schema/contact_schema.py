@@ -4,7 +4,7 @@
 CONTACT_SCHEMA = [
     {"key": "first_name", "label": "First Name", "required": True, "aliases": ["firstName", "given_name", "givenName"]},
     {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName", "surname", "family_name", "familyName"]},
-    {"key": "email", "label": "Email Address", "required": True, "aliases": ["emailAddress", "client_email", "email"]},
+    {"key": "client_email", "label": "Email Address", "required": True, "aliases": ["EmailAddress", "client_email", "email", "contact_email"]},
     {"key": "contact_type", "label": "Contact Type", "required": False, "default": "primary"},
     {"key": "title", "label": "Title", "required": True, "aliases": ["honorific", "salutation"]},
     {"key": "middle_name", "label": "Middle Name", "required": True, "aliases": ["middleName"]},

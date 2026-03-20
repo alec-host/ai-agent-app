@@ -97,16 +97,18 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.search_contact_by_email(email)
+        
+        # Robust success check
+        is_success = resp.get("status") == "success" or resp.get("success") is True
 
-        if resp.get("status") == "auth_required":
-            return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "To search for contacts, you need to be logged into MatterMiner. Display the login card."
+        if is_success:
+            # Robust extraction for search
+            contact_id = (
+                resp.get("contact_id") or 
+                resp.get("data", {}).get("contact_id") or 
+                resp.get("data", {}).get("data", {}).get("id") or 
+                resp.get("data", {}).get("id")
             )
-
-        if resp.get("status") == "success" or resp.get("contact_id") or (resp.get("data") and "contact_id" in resp.get("data", {})):
-            # Handle variations in API payload success wrappers
-            contact_id = resp.get("contact_id") or (resp.get("data", {})).get("contact_id")
             
             if contact_id:
                 # --- PATTERN: LINKING DISCOVERED DATA ---
@@ -460,17 +462,34 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             
         resp = await core_client.create_contact(clean_draft)
         
-        if resp.get("status") == "success":
+        # Robust success check
+        is_success = resp.get("status") == "success" or resp.get("success") is True
+        
+        if is_success:
             # --- PATTERN: LINKING FRESH DATA ---
-            # Clear contact workflow but save the ID if we are heading towards a client
-            contact_id = resp.get("contact_id") or resp.get("data", {}).get("contact_id")
+            # Robust Extraction for nested Node.js payloads (data: { data: { id: 53 } })
+            contact_id = (
+                resp.get("contact_id") or 
+                resp.get("data", {}).get("contact_id") or 
+                resp.get("data", {}).get("data", {}).get("id") or 
+                resp.get("data", {}).get("id")
+            )
+            
+            # Propagation: Use the draft email as source of truth to prevent null wipes
+            # if the server returns email: null. 
+            success_email = draft.get("client_email") or resp.get("data", {}).get("data", {}).get("email")
             
             metadata["contact_draft"] = {}
+            metadata["_must_create_contact"] = False
             metadata["active_workflow"] = None
             
             client_draft = metadata.get("client_draft", {})
             if contact_id:
                 client_draft["contact_id"] = contact_id
+            
+            if success_email and not client_draft.get("client_email"):
+                client_draft["client_email"] = success_email
+                
             metadata["client_draft"] = client_draft
             
             payload = format_sync_chat_payload(
@@ -597,11 +616,21 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         core_client = _get_core_client(tenant_id, user_email)
         try:
             search_resp = await core_client.search_contact_by_email(email)
-            contact_id = search_resp.get("contact_id") or (search_resp.get("data", {})).get("contact_id")
+            
+            # Robust extraction for search
+            contact_id = (
+                search_resp.get("contact_id") or 
+                search_resp.get("data", {}).get("contact_id") or 
+                search_resp.get("data", {}).get("data", {}).get("id") or 
+                search_resp.get("data", {}).get("id")
+            )
             
             if contact_id:
                 logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
                 final_args["contact_id"] = contact_id
+                # Back-fill the email context just in case
+                if not final_args.get("client_email"):
+                    final_args["client_email"] = email
             else:
                 # --- PATTERN: CROSS-WORKFLOW POLLINATION ---
                 # A contact was not found. Pre-fill the contact draft so the user 
@@ -644,7 +673,10 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         try:
             save_result = await core_client.create_client(final_args)
             
-            if save_result.get("status") == "success":
+            # Robust success check
+            is_success = save_result.get("status") == "success" or save_result.get("success") is True
+            
+            if is_success:
                 try:
                     wipe_payload = format_sync_chat_payload(
                         tenant_id=tenant_id,

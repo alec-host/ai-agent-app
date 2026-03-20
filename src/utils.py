@@ -164,7 +164,11 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
     
     # 3. Construct the flat payload for the database
     # Top-level columns are treated as the 'Identity' of the row.
-    # Mirror first from client_draft, then fallback to top-level client_data
+    # Mirror first from client_draft, then fallback to contact_draft, then client_data.
+    draft_email = (client_draft.get("client_email") or client_draft.get("email") if client_draft else None)
+    if not draft_email and contact_draft:
+        draft_email = contact_draft.get("client_email") or contact_draft.get("email")
+    
     payload = {
         "tenantId": tenant_id,
         "threadId": thread_id,
@@ -172,7 +176,7 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
         "last_name": (client_draft.get("last_name") if client_draft else None) or client_data.get("last_name"),
         "client_number": (client_draft.get("client_number") if client_draft else None) or client_data.get("client_number"),
         "client_type": (client_draft.get("client_type") if client_draft else None) or client_data.get("client_type"),
-        "email": (client_draft.get("client_email") or client_draft.get("email") if client_draft else None) or client_data.get("email"),
+        "email": draft_email or client_data.get("email"),
         "metadata": final_metadata
     }
     return payload
