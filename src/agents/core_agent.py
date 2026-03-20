@@ -597,6 +597,19 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             if contact_id:
                 logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
                 final_args["contact_id"] = contact_id
+            else:
+                # --- PATTERN: CROSS-WORKFLOW POLLINATION ---
+                # A contact was not found. Pre-fill the contact draft so the user 
+                # doesn't repeat their name when we switch to create_contact.
+                logger.info(f"[{tenant_id}] No contact found for {email}. Seeding Contact Draft.")
+                contact_draft = db_metadata.get("contact_draft", {})
+                contact_draft["first_name"] = final_args.get("first_name")
+                contact_draft["last_name"] = final_args.get("last_name")
+                contact_draft["email"] = email
+                db_metadata["contact_draft"] = contact_draft
+                # Flag this in a hidden field so we can give better instructions
+                db_metadata["_must_create_contact"] = True
+
         except Exception as e:
             logger.error(f"[AUTO-LOOKUP] Failed: {e}")
         finally:
@@ -687,12 +700,21 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
 
         # Better guidance for contact_id
         if next_field == "contact_id":
-            instruction += (
-                "\n\nHint: You need a Contact ID. If you already have the client's email address, "
-                "I will automatically try to find their contact ID for you. If I haven't found it yet, "
-                "you can ask the user for their email to perform a lookup, or use the `create_contact` "
-                "tool to make a new one first."
-            )
+            if db_metadata.get("_must_create_contact"):
+                instruction += (
+                    "\n\nCRITICAL: A contact record for this email was NOT found. "
+                    "You MUST create a new contact record before proceeding. "
+                    "I have ALREADY pre-filled the contact draft with the info you provided. "
+                    "Inform the user you are switching to contact creation now, and use your "
+                    "`create_contact` tool immediately."
+                )
+            else:
+                instruction += (
+                    "\n\nHint: You need a Contact ID. If you already have the client's email address, "
+                    "I will automatically try to find their contact ID for you. If I haven't found it yet, "
+                    "you can ask the user for their email to perform a lookup, or use the `create_contact` "
+                    "tool to make a new one first."
+                )
 
         return {
             "status": "partial_success",
