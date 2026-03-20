@@ -451,7 +451,12 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
                 if schema_field_list and "default" in schema_field_list[0]:
                     clean_draft[k] = schema_field_list[0]["default"]
                 continue
-            clean_draft[k] = v
+            
+            # --- BACKEND COMPATIBILITY: Map client_email -> email ---
+            if k == "client_email":
+                clean_draft["email"] = v
+            else:
+                clean_draft[k] = v
             
         resp = await core_client.create_contact(clean_draft)
         
@@ -605,7 +610,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                 contact_draft = db_metadata.get("contact_draft", {})
                 contact_draft["first_name"] = final_args.get("first_name")
                 contact_draft["last_name"] = final_args.get("last_name")
-                contact_draft["email"] = email
+                contact_draft["client_email"] = email
                 db_metadata["contact_draft"] = contact_draft
                 # Flag this in a hidden field so we can give better instructions
                 db_metadata["_must_create_contact"] = True

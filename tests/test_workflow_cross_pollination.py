@@ -81,7 +81,7 @@ async def test_client_to_contact_cross_pollination():
         contact_draft = metadata.get("contact_draft", {})
         assert contact_draft.get("first_name") == "Juma"
         assert contact_draft.get("last_name") == "Kandie"
-        assert contact_draft.get("email") == "juma.kandie@yapmail.com"
+        assert contact_draft.get("client_email") == "juma.kandie@yapmail.com"
         assert metadata.get("_must_create_contact") is True
 
 if __name__ == "__main__":
