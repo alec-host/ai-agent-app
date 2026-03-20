@@ -820,7 +820,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         async def _call_openai():
             return await ai_client.chat.completions.create(
-                model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto"
+                model="gpt-4o-mini", messages=loop_messages, tools=TOOLS, tool_choice="auto"
             )
         
         # Wrapped in backoff to handle 429s gracefully
@@ -1079,7 +1079,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             
             async def _call_openai_stream():
                 return await ai_client.chat.completions.create(
-                    model="gpt-4o", messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
+                    model="gpt-4o-mini", messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
                 )
             
             try:
