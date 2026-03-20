@@ -182,8 +182,7 @@ TOOLS = [
                  "contact_id": {"type": "string", "description": "Relational link: The UUID of the contact record obtained via lookup or creation."},
                  "country_id": {"type": "integer", "description": "Relational link: The ID of the country obtained via lookup_countries."},
                  "street": {"type": "string", "description": "The client's physical street address."}
-             },
-             "required": ["first_name", "last_name", "client_email", "client_type", "contact_id", "country_id", "street"]
+             }
           }
       }
    },

@@ -566,6 +566,23 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     
     logger.info(f"[{tenant_id}] Recovered State: {final_args}")
     
+    # 2.5 AUTO-LOOKUP PATTERN: Link contact_id automatically if email is provided
+    email = final_args.get("client_email")
+    if email and not final_args.get("contact_id"):
+        logger.info(f"[{tenant_id}] Attempting auto-lookup for contact_id using email: {email}")
+        core_client = _get_core_client(tenant_id, user_email)
+        try:
+            search_resp = await core_client.search_contact_by_email(email)
+            contact_id = search_resp.get("contact_id") or (search_resp.get("data", {})).get("contact_id")
+            
+            if contact_id:
+                logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
+                final_args["contact_id"] = contact_id
+        except Exception as e:
+            logger.error(f"[AUTO-LOOKUP] Failed: {e}")
+        finally:
+            await core_client.close()
+
     # 3. SYNC TO DATABASE
     try:
         sync_payload = format_sync_chat_payload(
@@ -642,6 +659,22 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         next_field = missing[0]["key"]
         next_label = missing_labels[0]
 
+        instruction = (
+            f"VAULT SYNCED: You have successfully saved {', '.join(captured)}. "
+            f"The NEXT required field is '{next_field}'. "
+            f"Acknowledge the info received (briefly) and ask only for the {next_label}. "
+            "Do NOT ask for fields you already have."
+        )
+
+        # Better guidance for contact_id
+        if next_field == "contact_id":
+            instruction += (
+                "\n\nHint: You need a Contact ID. If you already have the client's email address, "
+                "I will automatically try to find their contact ID for you. If I haven't found it yet, "
+                "you can ask the user for their email to perform a lookup, or use the `create_contact` "
+                "tool to make a new one first."
+            )
+
         return {
             "status": "partial_success",
             "current_state": final_args,
@@ -649,12 +682,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             "missing_fields": missing_labels,
             "next_target": next_field,
             "message": f"I've updated the draft. We now have the following details: {', '.join(captured)}. I still need the {next_label}.",
-            "response_instruction": (
-                f"VAULT SYNCED: You have successfully saved {', '.join(captured)}. "
-                f"The NEXT required field is '{next_field}'. "
-                f"Acknowledge the info received (briefly) and ask only for the {next_label}. "
-                "Do NOT ask for fields you already have."
-            )
+            "response_instruction": instruction
         }
 
 def get_workflow_recovery(metadata, db_data):
