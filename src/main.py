@@ -432,9 +432,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
                 if result.get("_exit_loop") and result.get("status") == "success":
                     terminal_success_msg = result.get("message")
-
-                if result.get("_exit_loop") and result.get("status") == "success":
-                    terminal_success_msg = result.get("message")
                 elif result.get("status") in ["success", "partial_success"] or result.get("_continue_chaining"):
                     last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
                 else:
