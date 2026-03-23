@@ -154,6 +154,7 @@ async def run_draft_workflow(
             
         # Build Instruction
         instruction = f"### STRICT GATING: Ask ONLY for the {next_field['label']}.\n"
+        instruction += "When the user responds, IMMEDIATELY call the tool again and map their input to the '" + next_field['key'] + "' field.\n"
         instruction += "DO NOT ask for any other information until this field is provided or skipped.\n"
         instruction += "Ask ONE question for this single field. Avoid grouping questions."
         
