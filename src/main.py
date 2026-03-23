@@ -6,6 +6,7 @@ import time
 # FIX 1: Removed 'import datetime' module to prevent collision with 'from datetime import datetime'
 import logging
 import httpx
+import asyncio
 import dateparser
 
 import sentry_sdk
@@ -386,7 +387,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         # Track token usage asynchronously
         if hasattr(response, 'usage'):
-            import asyncio 
             asyncio.create_task(wallet_service.update_usage(response.usage, auth_headers=calendar_service.headers))
         
         assistant_dict = assistant_msg.model_dump(exclude_none=True)
