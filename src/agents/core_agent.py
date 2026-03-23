@@ -617,221 +617,99 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         try: metadata = json.loads(metadata)
         except: metadata = {}
 
-    # Ensure thread_id is set for services['calendar'] if available in session
+    # Ensure thread_id is set
     discovered_thread_id = session.get("threadId")
     if discovered_thread_id:
         services['calendar'].thread_id = discovered_thread_id
-        logger.info(f"[{tenant_id}] Client Thread self-discovered: {discovered_thread_id}")
 
-    contact_draft = metadata.get("contact_draft", {})
-    if isinstance(contact_draft, str):
-        try: contact_draft = json.loads(contact_draft)
-        except: contact_draft = {}
-
-    db_history = db_metadata.get("chat_history", [])
-
-    # 2. INITIALIZE & SAFE MERGE
-    final_args = {}
-    for field in CLIENT_SCHEMA:
-        key = field["key"]
-        val = None
-        # Cascade search: arg alias -> exact arg -> draft -> db
-        search_keys = [key] + field.get("aliases", [])
-        for k in search_keys:
-            candidate = args.get(k)
-            # Use candidate if it's a non-empty string or non-None
-            if candidate is not None and (not isinstance(candidate, str) or candidate.strip()):
-                val = candidate
-                break
-        
-        if val is None:
-            # Fallback to existing state, matching dynamic schema keys
-            val = client_draft.get(key)
-            if val is None:
-                val = db_data.get(key)
-        
-        # --- DATA INTEGRITY GUARDS ---
-        # 1. Email-as-Type Guard: Prevent email addresses from polluting client_type
-        if key == "client_type" and val and "@" in str(val) and "." in str(val):
-            logger.warning(f"[STORY-GUARD] Blocking email '{val}' from being saved as client_type.")
-            val = client_draft.get("client_type") or db_data.get("client_type")
-            
-        final_args[key] = val
-        
-    # Always set defaults if not present or empty
-    for field in CLIENT_SCHEMA:
-        if "default" in field:
-            current_val = final_args.get(field["key"])
-            if current_val is None or (isinstance(current_val, str) and not current_val.strip()):
-                final_args[field["key"]] = field["default"]
-    
-    logger.info(f"[{tenant_id}] Recovered State: {final_args}")
-    
-    # 2.5 AUTO-LOOKUP PATTERN: Link contact_id automatically if email is provided
-    email = final_args.get("client_email")
-    if email and not final_args.get("contact_id"):
+    # 2. AUTO-LOOKUP PATTERN: Link contact_id automatically if email is provided
+    email = draft.get("client_email")
+    if email and not draft.get("contact_id"):
         logger.info(f"[{tenant_id}] Attempting auto-lookup for contact_id using email: {email}")
         core_client = _get_core_client(tenant_id, user_email)
         try:
             search_resp = await core_client.search_contact_by_email(email)
-            
-            # Robust extraction for search
             contact_id = (
                 search_resp.get("contact_id") or 
                 search_resp.get("data", {}).get("contact_id") or 
                 search_resp.get("data", {}).get("data", {}).get("id") or 
                 search_resp.get("data", {}).get("id")
             )
-            
             if contact_id:
                 logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
-                final_args["contact_id"] = contact_id
-                # CRITICAL: Clear the creation flag now that we have the ID
-                db_metadata["_must_create_contact"] = False
-                
-                # Back-fill the email context just in case
-                if not final_args.get("client_email"):
-                    final_args["client_email"] = email
+                draft["contact_id"] = contact_id
+                metadata["_must_create_contact"] = False
             else:
-                # --- PATTERN: CROSS-WORKFLOW POLLINATION ---
-                # A contact was not found. Pre-fill the contact draft so the user 
-                # doesn't repeat their name when we switch to create_contact.
-                logger.info(f"[{tenant_id}] No contact found for {email}. Seeding Contact Draft.")
-                contact_draft = db_metadata.get("contact_draft", {})
-                contact_draft["first_name"] = final_args.get("first_name")
-                contact_draft["last_name"] = final_args.get("last_name")
-                contact_draft["client_email"] = email
-                db_metadata["contact_draft"] = contact_draft
-                # Flag this in a hidden field so we can give better instructions
-                db_metadata["_must_create_contact"] = True
-
+                # Pre-seed Contact Draft if not found
+                contact_draft = metadata.get("contact_draft", {})
+                contact_draft["first_name"] = draft.get("first_name")
+                contact_draft["last_name"] = draft.get("last_name")
+                contact_draft["email"] = email
+                metadata["contact_draft"] = contact_draft
+                metadata["_must_create_contact"] = True
         except Exception as e:
             logger.error(f"[AUTO-LOOKUP] Failed: {e}")
         finally:
             await core_client.close()
 
-    # 3. SYNC TO DATABASE
+    # 3. FINAL SUBMISSION
+    core_client = _get_core_client(tenant_id, user_email)
     try:
-        sync_payload = format_sync_chat_payload(
-            tenant_id=tenant_id,
-            client_args=db_data,
-            client_draft=final_args,
-            event_draft=db_metadata.get("event_draft"),
-            contact_draft=db_metadata.get("contact_draft"),
-            history=history if history else db_history,
-            active_workflow="client",
-            metadata=db_metadata
-        )
-        await services['calendar'].sync_client_session(sync_payload)
-    except Exception as e:
-        logger.error(f"[DB-SYNC] Failed to sync session: {e}", exc_info=True)
-
-    # 5. CHECK FOR COMPLETION
-    missing = [f for f in CLIENT_SCHEMA if f.get("required") and not final_args.get(f["key"])]
-
-    if not missing:
-        core_client = _get_core_client(tenant_id, user_email)
-        try:
-            # Map to EXACT backend parameters (tenantId handled by CoreClient)
-            strict_payload = {
-                "first_name": final_args.get("first_name"),
-                "last_name": final_args.get("last_name"),
-                "client_type": final_args.get("client_type"),
-                "client_email": final_args.get("client_email"),
-                "country_id": final_args.get("country_id"),
-                "street": final_args.get("street")
-            }
-            save_result = await core_client.create_client(strict_payload)
+        # Clean out skipped values before submission
+        clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
+        
+        # Pass payload to Core API
+        resp = await core_client.create_client(clean_draft)
+        
+        # Success Check
+        is_success = resp.get("status") == "success" or resp.get("success") is True
+        
+        if is_success:
+            # Final cleanup
+            metadata["client_draft"] = {}
+            metadata["active_workflow"] = None
             
-            # Robust success check
-            is_success = save_result.get("status") == "success" or save_result.get("success") is True
+            payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=session,
+                client_draft={},
+                metadata=metadata,
+                history=[],
+                thread_id=services['calendar'].thread_id,
+                active_workflow="cleared",
+                session_lifecycle="completed"
+            )
+            await services['calendar'].sync_client_session(payload)
+            await services['calendar'].clear_client_session(tenant_id)
             
-            if is_success:
-                try:
-                    wipe_payload = format_sync_chat_payload(
-                        tenant_id=tenant_id,
-                        client_args=db_data,
-                        client_draft={f["key"]: None for f in CLIENT_SCHEMA},
-                        event_draft=db_metadata.get("event_draft"),
-                        contact_draft=db_metadata.get("contact_draft"),
-                        active_workflow="cleared", 
-                        history=[],
-                        session_lifecycle="completed"
-                    )
-                    await services['calendar'].sync_client_session(wipe_payload)
-                    await services['calendar'].clear_client_session(tenant_id)
-                except Exception as e:
-                    logger.error(f"[CLIENT] Sync wipe failed: {e}")
-                
-            elif save_result.get("status") == "auth_required":
-                return _get_auth_required_response(
-                    "Authentication required for MatterMiner Core.",
-                    "Almost done! Just login to MatterMiner to complete the registration. Display the login card."
-                )
-            else:
-                error_msg = save_result.get("message", "Unknown error")
-                return {"status": "error", "message": f"The remote system rejected the record. Reason: {error_msg}"}
-
-            summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {final_args.get(f['key'], 'N/A')} |" for f in CLIENT_SCHEMA])
+            # Build Summary Table
+            summary_rows = "\n".join([f"| **{f.get('label', f['key'])}** | {draft.get(f['key'], 'N/A')} |" for f in CLIENT_SCHEMA if not f.get("system_only")])
             summary_table = (
                 "### FINAL SUMMARY: CLIENT REGISTERED\n\n"
                 "| Field | Value |\n"
                 "| :--- | :--- |\n"
                 f"{summary_rows}"
             )
-
+            
             return {
                 "status": "success",
-                "message": f"### ✅ CLIENT REGISTERED SUCCESSFULLY\n\n{summary_table}\n\n**The session has been cleared.**",
-                "data": final_args,
-                "_exit_loop": True
+                "message": f"Successfully registered client: {draft.get('first_name')} {draft.get('last_name')}\n\n{summary_table}",
+                "data": resp,
+                "response_instruction": "Confirm success and ask if they would like to create a matter for this client."
             }
-        except Exception as e:
-            logger.error(f"Final save failed: {e}")
-            return {"status": "error", "message": "The system encountered an error while saving the final record."}
-        finally:
-            await core_client.close()
-
-    else:
-        captured = [f["label"] for f in CLIENT_SCHEMA if final_args.get(f["key"])]
-        missing_labels = [f["label"] for f in missing]
-        next_field = missing[0]["key"]
-        next_label = missing_labels[0]
-
-        instruction = (
-            f"VAULT SYNCED: You have successfully saved {', '.join(captured)}. "
-            f"The NEXT required field is '{next_field}'. "
-            f"Acknowledge the info received (briefly) and ask only for the {next_label}. "
-            "Do NOT ask for fields you already have."
-        )
-
-        # Better guidance for contact_id
-        if next_field == "contact_id":
-            if db_metadata.get("_must_create_contact"):
-                instruction += (
-                    "\n\nCRITICAL: A contact record for this email was NOT found. "
-                    "You MUST create a new contact record before proceeding. "
-                    "I have ALREADY pre-filled the contact draft with the info you provided. "
-                    "Inform the user you are switching to contact creation now, and use your "
-                    "`create_contact` tool immediately."
-                )
-            else:
-                instruction += (
-                    "\n\nHint: You need a Contact ID. If you already have the client's email address, "
-                    "I will automatically try to find their contact ID for you. If I haven't found it yet, "
-                    "you can ask the user for their email to perform a lookup, or use the `create_contact` "
-                    "tool to make a new one first."
-                )
-
-        return {
-            "status": "partial_success",
-            "current_state": final_args,
-            "captured_fields": captured,
-            "missing_fields": missing_labels,
-            "next_target": next_field,
-            "message": f"I've updated the draft. We now have the following details: {', '.join(captured)}. I still need the {next_label}.",
-            "response_instruction": instruction
-        }
+        elif resp.get("status") == "auth_required":
+            return _get_auth_required_response(
+                "Authentication required for MatterMiner Core.",
+                "Display login card. Progress is saved in the vault."
+            )
+        else:
+            return {
+                "status": "error",
+                "message": resp.get("message", "Failed to create client."),
+                "response_instruction": "Inform the user about the error and ask to retry."
+            }
+    finally:
+        await core_client.close()
 
 def get_workflow_recovery(metadata, db_data):
     """
