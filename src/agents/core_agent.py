@@ -296,7 +296,8 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
         await services['calendar'].sync_client_session(payload)
         
         next_field = missing[0]
-        msg = f"Capture received! We have: {', '.join([f['label'] for f in schema if draft.get(f['key'])])}."
+        captured_labels = [f['label'] for f in schema if draft.get(f['key'])]
+        msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}." if captured_labels else f"Sure, let's set up that client. First, what is the {next_field['label']}?"
         
         instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
         if not next_field.get("required", True):
@@ -418,8 +419,9 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
         )
         await services['calendar'].sync_client_session(payload)
         
+        next_field = missing[0]
         captured_labels = [f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])]
-        msg = f"Captured {', '.join(captured_labels)}." if captured_labels else "Initiated contact drafting."
+        msg = f"Captured {', '.join(captured_labels)}. Next, what is the {next_field['label']}?" if captured_labels else f"I'll help you create that contact. What is their {next_field['label']}?"
         
         next_field = missing[0]
         instruction = f"Acknowledge the context. Then, ask ONLY for ONE piece of information: the {next_field['label']}. NEVER ask for multiple fields at once."

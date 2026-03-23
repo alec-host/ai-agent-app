@@ -707,7 +707,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                     # --- OPTIMIZATION: SHORT-CIRCUIT STREAM LOOP ON DATA COLLECTION ---
                     if result.get("status") == "partial_success":
                         logger.info(f"[STREAM-THROTTLE] Short-circuiting loop on partial_success for {tool_name}")
-                        yield f"data: {json.dumps({'content': result.get('message'), 'done': True, 'history': messages[1:]})}\n\n"
+                        # Clear 'action' and show content to prevent frontend spinner from getting stuck
+                        msg = result.get("message")
+                        yield f"data: {json.dumps({'content': msg, 'action': None})}\n\n"
+                        yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
                         return
                     
                     if result.get("_exit_loop") and result.get("status") == "success":
@@ -716,7 +719,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             if terminal_success_msg:
                 final_text = f"\n\n{terminal_success_msg}"
-                yield f"data: {json.dumps({'content': final_text})}\n\n"
+                yield f"data: {json.dumps({'content': final_text, 'action': None})}\n\n"
                 messages.append({"role": "assistant", "content": terminal_success_msg})
                 yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
                 return

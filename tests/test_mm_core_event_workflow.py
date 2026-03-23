@@ -120,7 +120,7 @@ async def test_mm_core_event_timezone_instruction():
                 
                 data = response.json()
                 # Throttle returns tool result directly (not LLM text)
-                assert "Capture received" in data["response"] or "timezone" in data["response"].lower()
+                assert any(kw in data["response"].lower() for kw in ["captured", "capture received", "timezone", "finish"])
 
 @pytest.mark.asyncio
 @respx.mock

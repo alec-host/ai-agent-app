@@ -20,14 +20,21 @@ class WalletClient:
         """
         Sends token usage (prompt, completion, total) to the wallet service.
         """
-        if not usage_object or not self.tenant_id:
-            return
-            
+        # Support both objects (like OpenAI returns) and dicts (like tests sometimes pass)
+        if isinstance(usage_object, dict):
+            p_tokens = usage_object.get("prompt_tokens", 0)
+            c_tokens = usage_object.get("completion_tokens", 0)
+            t_tokens = usage_object.get("total_tokens", 0)
+        else:
+            p_tokens = getattr(usage_object, "prompt_tokens", 0)
+            c_tokens = getattr(usage_object, "completion_tokens", 0)
+            t_tokens = getattr(usage_object, "total_tokens", 0)
+
         payload = {
             "tenantId": self.tenant_id,
-            "prompt_tokens": usage_object.prompt_tokens,
-            "completion_tokens": usage_object.completion_tokens,
-            "total_tokens": usage_object.total_tokens,
+            "prompt_tokens": p_tokens,
+            "completion_tokens": c_tokens,
+            "total_tokens": t_tokens,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
