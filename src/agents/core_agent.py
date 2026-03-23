@@ -106,10 +106,11 @@ async def run_draft_workflow(
         captured_labels = [f['label'] for f in schema if draft.get(f['key'])]
         
         # Build Message
+        msg_suffix = f" (You can say 'skip' to bypass this)." if not next_field.get("required", True) else ""
         if captured_labels:
-            msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}."
+            msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}.{msg_suffix}"
         else:
-            msg = intro_message or f"Sure, let's set that up. First, what is the {next_field['label']}?"
+            msg = (intro_message or f"Sure, let's set that up. First, what is the {next_field['label']}?") + msg_suffix
             
         # Build Instruction
         instruction = f"### STRICT GATING: Ask ONLY for the {next_field['label']}.\n"

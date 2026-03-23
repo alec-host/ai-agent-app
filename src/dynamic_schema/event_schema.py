@@ -14,7 +14,8 @@ ALL_DAY_EVENT_SCHEMA = [
     {"key": "title", "label": "Deadline Title", "required": True},
     {"key": "start_datetime", "label": "Start Date", "required": True},
     {"key": "end_datetime", "label": "End Date", "required": True},
-    {"key": "description", "label": "Deadline Details", "required": False}
+    {"key": "description", "label": "Deadline Details", "required": False},
+    {"key": "location", "label": "Location", "required": False}
 ]
 
 # Keep generic for back-compat if needed
