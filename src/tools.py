@@ -5,7 +5,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "schedule_event",
-            "description": "Schedules or DRAFTS an event on the user's EXTERNAL Google Calendar. Call this ONLY if 'Google' or 'Personal' calendar is explicitly mentioned.",
+            "description": "Schedules or DRAFTS an event on the user's EXTERNAL Google Calendar. Call this ONLY if 'Google' or 'Personal' calendar is explicitly mentioned. NEVER use this for standard MatterMiner firm appointments.",
             "parameters": {
                 "type": "object",
                 "properties": {

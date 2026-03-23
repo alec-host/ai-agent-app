@@ -122,9 +122,10 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         
         # 3. ROUTE TO SPECIALIST WITH GATING
         if is_calendar_tool:
-            # If we are strictly in Client mode, block calendar tools unless it's a retrieval tool
-            if active_workflow == "client" and func_name in ["schedule_event", "initialize_calendar_session"]:
-                 return {"status": "error", "message": "Conflict: Active client intake. Finish or cancel client registration first."}
+            # GATING: If we are in ANY MatterMiner intake (Client, Contact, or MM-Event), block Google Calendar
+            mm_intakes = ["client", "contact", "standard_event", "all_day_event"]
+            if active_workflow in mm_intakes and func_name in ["schedule_event", "initialize_calendar_session"]:
+                 return {"status": "error", "message": f"Conflict: Active {active_workflow} intake. Finish or cancel current MatterMiner workflow before using Google Calendar."}
             
             result = await handle_calendar(func_name, args, services['calendar'], user_role, history=history)
             
@@ -136,14 +137,17 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
             return result
             
         elif is_client_tool:
-            # GATING: If we are in an active Calendar workflow, block client tools.
-            # BYPASS: If session is done (lifecycle=completed OR active_workflow=cleared), allow new workflows.
+            # GATING: If we are in an active Google Calendar workflow, block MM-Client tools.
             if active_workflow == "google_calendar" and not is_session_done:
-                return {"status": "error", "message": "Conflict: Active calendar draft. Finish the event before creating a client."}
+                return {"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting a client registration."}
 
             return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
             
         elif func_name in core_funcs:
+            # GATING: If we are in an active Google Calendar workflow, block MM-Core tools (Contact/Event).
+            if active_workflow == "google_calendar" and not is_session_done:
+                 return {"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting this MatterMiner operation."}
+
             return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
             
         elif func_name in rag_funcs:
