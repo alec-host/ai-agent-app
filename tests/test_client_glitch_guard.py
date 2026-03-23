@@ -12,7 +12,7 @@ async def test_client_glitch_guard_id_collision():
     the Glitch Guard resets the last_name to prevent corruption.
     """
     mock_cal_service = AsyncMock()
-    mock_cal_service.get_client_session.return_value = {"metadata": {}}
+    mock_cal_service.get_client_session.return_value = {"metadata": {"active_workflow": "client"}}
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
     
@@ -42,6 +42,7 @@ async def test_client_id_update_does_not_wipe_name():
     # Mock DB already has the correct name in the client_draft namespace
     mock_cal_service.get_client_session.return_value = {
         "metadata": {
+            "active_workflow": "client",
             "client_draft": {
                 "first_name": "John",
                 "last_name": "Doe",
@@ -169,6 +170,7 @@ async def test_save_new_client_endpoint_resolution():
     
     assert route.called
     assert resp["status"] == "success"
+
 @pytest.mark.asyncio
 async def test_client_creation_stringified_metadata():
     """
@@ -178,11 +180,11 @@ async def test_client_creation_stringified_metadata():
     # Database returns metadata as a JSON string
     mock_cal_service.get_client_session.return_value = {
         "metadata": json.dumps({
+            "active_workflow": "client",
             "client_draft": {
                 "first_name": "String",
                 "last_name": "Parsing"
-            },
-            "active_workflow": "client"
+            }
         })
     }
     mock_cal_service.thread_id = "test_thread"

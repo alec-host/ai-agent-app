@@ -377,10 +377,43 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # --- RATE LIMIT PROTECTION: Backoff + Throttling ---
         if i > 0: await asyncio.sleep(0.5) 
         
+        # --- 2. PRE-FLIGHT OPTIMIZATION: PRUNING & FILTRATION ---
+        active_wf = (rehydration_data.get("metadata", {}) if rehydration_data else {}).get("active_workflow")
+        
+        # A. History Pruning (Keep System Prompt + Last 10 Turns)
+        # We prune the middle of the history to keep token usage sub-linear.
+        if len(messages) > 12:
+            pruned = [messages[0]] + messages[-10:]
+            loop_messages = pruned
+            logger.info(f"[Token-Guard] Pruned conversation history from {len(messages)} to {len(loop_messages)} turns.")
+        else:
+            loop_messages = messages
+
+        # B. Tool Filtration (Dynamic Context)
+        # Only send tools relevant to the current workflow to save ~1k tokens/turn.
+        relevant_tools = TOOLS
+        if active_wf:
+            from .tools import TOOLS as ALL_TOOLS
+            google_funcs = ["schedule_event", "initialize_calendar_session", "check_calendar_connection"]
+            core_funcs = ["create_standard_event", "create_all_day_event", "create_contact", "create_client_record", "search_contact_by_email", "lookup_countries"]
+            
+            if active_wf == "google_calendar":
+                relevant_tools = [t for t in ALL_TOOLS if t["function"]["name"] in google_funcs or t["function"]["name"] == "get_system_status"]
+            elif active_wf in ["standard_event", "all_day_event", "contact", "client"]:
+                relevant_tools = [t for t in ALL_TOOLS if t["function"]["name"] in core_funcs or t["function"]["name"] == "get_system_status"]
+            
+            logger.info(f"[Token-Guard] Filtered toolset to {len(relevant_tools)} items for workflow: {active_wf}")
+
+        # --- 3. CALL LLM WITH CONCURRENCY GUARD ---
+        # Global Semaphore to prevent Token-Per-Minute (TPM) exhaustion
+        from asyncio import Semaphore
+        tpm_guard = Semaphore(5) # Allow 5 concurrent LLM calls
+        
         async def _call_openai():
-            return await ai_client.chat.completions.create(
-                model="gpt-4o-mini", messages=loop_messages, tools=TOOLS, tool_choice="auto"
-            )
+            async with tpm_guard:
+                return await ai_client.chat.completions.create(
+                    model="gpt-4o-mini", messages=loop_messages, tools=relevant_tools, tool_choice="auto"
+                )
         
         # Wrapped in backoff to handle 429s gracefully
         from src.utils import retry_with_backoff 

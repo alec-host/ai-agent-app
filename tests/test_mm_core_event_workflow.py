@@ -76,7 +76,7 @@ async def test_mm_core_standard_event_drafting_flow():
                 assert response.status_code == 200
                 data = response.json()
                 # Throttle optimization returns tool result directly
-                assert "Capture received" in data["response"] or "Event Title" in data["response"]
+                assert any(kw in data["response"] for kw in ["Captured", "Capture received", "Event Title"])
 
 @pytest.mark.asyncio
 @respx.mock

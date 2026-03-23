@@ -64,7 +64,7 @@ async def test_sequential_field_asking():
     Verify that the agent asks for missing fields ONE BY ONE.
     """
     mock_cal_service = AsyncMock()
-    mock_cal_service.get_client_session.return_value = {"metadata": {}}
+    mock_cal_service.get_client_session.return_value = {"metadata": {"active_workflow": "contact"}}
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
     
