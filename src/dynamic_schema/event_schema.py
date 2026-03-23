@@ -5,7 +5,7 @@ STANDARD_EVENT_SCHEMA = [
     {"key": "end_datetime", "label": "End Time", "required": True},
     {"key": "description", "label": "Description", "required": False},
     {"key": "location", "label": "Location", "required": False},
-    {"key": "timezone", "label": "Timezone", "required": False, "suggest_from_context": "timezone_offset"},
+    {"key": "timezone", "label": "Timezone", "required": False, "suggest_from_context": "user_timezone_name"},
     {"key": "attendees", "label": "Attendees", "required": False, "type": "list"}
 ]
 

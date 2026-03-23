@@ -407,7 +407,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         pending_throttle_msg = None
         for tool_call in assistant_msg.tool_calls:
             # Dispatch directly to Agent Manager
-            result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages, user_email=user_email)
+            result = await execute_tool_call(
+                tool_call, services, user_role, tenant_id, messages, 
+                user_email=user_email, user_tz=user_tz
+            )
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
             if isinstance(result, dict):

@@ -64,7 +64,7 @@ async def get_rehydration_context(tenant_id, services):
         return None
 
 
-async def execute_tool_call(tool_call, services, user_role, tenant_id, history, user_email: str = None):
+async def execute_tool_call(tool_call, services, user_role, tenant_id, history, user_email: str = None, user_tz: str = None):
     """
     Acts as a central Dispatcher (Router).
     Injects shared context and routes tool calls to specialized agent handlers.
@@ -79,7 +79,8 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         args["_system_context"] = {
             "current_time": now_obj.isoformat(),
             "day_of_week": now_obj.strftime("%A"),
-            "timezone_offset": f"{offset[0:3]}:{offset[3:5]}" if len(offset) == 5 else offset
+            "timezone_offset": f"{offset[0:3]}:{offset[3:5]}" if len(offset) == 5 else offset,
+            "user_timezone_name": user_tz
         }
     except Exception as e:
         logger.error(f"Temporal injection failed: {str(e)}")

@@ -124,6 +124,10 @@ async def run_draft_workflow(
             val = sys_ctx.get(ctx_key)
             instruction += f"\n\nSystem detected '{val}' for this field. Suggest this as the default if they skip."
             
+        if next_field['key'] == 'timezone':
+            common_tzs = ["Africa/Nairobi", "UTC", "America/New_York", "Europe/London", "Asia/Dubai", "Asia/Kolkata", "Australia/Sydney"]
+            instruction += f"\n\nProvide these as examples for the user: {', '.join(common_tzs)}."
+
         return {
             "status": "partial_success",
             "message": msg,
