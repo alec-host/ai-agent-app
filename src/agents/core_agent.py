@@ -112,7 +112,9 @@ async def run_draft_workflow(
             msg = intro_message or f"Sure, let's set that up. First, what is the {next_field['label']}?"
             
         # Build Instruction
-        instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
+        instruction = f"### STRICT GATING: Ask ONLY for the {next_field['label']}.\n"
+        instruction += "DO NOT ask for any other information until this field is provided or skipped.\n"
+        instruction += "Ask ONE question for this single field. Avoid grouping questions."
         
         # Handle SKIP option
         if not next_field.get("required", True):
@@ -375,7 +377,7 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         schema, args, services, tenant_id, metadata_key, workflow_id, history,
-        intro_message=f"Sure, let's create that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the {schema[0]['label']} be?"
+        intro_message=f"I'll help you schedule that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the **{schema[0]['label']}** be?"
     )
     
     if partial_resp:
