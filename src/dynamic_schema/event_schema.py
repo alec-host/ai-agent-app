@@ -1,5 +1,3 @@
-# src/dynamic_schema/event_schema.py
-
 # Schema for a standard timed meeting or appointment
 STANDARD_EVENT_SCHEMA = [
     {"key": "title", "label": "Event Title", "required": True},
@@ -7,7 +5,7 @@ STANDARD_EVENT_SCHEMA = [
     {"key": "end_datetime", "label": "End Time", "required": True},
     {"key": "description", "label": "Description", "required": False},
     {"key": "location", "label": "Location", "required": False},
-    {"key": "timezone", "label": "Timezone", "required": False, "default": "UTC"},
+    {"key": "timezone", "label": "Timezone", "required": False, "suggest_from_context": "timezone_offset"},
     {"key": "attendees", "label": "Attendees", "required": False, "type": "list"}
 ]
 
@@ -19,5 +17,5 @@ ALL_DAY_EVENT_SCHEMA = [
     {"key": "description", "label": "Deadline Details", "required": False}
 ]
 
-# Keep generic for back-compat if needed, but the AI should prefer the specific ones
+# Keep generic for back-compat if needed
 EVENT_SCHEMA = STANDARD_EVENT_SCHEMA

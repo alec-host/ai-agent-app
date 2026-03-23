@@ -24,6 +24,114 @@ def _get_core_client(tenant_id, user_email=None):
         user_email=user_email
     )
 
+async def run_draft_workflow(
+    schema, 
+    args, 
+    services, 
+    tenant_id, 
+    metadata_key, 
+    workflow_id, 
+    history,
+    intro_message=None
+):
+    """
+    Unified engine for conversational drafting.
+    Handles field-by-field questioning, optional skipping, and contextual auto-detection.
+    """
+    # 1. Fetch Session
+    session = await services['calendar'].get_client_session(tenant_id)
+    metadata = session.get("metadata", {})
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
+    
+    draft = metadata.get(metadata_key, {})
+    
+    # SYSTEM CONTEXT (for auto-detection)
+    sys_ctx = args.get("_system_context", {})
+    
+    # 2. Update Draft from provided args
+    for field in schema:
+        key = field["key"]
+        
+        # Check direct key and aliases
+        candidate_keys = [key] + field.get("aliases", [])
+        val = None
+        for ck in candidate_keys:
+            if ck in args and args[ck] is not None:
+                val = args[ck]
+                break
+        
+        # Determine if value was explicitly provided
+        if val is not None:
+            # Handle explicit 'skip' with contextual fallback (e.g. for Timezone)
+            is_skipping = str(val).lower().strip() in ["skip", "skipped", "none", "n/a", ""]
+            ctx_key = field.get("suggest_from_context")
+            
+            if is_skipping and ctx_key and sys_ctx.get(ctx_key):
+                draft[key] = sys_ctx.get(ctx_key)
+                logger.info(f"[{tenant_id}] User skipped {key}, auto-detected: {draft[key]}")
+            # Handle list types (like attendees)
+            elif field.get("type") == "list" and isinstance(val, str):
+                draft[key] = [v.strip() for v in val.split(",") if v.strip()]
+            else:
+                draft[key] = val
+            
+    # Always set workflow context
+    metadata[metadata_key] = draft
+    metadata["active_workflow"] = workflow_id
+    
+    # 3. Check for Completion
+    missing = [f for f in schema if not draft.get(f["key"])]
+    
+    # Case A: Still Drafting
+    if missing:
+        payload_args = {
+            "tenant_id": tenant_id,
+            "client_args": session,
+            "metadata": metadata,
+            "history": history,
+            "thread_id": services['calendar'].thread_id
+        }
+        # Add dynamic draft injection to format_sync_chat_payload if it supports it
+        # Actually format_sync_chat_payload usually takes explicit kwargs for drafts
+        if metadata_key == "event_draft": payload_args["event_draft"] = draft
+        elif metadata_key == "contact_draft": payload_args["contact_draft"] = draft
+        elif metadata_key == "client_draft": payload_args["client_draft"] = draft
+        
+        payload = format_sync_chat_payload(**payload_args)
+        await services['calendar'].sync_client_session(payload)
+        
+        next_field = missing[0]
+        captured_labels = [f['label'] for f in schema if draft.get(f['key'])]
+        
+        # Build Message
+        if captured_labels:
+            msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}."
+        else:
+            msg = intro_message or f"Sure, let's set that up. First, what is the {next_field['label']}?"
+            
+        # Build Instruction
+        instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
+        
+        # Handle SKIP option
+        if not next_field.get("required", True):
+            instruction += f" Explicitly tell the user: '(You can say \"skip\" to leave this blank)'."
+            
+        # Handle CONTEXTUAL SUGGESTION (e.g. Timezone)
+        ctx_key = next_field.get("suggest_from_context")
+        if ctx_key and sys_ctx.get(ctx_key):
+            val = sys_ctx.get(ctx_key)
+            instruction += f"\n\nSystem detected '{val}' for this field. Suggest this as the default if they skip."
+            
+        return {
+            "status": "partial_success",
+            "message": msg,
+            "response_instruction": instruction
+        }, session, draft
+        
+    return None, session, draft # Return None if complete; caller handles submission
+
 async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None):
     """
     Handles operations for the MatterMiner Core remote system.
@@ -257,62 +365,24 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     """
     is_all_day = args.get("is_all_day", False)
     schema = ALL_DAY_EVENT_SCHEMA if is_all_day else STANDARD_EVENT_SCHEMA
-    workflow_key = "all_day_event" if is_all_day else "standard_event"
-
-    # 1. Fetch Session
-    session = await services['calendar'].get_client_session(tenant_id)
+    workflow_id = "all_day_event" if is_all_day else "standard_event"
+    metadata_key = "event_draft"
+    
+    # 1. Start Workflow Engine
+    partial_resp, session, draft = await run_draft_workflow(
+        schema, args, services, tenant_id, metadata_key, workflow_id, history,
+        intro_message=f"Sure, let's create that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the {schema[0]['label']} be?"
+    )
+    
+    if partial_resp:
+        return partial_resp
+        
+    # Case B: Ready to Submit
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
         except: metadata = {}
     
-    draft = metadata.get("event_draft", {})
-    
-    # 2. Update Draft
-    for field in schema:
-        key = field["key"]
-        val = args.get(key)
-        if val is not None and (not isinstance(val, str) or val.strip()):
-            draft[key] = val
-            
-    # Always set workflow context
-    metadata["event_draft"] = draft
-    metadata["active_workflow"] = workflow_key
-    
-    # 3. Check for Completion
-    # Treat all fields as missing until explicitly provided or skipped
-    missing = [f for f in schema if not draft.get(f["key"])]
-    
-    # Case A: Still Drafting
-    if missing:
-        payload = format_sync_chat_payload(
-            tenant_id=tenant_id,
-            client_args=session,
-            event_draft=draft,
-            metadata=metadata,
-            history=history,
-            thread_id=services['calendar'].thread_id
-        )
-        await services['calendar'].sync_client_session(payload)
-        
-        next_field = missing[0]
-        captured_labels = [f['label'] for f in schema if draft.get(f['key'])]
-        msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}." if captured_labels else f"Sure, let's set up that client. First, what is the {next_field['label']}?"
-        
-        instruction = f"Acknowledge the data received. Then, ask ONLY for the {next_field['label']}."
-        if not next_field.get("required", True):
-            instruction += f" Explicitly tell the user: '(You can say \"skip\" to leave this blank)'."
-            
-        if next_field['key'] == 'timezone':
-            instruction += f"\n\nFor Timezone, instruct the user to pick from common options like: {', '.join([tz['label'] for tz in settings.SUPPORTED_TIMEZONES])}. Use the value like '{settings.SUPPORTED_TIMEZONES[0]['value']}'."
-
-        return {
-            "status": "partial_success",
-            "message": msg,
-            "response_instruction": instruction
-        }
-        
-    # Case B: Ready to Submit
     core_client = _get_core_client(tenant_id, user_email)
     try:
         # Clean out skipped values before submission
@@ -372,76 +442,20 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     """
     Handles conversational contact creation with drafting.
     """
-    # 1. Fetch existing session context
-    session = await services['calendar'].get_client_session(tenant_id)
+    # 1. Start Workflow Engine
+    partial_resp, session, draft = await run_draft_workflow(
+        CONTACT_SCHEMA, args, services, tenant_id, "contact_draft", "contact", history,
+        intro_message="I'll help you create that contact. What is their **First Name**?"
+    )
+    
+    if partial_resp:
+        return partial_resp
+        
+    # Case B: Ready to Submit
     metadata = session.get("metadata", {})
-    draft = metadata.get("contact_draft", {})
-    
-    # 2. Update draft with new args (preserving what we already have)
-    for field in CONTACT_SCHEMA:
-        key = field["key"]
-        val = None
-        # Cascade search: arg alias -> exact arg
-        search_keys = [key] + field.get("aliases", [])
-        for k in search_keys:
-            candidate = args.get(k)
-            # Use candidate if it's a non-empty string or non-None
-            if candidate is not None and (not isinstance(candidate, str) or candidate.strip()):
-                val = candidate
-                break
-        
-        if val is not None:
-            draft[key] = val
-            
-    # Always set defaults if not present or empty
-    for field in CONTACT_SCHEMA:
-        if "default" in field:
-            current_val = draft.get(field["key"])
-            if current_val is None or (isinstance(current_val, str) and not current_val.strip()):
-                draft[field["key"]] = field["default"]
-    
-    metadata["contact_draft"] = draft
-    metadata["active_workflow"] = "contact"
-    
-    # 3. Gating Logic: Check for mandatory fields
-    # Treat all non-system fields as missing until explicitly provided or skipped
-    missing = [f for f in CONTACT_SCHEMA if not f.get("system_only") and not draft.get(f["key"])]
-    
-    # 4. Scenario A: Still drafting
-    if missing:
-        payload = format_sync_chat_payload(
-            tenant_id=tenant_id,
-            client_args=session,
-            contact_draft=draft,
-            metadata=metadata,
-            history=[],
-            thread_id=services['calendar'].thread_id
-        )
-        await services['calendar'].sync_client_session(payload)
-        
-        next_field = missing[0]
-        captured_labels = [f['label'] for f in CONTACT_SCHEMA if draft.get(f['key'])]
-        msg = f"Captured {', '.join(captured_labels)}. Next, what is the {next_field['label']}?" if captured_labels else f"I'll help you create that contact. What is their {next_field['label']}?"
-        
-        next_field = missing[0]
-        instruction = f"Acknowledge the context. Then, ask ONLY for ONE piece of information: the {next_field['label']}. NEVER ask for multiple fields at once."
-        
-        if not next_field.get("required", True):
-            instruction += f" Explicitly tell the user: '(You can say \"skip\" to use the default or leave it blank)'."
-            
-        if next_field['key'] == 'country_code':
-            # Attempt to pull network_country_code from session/metadata if passed by proxy
-            detected_cc = metadata.get("network_country_code") or session.get("network_country_code")
-            if detected_cc:
-                instruction += f"\n\nHint: The network detected they might be in a region with code '{detected_cc}'. Suggest this code and ask if it's correct for their phone number."
-            else:
-                instruction += f"\n\nHint: Many users don't know their country dialing code. Do NOT just ask for 'Country Code'. Ask which country their number belongs to (e.g. 'Canada'), then use your `lookup_countries` tool to find the correct dial code automatically."
-        
-        return {
-            "status": "partial_success",
-            "message": msg,
-            "response_instruction": instruction
-        }
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
         
     # 5. Final Execution: POST to remote API
     core_client = _get_core_client(tenant_id, user_email)
