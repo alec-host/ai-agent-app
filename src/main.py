@@ -404,6 +404,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         # --- 4. EXECUTE TOOL CALLS ---
         terminal_success_msg = None
+        pending_throttle_msg = None
         for tool_call in assistant_msg.tool_calls:
             # Dispatch directly to Agent Manager
             result = await execute_tool_call(tool_call, services, user_role, tenant_id, messages, user_email=user_email)
@@ -424,15 +425,13 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                     }
                 
                 # --- OPTIMIZATION: SHORT-CIRCUIT LOOP ON DATA COLLECTION ---
-                # If a tool says "we are partially done, ask for X", don't go back to OpenAI.
-                # Just return the tool's instruction directly to the user.
+                # Save the instruction but proceed so that OTHER tool calls in the same turn get a response message
                 if result.get("status") == "partial_success":
-                    logger.info(f"[THROTTLE] Short-circuiting loop on partial_success for {tool_call.function.name}")
-                    return {
-                        "response": result.get("message"), 
-                        "history": messages[1:],
-                        "vault_data": await services['calendar'].get_client_session(tenant_id)
-                    }
+                    logger.info(f"[THROTTLE] Queueing partial_success for {tool_call.function.name}")
+                    pending_throttle_msg = result.get("message")
+
+                if result.get("_exit_loop") and result.get("status") == "success":
+                    terminal_success_msg = result.get("message")
 
                 if result.get("_exit_loop") and result.get("status") == "success":
                     terminal_success_msg = result.get("message")
@@ -440,6 +439,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                     last_action = f"Executed {tool_call.function.name}: {result.get('message', 'Processed')}"
                 else:
                     last_action = f"Failed {tool_call.function.name}: {result.get('message', 'Unknown error')}"
+
+        # Finalize Response Logic
+        if pending_throttle_msg:
+             final_db = await services['calendar'].get_client_session(tenant_id)
+             return {"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db}
 
         # If a tool marked itself as terminal success, we break the loop and return its message directly
         if terminal_success_msg and not assistant_msg.content:
@@ -680,6 +684,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             
             messages.append(assistant_msg_dict)
             terminal_success_msg = None
+            pending_throttle_msg = None
 
             for tool_call_data in assistant_msg_dict["tool_calls"]:
                 # Mock a tool-call object for execute_tool_call
@@ -688,8 +693,6 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                         self.id = d["id"]
                         self.function = type('obj', (object,), d["function"])
                 
-                # yield f"data: {json.dumps({'content': f'\\n\\n*[AGENT]*: Executing `{tool_call_data['function']['name']}`...\\n'})}\n\n"
-                # Standard progress signal
                 tool_name = tool_call_data['function']['name']
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 
@@ -704,18 +707,19 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                         logger.warning("[STREAM-AUTH] Killing generator due to auth_required.")
                         return 
                     
-                    # --- OPTIMIZATION: SHORT-CIRCUIT STREAM LOOP ON DATA COLLECTION ---
+                    # --- OPTIMIZATION: QUEUE SHORT-CIRCUIT FOR DATA COLLECTION ---
                     if result.get("status") == "partial_success":
-                        logger.info(f"[STREAM-THROTTLE] Short-circuiting loop on partial_success for {tool_name}")
-                        # Clear 'action' and show content to prevent frontend spinner from getting stuck
-                        msg = result.get("message")
-                        yield f"data: {json.dumps({'content': msg, 'action': None})}\n\n"
-                        yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
-                        return
+                        logger.info(f"[STREAM-THROTTLE] Queueing partial_success for {tool_name}")
+                        pending_throttle_msg = result.get("message")
                     
                     if result.get("_exit_loop") and result.get("status") == "success":
                         terminal_success_msg = result.get("message")
                     last_action = f"Executed {tool_name}"
+
+            if pending_throttle_msg:
+                yield f"data: {json.dumps({'content': pending_throttle_msg, 'action': None})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+                return
 
             if terminal_success_msg:
                 final_text = f"\n\n{terminal_success_msg}"
