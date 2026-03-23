@@ -154,7 +154,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         tenant_id, 
         request.app.state.http_client, 
         correlation_id=corr_id, 
-        thread_id=req.thread_id,
+        thread_id=req.thread_id or "default",
         access_token=auth.get("token")
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
@@ -463,7 +463,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         tenant_id, 
         request.app.state.http_client, 
         correlation_id=corr_id, 
-        thread_id=req.thread_id,
+        thread_id=req.thread_id or "default",
         access_token=auth.get("token")
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)

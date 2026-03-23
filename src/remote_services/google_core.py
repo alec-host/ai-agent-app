@@ -18,7 +18,7 @@ class GoogleCalendarClient:
     def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None, access_token: str = None):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
-        self.thread_id = thread_id
+        self.thread_id = thread_id or "default"
         self.access_token = access_token # The token passed from frontend
         self.base_url = settings.NODE_SERVICE_URL
         self.headers = {
