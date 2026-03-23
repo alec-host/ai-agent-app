@@ -2,7 +2,7 @@
 STANDARD_EVENT_SCHEMA = [
     {"key": "title", "label": "Event Title", "required": True},
     {"key": "start_datetime", "label": "Start Time", "required": True},
-    {"key": "end_datetime", "label": "End Time", "required": True},
+    {"key": "end_datetime", "label": "Duration (e.g. 60m) or End Time", "required": True, "aliases": ["duration", "duration_minutes"]},
     {"key": "description", "label": "Description", "required": False},
     {"key": "location", "label": "Location", "required": False},
     {"key": "timezone", "label": "Timezone", "required": False, "suggest_from_context": "user_timezone_name"},

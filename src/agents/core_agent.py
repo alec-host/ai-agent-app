@@ -68,21 +68,46 @@ async def run_draft_workflow(
             is_skipping = str(val).lower().strip() in ["skip", "skipped", "none", "n/a", ""]
             ctx_key = field.get("suggest_from_context")
             
-            if is_skipping and ctx_key and sys_ctx.get(ctx_key):
-                draft[key] = sys_ctx.get(ctx_key)
-                logger.info(f"[{tenant_id}] User skipped {key}, auto-detected: {draft[key]}")
+            if is_skipping:
+                if ctx_key and sys_ctx.get(ctx_key):
+                    draft[key] = sys_ctx.get(ctx_key)
+                    logger.info(f"[{tenant_id}] User skipped {key}, auto-detected: {draft[key]}")
+                else:
+                    # Mark as skipped with a sentinel to satisfy the 'missing' check
+                    draft[key] = "skipped"
+                    logger.info(f"[{tenant_id}] Field {key} explicitly skipped.")
             # Handle list types (like attendees)
-            elif field.get("type") == "list" and isinstance(val, str):
-                draft[key] = [v.strip() for v in val.split(",") if v.strip()]
+            elif field.get("type") == "list":
+                if isinstance(val, list):
+                    draft[key] = val
+                elif isinstance(val, str):
+                    draft[key] = [v.strip() for v in val.split(",") if v.strip()]
             else:
                 draft[key] = val
+
+    # TEMPORAL LOGIC: Handle duration -> end_datetime calculation
+    if "duration_minutes" in args and draft.get("start_datetime"):
+        try:
+            from datetime import datetime, timedelta
+            start_str = draft["start_datetime"]
+            # Flexible parse
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
+                try:
+                    start_dt = datetime.strptime(start_str.split(".")[0], fmt)
+                    duration = int(args["duration_minutes"])
+                    draft["end_datetime"] = (start_dt + timedelta(minutes=duration)).isoformat()
+                    break
+                except: continue
+        except Exception as e:
+            logger.warning(f"Failed to calculate duration-based end time: {e}")
             
     # Always set workflow context
     metadata[metadata_key] = draft
     metadata["active_workflow"] = workflow_id
     
     # 3. Check for Completion
-    missing = [f for f in schema if not draft.get(f["key"])]
+    # Use 'key in draft' to allow None/Empty values to count as 'Handled'
+    missing = [f for f in schema if f["key"] not in draft or not str(draft[f["key"]]).strip()]
     
     # Case A: Still Drafting
     if missing:
@@ -128,8 +153,9 @@ async def run_draft_workflow(
             instruction += f"\n\nSystem detected '{val}' for this field. Suggest this as the default if they skip."
             
         if next_field['key'] == 'timezone':
-            common_tzs = ["Africa/Nairobi", "UTC", "America/New_York", "Europe/London", "Asia/Dubai", "Asia/Kolkata", "Australia/Sydney"]
-            instruction += f"\n\nProvide these as examples for the user: {', '.join(common_tzs)}."
+            detected = sys_ctx.get("user_timezone_name", "UTC")
+            common_tzs = list(set([detected, "Africa/Nairobi", "UTC", "America/New_York", "Europe/London", "Asia/Dubai"]))
+            instruction += f"\n\nProvide these as examples for the user (The first one is their detected local time): {', '.join(common_tzs)}."
 
         return {
             "status": "partial_success",
@@ -468,17 +494,10 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     core_client = _get_core_client(tenant_id, user_email)
     
     try:
-        # Map to EXACT backend parameters (tenantId handled by CoreClient)
-        clean_draft = {
-            "title": draft.get("title"),
-            "first_name": draft.get("first_name"),
-            "middle_name": draft.get("middle_name"),
-            "last_name": draft.get("last_name"),
-            "contact_email": draft.get("client_email"),
-            "country_code": draft.get("country_code"),
-            "phone_number": draft.get("phone_number")
-        }
-            
+        # Clean out skipped values before submission
+        clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
+        
+        # Pass payload to Core API
         resp = await core_client.create_contact(clean_draft)
         
         # Robust success check
@@ -561,39 +580,28 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     """
     Handles all logic related to client record creation and sequential conversation intake.
     """
-    logger.info(f"[{tenant_id}] Handling Client Creation in Core Agent")
-
-    # 1. FETCH FROM DATABASE (Session Recovery)
-    db_data = {}
-    db_metadata = {}
-    try:
-        resp = await services['calendar'].get_client_session(tenant_id)
-        db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
-        
-        discovered_thread_id = db_data.get("threadId")
-        if discovered_thread_id:
-            services['calendar'].thread_id = discovered_thread_id
-            logger.info(f"[{tenant_id}] Client Thread self-discovered: {discovered_thread_id}")
-
-    except Exception as e:
-        logger.error(f"[DB-RECOVERY] Failed to fetch session: {e}")
-
-    # 1.5 ROBUST METADATA RECOVERY
-    raw_metadata = db_data.get("metadata", {})
-    if isinstance(raw_metadata, str):
-        try:
-            db_metadata = json.loads(raw_metadata)
-        except:
-            db_metadata = {}
-    else:
-        db_metadata = raw_metadata or {}
-
-    client_draft = db_metadata.get("client_draft", {})
-    if isinstance(client_draft, str):
-        try: client_draft = json.loads(client_draft)
-        except: client_draft = {}
+    # 1. Start Workflow Engine
+    partial_resp, session, draft = await run_draft_workflow(
+        CLIENT_SCHEMA, args, services, tenant_id, "client_draft", "client", history,
+        intro_message="I'll help you register that new client. What is their **First Name**?"
+    )
     
-    contact_draft = db_metadata.get("contact_draft", {})
+    if partial_resp:
+        return partial_resp
+        
+    # Case B: Ready to Submit
+    metadata = session.get("metadata", {})
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
+
+    # Ensure thread_id is set for services['calendar'] if available in session
+    discovered_thread_id = session.get("threadId")
+    if discovered_thread_id:
+        services['calendar'].thread_id = discovered_thread_id
+        logger.info(f"[{tenant_id}] Client Thread self-discovered: {discovered_thread_id}")
+
+    contact_draft = metadata.get("contact_draft", {})
     if isinstance(contact_draft, str):
         try: contact_draft = json.loads(contact_draft)
         except: contact_draft = {}
