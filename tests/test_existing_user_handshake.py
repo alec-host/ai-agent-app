@@ -61,7 +61,7 @@ async def test_handshake_existing_user_silent_healing():
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 response = await ac.post(
                     "/ai/chat",
-                    json={"prompt": "schedule a meeting", "history": []},
+                    json={"prompt": "schedule a google meeting", "history": []},
                     headers=headers
                 )
 
@@ -112,7 +112,7 @@ async def test_handshake_existing_user_revoked():
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.post(
                 "/ai/chat",
-                json={"prompt": "schedule a meeting", "history": []},
+                json={"prompt": "schedule a google meeting", "history": []},
                 headers=headers
             )
 
@@ -158,7 +158,7 @@ async def test_handshake_existing_user_refresh_failed():
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.post(
                 "/ai/chat",
-                json={"prompt": "book an appointment", "history": []},
+                json={"prompt": "book a google appointment", "history": []},
                 headers=headers
             )
 
@@ -197,7 +197,7 @@ async def test_handshake_streaming_healing():
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.post(
                 "/ai/chat/stream",
-                json={"prompt": "book me an appointment", "history": []},
+                json={"prompt": "book me a google appointment", "history": []},
                 headers=headers
             )
 

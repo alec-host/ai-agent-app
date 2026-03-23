@@ -14,12 +14,20 @@ class MatterMinerCoreClient:
         self.tenant_id = tenant_id
         self.user_email = user_email
         self.correlation_id = correlation_id
+        self.access_token = None
+        self.user_profile = None
         
         # Internal async client
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(20.0),
             verify=False  # Assuming dev environment might have self-signed certs
         )
+
+    def set_auth_token(self, token: str):
+        self.access_token = token
+
+    def is_authenticated(self) -> bool:
+        return self.access_token is not None
 
     async def request(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -83,6 +91,15 @@ class MatterMinerCoreClient:
         }
         return await self.request("GET", "/search-contact", params=params)
 
+    async def create_contact(self, contact_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates a new contact record in MatterMiner Core."""
+        payload = {
+            "tenantId": self.tenant_id,
+            **contact_data
+        }
+        logger.info(f"[CONTACT-POST] Payload: {payload}")
+        return await self.request("POST", "/contact", json_data=payload)
+
     async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Registers a new client record in MatterMiner Core."""
         payload = {
@@ -135,7 +152,13 @@ class MatterMinerCoreClient:
             "password": password,
             "tenantId": self.tenant_id
         }
-        return await self.request("POST", "/login", json_data=payload)
+        resp = await self.request("POST", "/login", json_data=payload)
+        if resp.get("status") == "success" or resp.get("success") is True:
+            data = resp.get("data", {})
+            if "token" in data:
+                self.set_auth_token(data["token"])
+            self.user_profile = data.get("user")
+        return resp
 
     def _get_headers(self) -> Dict[str, str]:
         """Constructs headers with necessary context."""
@@ -150,6 +173,9 @@ class MatterMinerCoreClient:
             
         if self.correlation_id:
             headers["X-Correlation-ID"] = self.correlation_id
+            
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
             
         return headers
 

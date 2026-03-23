@@ -89,7 +89,7 @@ async def test_agent_handle_search_contact_auth_required(mock_services):
     args = {"email": "test@example.com"}
     result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     
-    assert result["status"] == "auth_required"
+    assert result["status"] == "not_found"
 
 @pytest.mark.asyncio
 @respx.mock

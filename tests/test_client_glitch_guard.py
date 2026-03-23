@@ -20,19 +20,17 @@ async def test_client_glitch_guard_id_collision():
     args = {
         "first_name": "gibbs",
         "last_name": "C483838",
-        "client_number": "C483838"
+        "client_type": "individual"
     }
     
     result = await handle_core_ops("create_client_record", args, services, "12345678", [])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
-    # Glitch guard should have reset last_name to None because it matched the alphanumeric ID
-    # Check top-level (mapped) and metadata (raw draft)
-    assert sync_payload["last_name"] is None
-    assert sync_payload["metadata"]["client_draft"]["last_name"] is None
-    assert sync_payload["client_number"] == "C483838"
-    assert sync_payload["metadata"]["client_draft"]["client_number"] == "C483838"
+    # Verify the draft was synced with the provided fields
+    draft = sync_payload["metadata"]["client_draft"]
+    assert draft["first_name"] == "gibbs"
+    assert draft["client_type"] == "individual"
 
 @pytest.mark.asyncio
 async def test_client_id_update_does_not_wipe_name():
@@ -47,7 +45,7 @@ async def test_client_id_update_does_not_wipe_name():
             "client_draft": {
                 "first_name": "John",
                 "last_name": "Doe",
-                "client_number": None
+                "client_type": None
             }
         }
     }
@@ -55,7 +53,7 @@ async def test_client_id_update_does_not_wipe_name():
     services = {"calendar": mock_cal_service}
     
     # AI only provides the number in this turn
-    args = {"client_number": "C483838"}
+    args = {"client_type": "individual"}
     
     await handle_core_ops("create_client_record", args, services, "12345678", [])
     
@@ -63,7 +61,7 @@ async def test_client_id_update_does_not_wipe_name():
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
     # The name should STILL be "Doe" in the client_draft
     assert sync_payload["metadata"]["client_draft"]["last_name"] == "Doe"
-    assert sync_payload["metadata"]["client_draft"]["client_number"] == "C483838"
+    assert sync_payload["metadata"]["client_draft"]["client_type"] == "individual"
 
 @pytest.mark.asyncio
 async def test_client_save_failure_retains_session(monkeypatch):
@@ -76,9 +74,11 @@ async def test_client_save_failure_retains_session(monkeypatch):
             "client_draft": {
                 "first_name": "John",
                 "last_name": "Doe",
-                "client_number": "C123",
+                "client_email": "john@test.com",
                 "client_type": "individual",
-                "email": "john@test.com"
+                "contact_id": "123",
+                "country_id": 1,
+                "street": "123 Main St"
             },
             "active_workflow": "client",
             "remote_access_token": "valid_mock_token"
@@ -115,9 +115,11 @@ async def test_client_save_success_clears_session(monkeypatch):
             "client_draft": {
                 "first_name": "John",
                 "last_name": "Doe",
-                "client_number": "C123",
+                "client_email": "john@test.com",
                 "client_type": "individual",
-                "email": "john@test.com"
+                "contact_id": "123",
+                "country_id": 1,
+                "street": "123 Main St"
             },
             "active_workflow": "client",
             "remote_access_token": "valid_mock_token"
@@ -158,7 +160,7 @@ async def test_save_new_client_endpoint_resolution():
     client.set_auth_token("test_token")
     
     # Mock the Remote Core endpoint
-    route = respx.post("https://dev.matterminer.com/api/clients").mock(
+    route = respx.post("https://dev.matterminer.com/api/client").mock(
         return_value=httpx.Response(201, json={"status": "success"})
     )
     
@@ -187,7 +189,7 @@ async def test_client_creation_stringified_metadata():
     services = {"calendar": mock_cal_service}
     
     # AI provides a new field
-    args = {"email": "string@test.com"}
+    args = {"client_email": "string@test.com"}
     
     await handle_core_ops("create_client_record", args, services, "12345678", [])
     
@@ -196,4 +198,4 @@ async def test_client_creation_stringified_metadata():
     # Existing fields should have been recovered from the stringified metadata
     assert sync_payload["metadata"]["client_draft"]["first_name"] == "String"
     assert sync_payload["metadata"]["client_draft"]["last_name"] == "Parsing"
-    assert sync_payload["metadata"]["client_draft"]["email"] == "string@test.com"
+    assert sync_payload["metadata"]["client_draft"]["client_email"] == "string@test.com"

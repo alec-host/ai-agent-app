@@ -2,7 +2,8 @@ import pytest
 import respx
 import json
 from httpx import Response, AsyncClient
-from src.main import app, CalendarServiceClient
+from src.main import app
+from src.remote_services.google_core import GoogleCalendarClient
 from src.agents.calendar_agent import handle_calendar
 from src.config import settings
 
@@ -41,7 +42,7 @@ async def test_schedule_event_blocks_on_conflict():
     )
 
     async with AsyncClient(base_url=BASE) as client:
-        service = CalendarServiceClient(tenant_id, client, correlation_id="mock-id")
+        service = GoogleCalendarClient(tenant_id, client, correlation_id="mock-id")
         service.set_auth_token("mock_jwt")
         
         args = {
@@ -103,7 +104,7 @@ async def test_schedule_event_proceeds_if_no_conflict():
     respx.delete(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"success": True}))
 
     async with AsyncClient(base_url=BASE) as client:
-        service = CalendarServiceClient(tenant_id, client, correlation_id="mock-id")
+        service = GoogleCalendarClient(tenant_id, client, correlation_id="mock-id")
         service.set_auth_token("mock_jwt")
         
         args = {

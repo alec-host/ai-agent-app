@@ -3,6 +3,43 @@ from datetime import datetime, timedelta
 from src.logger import logger
 from src.utils import format_sync_chat_payload
 
+async def perform_calendar_auth_check(calendar_service, tenant_id, history):
+    """
+    Extracted logic from main.py to handle proactive OAuth checks 
+    before the reasoning loop begins.
+    """
+    logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
+
+    # STEP 1: Sync JWT
+    token_status = await calendar_service._sync_access_token()
+    if token_status["status"] == "auth_required":
+        logger.warning(f"[{tenant_id}] Step 1: No session found. Returning auth_required.")
+        return {
+            "role": "assistant",
+            "content": "Calendar Access Required",
+            "message": "Google Calendar connection is required to schedule events.",
+            "status": "auth_required",
+            "auth_type": "google_calendar",
+            "auth_url": token_status["auth_url"],
+            "history": history
+        }
+
+    # STEP 2: Grant Check
+    grant = await calendar_service.check_grant_token()
+    if not grant["granted"]:
+        logger.warning(f"[{tenant_id}] Step 2: hasGrantToken returned not granted. Re-auth required.")
+        return {
+            "role": "assistant",
+            "content": "Calendar Access Required",
+            "message": "Google Calendar connection is required to schedule events.",
+            "status": "auth_required",
+            "auth_type": "google_calendar",
+            "auth_url": grant["auth_url"],
+            "history": history
+        }
+    
+    return None # Handshake successful
+
 async def handle_calendar(func_name, args, calendar_service, user_role, history=None):
     """
     Specialist agent for all calendar operations.

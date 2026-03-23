@@ -69,7 +69,7 @@ def _mock_wallet():
 
 
 # ---------------------------------------------------------------------------
-# UNIT: CalendarServiceClient helper methods (isolated)
+# UNIT: GoogleCalendarClient helper methods (isolated)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -77,14 +77,14 @@ def _mock_wallet():
 async def test_sync_access_token_returns_ready_and_sets_jwt():
     """_sync_access_token() must return status=ready and set Authorization header."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     respx.get(f"{BASE}/auth/accessToken").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "tok-abc"})
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-1")
+    svc = GoogleCalendarClient(TENANT, http, "corr-1")
     result = await svc._sync_access_token()
 
     assert result["status"] == "ready"
@@ -97,14 +97,14 @@ async def test_sync_access_token_returns_ready_and_sets_jwt():
 async def test_sync_access_token_returns_auth_required_for_no_session():
     """_sync_access_token() must return auth_required when backend has no session."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     respx.get(f"{BASE}/auth/accessToken").mock(
         return_value=Response(200, json={"status": "auth_required", "auth_url": "https://google/auth"})
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-2")
+    svc = GoogleCalendarClient(TENANT, http, "corr-2")
     result = await svc._sync_access_token()
 
     assert result["status"] == "auth_required"
@@ -118,14 +118,14 @@ async def test_sync_access_token_returns_auth_required_for_no_session():
 async def test_check_grant_token_returns_granted_true():
     """check_grant_token() must return granted=True when hasGrantToken says valid."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     respx.get(f"{BASE}/auth/hasGrantToken").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-3")
+    svc = GoogleCalendarClient(TENANT, http, "corr-3")
     svc.set_auth_token("tok-xyz")  # Simulate JWT already set
     result = await svc.check_grant_token()
 
@@ -138,7 +138,7 @@ async def test_check_grant_token_returns_granted_true():
 async def test_check_grant_token_returns_granted_false_when_no_token():
     """check_grant_token() returns granted=False when exists=False (new user)."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     respx.get(f"{BASE}/auth/hasGrantToken").mock(
         return_value=Response(200, json={
@@ -148,7 +148,7 @@ async def test_check_grant_token_returns_granted_false_when_no_token():
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-4")
+    svc = GoogleCalendarClient(TENANT, http, "corr-4")
     svc.set_auth_token("tok-xyz")
     result = await svc.check_grant_token()
 
@@ -163,7 +163,7 @@ async def test_check_grant_token_returns_granted_false_when_no_token():
 async def test_check_grant_token_returns_granted_false_when_refresh_failed():
     """check_grant_token() returns granted=False when exists=True but valid=False and silent refresh fails."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     # hasGrantToken always returns invalid
     respx.get(f"{BASE}/auth/hasGrantToken").mock(
@@ -179,7 +179,7 @@ async def test_check_grant_token_returns_granted_false_when_refresh_failed():
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-5")
+    svc = GoogleCalendarClient(TENANT, http, "corr-5")
     svc.set_auth_token("tok-xyz")
     result = await svc.check_grant_token()
 
@@ -193,7 +193,7 @@ async def test_check_grant_token_returns_granted_false_when_refresh_failed():
 async def test_check_grant_token_with_successful_silent_refresh():
     """check_grant_token() must attempt silent refresh if grant is invalid, and return True if refresh succeeds."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     # 1. First call to hasGrantToken returns INVALID
     respx.get(f"{BASE}/auth/hasGrantToken").mock(side_effect=[
@@ -207,7 +207,7 @@ async def test_check_grant_token_with_successful_silent_refresh():
     )
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-refresh")
+    svc = GoogleCalendarClient(TENANT, http, "corr-refresh")
     svc.set_auth_token("tok-refresh")
     
     result = await svc.check_grant_token()
@@ -230,12 +230,12 @@ async def test_check_grant_token_with_successful_silent_refresh():
 async def test_check_grant_token_graceful_on_service_error():
     """check_grant_token() must not crash when hasGrantToken endpoint is unreachable."""
     import httpx
-    from src.main import CalendarServiceClient
+    from src.remote_services.google_core import GoogleCalendarClient
 
     respx.get(f"{BASE}/auth/hasGrantToken").mock(side_effect=Exception("Connection refused"))
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
-    svc = CalendarServiceClient(TENANT, http, "corr-6")
+    svc = GoogleCalendarClient(TENANT, http, "corr-6")
     svc.set_auth_token("tok-xyz")
     result = await svc.check_grant_token()
 
@@ -271,7 +271,7 @@ async def test_chat_happy_path_proceeds_to_llm():
         )
         async with LifespanManager(app) as mgr:
             async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-                resp = await ac.post("/ai/chat", json={"prompt": "schedule a meeting", "history": []}, headers=HEADERS)
+                resp = await ac.post("/ai/chat", json={"prompt": "schedule a google meeting", "history": []}, headers=HEADERS)
                 data = resp.json()
 
     assert resp.status_code == 200
@@ -296,7 +296,7 @@ async def test_chat_blocked_at_step1_no_session():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat", json={"prompt": "schedule a meeting", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat", json={"prompt": "schedule a google meeting", "history": []}, headers=HEADERS)
             data = resp.json()
 
     assert resp.status_code == 200
@@ -326,7 +326,7 @@ async def test_chat_blocked_at_step2_new_user_no_token():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat", json={"prompt": "book an appointment", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat", json={"prompt": "book a google appointment", "history": []}, headers=HEADERS)
             data = resp.json()
 
     assert resp.status_code == 200
@@ -354,7 +354,7 @@ async def test_chat_blocked_at_step2_refresh_failed():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat", json={"prompt": "schedule a meeting", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat", json={"prompt": "schedule a google meeting", "history": []}, headers=HEADERS)
             data = resp.json()
 
     assert resp.status_code == 200
@@ -413,7 +413,7 @@ async def test_stream_happy_path_passes_gate():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat/stream", json={"prompt": "schedule a meeting", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat/stream", json={"prompt": "schedule a google meeting", "history": []}, headers=HEADERS)
             # Read first SSE chunk
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
@@ -435,7 +435,7 @@ async def test_stream_blocked_step1_no_session():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat/stream", json={"prompt": "book appointment", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat/stream", json={"prompt": "book google appointment", "history": []}, headers=HEADERS)
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
                     chunk = json.loads(line[6:])
@@ -462,7 +462,7 @@ async def test_stream_blocked_step2_grant_invalid():
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
-            resp = await ac.post("/ai/chat/stream", json={"prompt": "schedule a meeting", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat/stream", json={"prompt": "schedule a google meeting", "history": []}, headers=HEADERS)
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
                     chunk = json.loads(line[6:])
@@ -540,7 +540,7 @@ async def test_loop_gate_invalid_grant_surfaces_auth_card():
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
             # Add "schedule" to trigger the Pre-LLM gatekeeper
-            resp = await ac.post("/ai/chat", json={"prompt": "schedule 3pm tomorrow", "history": []}, headers=HEADERS)
+            resp = await ac.post("/ai/chat", json={"prompt": "schedule google 3pm tomorrow", "history": []}, headers=HEADERS)
             data = resp.json()
 
     assert resp.status_code == 200
@@ -591,7 +591,7 @@ async def test_agent_preflight_blocks_schedule_event_when_grant_invalid():
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
             resp = await ac.post(
                 "/ai/chat",
-                json={"prompt": "schedule conference room 3", "history": []},  # Explicit keyword
+                json={"prompt": "schedule google conference room 3", "history": []},  # Explicit Google keyword
                 headers=HEADERS
             )
             data = resp.json()

@@ -19,7 +19,7 @@ async def test_contact_token_persistence_on_success():
         "contact_draft": {
             "first_name": "John",
             "last_name": "Doe",
-            "email": "john@example.com",
+            "client_email": "john@example.com",
             "title": "Mr",
             "middle_name": "Alan",
             "country_code": "US",
@@ -35,7 +35,7 @@ async def test_contact_token_persistence_on_success():
     
     # 2. Mock the remote API
     with respx.mock:
-        respx.post("https://dev.matterminer.com/api/contacts").mock(
+        respx.post("https://dev.matterminer.com/api/contact").mock(
             return_value=httpx.Response(200, json={"status": "success"})
         )
         

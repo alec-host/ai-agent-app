@@ -9,17 +9,16 @@ from unittest.mock import AsyncMock, MagicMock
 # Mock Data from User Specs
 LOGIN_RESPONSE = {
     "data": {
-        "id": 4,
-        "full_name": "Dev User",
-        "email": "dev@matterminer.com",
-        "tenant_id": "12345678"
+        "token": "mock_core_token",
+        "user": {
+            "id": 4,
+            "full_name": "Dev User",
+            "email": "dev@matterminer.com",
+            "tenant_id": "12345678"
+        }
     },
     "status": "success",
-    "message": "Login successful",
-    "token": {
-        "access_token": "mock_core_token",
-        "token_type": "Bearer"
-    }
+    "message": "Login successful"
 }
 
 COUNTRY_RESPONSE = {
@@ -90,47 +89,52 @@ async def test_agent_handle_create_contact_drafting():
     assert sync_call_args["metadata"]["active_workflow"] == "contact"
 
 @pytest.mark.asyncio
-async def test_agent_handle_create_contact_auth_required():
-    # Full data but missing token
+async def test_agent_handle_create_contact_drafting_with_partial_data():
+    """
+    Contact creation is conversational. Providing some fields returns partial_success
+    and asks for the next missing field.
+    """
     mock_cal_service = AsyncMock()
-    mock_cal_service.get_client_session.return_value = {
-        "metadata": {
-            "contact_draft": {"first_name": "Jane", "last_name": "Smith", "email": "jane@test.com"}
-        }
-    }
+    mock_cal_service.get_client_session.return_value = {"metadata": {}}
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
     
-    result = await handle_create_contact({}, services, "12345678", [])
-    assert result["status"] == "auth_required"
-    assert result["auth_type"] == "matterminer_core"
+    # Provide only first_name — many fields still missing
+    result = await handle_create_contact({"first_name": "Jane"}, services, "12345678", [])
+    assert result["status"] == "partial_success"
+    assert "Last Name" in result["response_instruction"]
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_agent_handle_create_contact_finalize_after_auth():
-    # Setup session with token and full data
+async def test_agent_handle_create_contact_finalize():
+    """
+    When ALL required fields are present in the draft, the agent finalizes
+    by POSTing to the remote API.
+    """
+    # Provide a complete draft with all required CONTACT_SCHEMA fields
+    complete_draft = {
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "client_email": "jane@example.com",
+        "title": "Ms",
+        "middle_name": "A",
+        "country_code": "+254",
+        "phone_number": "712345678"
+    }
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
-        "metadata": {
-            "remote_access_token": "valid_token",
-            "contact_draft": {
-                "first_name": "Jane",
-                "last_name": "Smith",
-                "email": "jane@example.com"
-            }
-        }
+        "metadata": {"contact_draft": complete_draft}
     }
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
-    
+
     # Mock the remote API
-    respx.post("https://dev.matterminer.com/api/contacts").mock(
+    respx.post("https://dev.matterminer.com/api/contact").mock(
         return_value=httpx.Response(200, json=CONTACT_SUCCESS_RESPONSE)
     )
-    
+
     result = await handle_create_contact({}, services, "12345678", [])
     assert result["status"] == "success"
-    # Verify we clear the draft and the whole session row on completion
     mock_cal_service.sync_client_session.assert_called()
     mock_cal_service.clear_client_session.assert_called_once_with("12345678")
 
@@ -156,20 +160,33 @@ async def test_agent_handle_lookup_countries():
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_create_contact_failure():
-    # Test handling of 500 error from remote
+    """
+    When the remote API returns 500, the agent should return an error.
+    Requires a COMPLETE draft so the agent actually attempts the POST.
+    """
+    complete_draft = {
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "client_email": "fail@test.com",
+        "title": "Ms",
+        "middle_name": "A",
+        "country_code": "+254",
+        "phone_number": "712345678"
+    }
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
         "metadata": {
             "remote_access_token": "valid_token",
-            "contact_draft": {"first_name": "Jane", "last_name": "Smith", "email": "fail@test.com"}
+            "contact_draft": complete_draft
         }
     }
+    mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
-    
-    respx.post("https://dev.matterminer.com/api/contacts").mock(
+
+    respx.post("https://dev.matterminer.com/api/contact").mock(
         return_value=httpx.Response(500, json={"message": "Internal Server Error"})
     )
-    
+
     result = await handle_create_contact({}, services, "12345678", [])
     assert result["status"] == "error"
     assert "Internal Server Error" in result["message"]

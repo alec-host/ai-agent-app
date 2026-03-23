@@ -41,7 +41,7 @@ async def test_404_auth_trigger_create_contact():
     tenant_id = "test-tenant"
     
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/contacts").mock(return_value=Response(
+        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/contact").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Not found"}
         ))
@@ -53,7 +53,7 @@ async def test_404_auth_trigger_create_contact():
                     "contact_draft": {
                         "first_name": "John",
                         "last_name": "Doe",
-                        "email": "john@doe.com",
+                        "client_email": "john@doe.com",
                         "title": "Mr",
                         "middle_name": "James",
                         "country_code": "US",
