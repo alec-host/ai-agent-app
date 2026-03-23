@@ -212,17 +212,17 @@ TOOLS = [
                "type": "object",
                "properties": {
                    "contact_type": {"type": "string", "description": "Type of contact (e.g., primary, secondary)."},
-                   "title": {"type": "string", "description": "Honorific title (e.g., Mr., Ms., Dr.)."},
-                   "first_name": {"type": "string", "description": "The contact's first name."},
-                   "middle_name": {"type": "string", "description": "The contact's middle name."},
-                   "last_name": {"type": "string", "description": "The contact's last name."},
-                   "email": {"type": "string", "description": "The contact's email address."},
-                   "country_code": {"type": "string", "description": "International dialing code (e.g., +1, +254)."},
-                   "phone_number": {"type": "string", "description": "The contact's phone number."},
-                   "model_type": {"type": "string", "description": "Associated model (e.g., App\\Models\\Prospect)."},
-                   "model_id": {"type": "integer", "description": "The ID of the associated model."},
-                   "active": {"type": "boolean", "description": "Whether the contact is active."},
-                   "featured": {"type": "boolean", "description": "Whether the contact is featured."}
+                    "title": {"type": "string", "description": "Honorific title (Mr, Dr, etc)."},
+                    "first_name": {"type": "string", "description": "Legal FIRST name."},
+                    "middle_name": {"type": "string", "description": "Legal MIDDLE name (if any)."},
+                    "last_name": {"type": "string", "description": "Legal LAST name (surname)."},
+                    "email": {"type": "string", "description": "Valid email address."},
+                    "country_code": {"type": "string", "description": "NUMERIC dialling code ONLY (e.g. +1, +254). NEVER put a country name here."},
+                    "phone_number": {"type": "string", "description": "Local phone number WITHOUT the country code."},
+                    "model_type": {"type": "string", "description": "INTERNAL - DO NOT SET."},
+                    "model_id": {"type": "integer", "description": "INTERNAL - DO NOT SET."},
+                    "active": {"type": "boolean", "description": "INTERNAL - DO NOT SET."},
+                    "featured": {"type": "boolean", "description": "INTERNAL - DO NOT SET."}
                }
            }
        }

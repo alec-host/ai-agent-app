@@ -365,6 +365,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 "2. PERSISTENCE: Data in VAULT is already in the database. Continue until success.\n"
                 "3. CONTROLLED INTAKE: To create a Contact, Client, or Event, you MUST call the respective creation tool IMMEDIATELY with whatever data you have. DO NOT gather all data yourself. NEVER call both Google and MatterMiner tools in the same turn for the same intent.\n"
                 "4. ONE QUESTION: When collecting data, ask for EXACTLY ONE field at a time as instructed by the tool's response_instruction. When the user responds, you MUST map their input to that specific field and call the tool immediately.\n"
+                "5. MAPPING SANITY: When calling tools with multiple parameters, double-check that 'names' are mapped to name fields and 'numbers/codes' are mapped to numeric/code fields. DO NOT swap them (e.g. putting a dialling code in a name field).\n"
             )
         }
         
