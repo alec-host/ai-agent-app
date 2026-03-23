@@ -122,7 +122,10 @@ async def run_draft_workflow(
     
     # 3. Check for Completion
     # Use 'key in draft' to allow None/Empty values to count as 'Handled'
-    missing = [f for f in schema if f["key"] not in draft or not str(draft[f["key"]]).strip()]
+    # GATING: Skip fields marked as 'system_only' for user prompts
+    visible_schema = [f for f in schema if not f.get("system_only", False)]
+    
+    missing = [f for f in visible_schema if f["key"] not in draft or not str(draft[f["key"]]).strip()]
     
     # Case A: Still Drafting
     if missing:
@@ -133,8 +136,7 @@ async def run_draft_workflow(
             "history": history,
             "thread_id": services['calendar'].thread_id
         }
-        # Add dynamic draft injection to format_sync_chat_payload if it supports it
-        # Actually format_sync_chat_payload usually takes explicit kwargs for drafts
+        # Add dynamic draft injection to format_sync_chat_payload
         if metadata_key == "event_draft": payload_args["event_draft"] = draft
         elif metadata_key == "contact_draft": payload_args["contact_draft"] = draft
         elif metadata_key == "client_draft": payload_args["client_draft"] = draft
@@ -143,7 +145,7 @@ async def run_draft_workflow(
         await services['calendar'].sync_client_session(payload)
         
         next_field = missing[0]
-        captured_labels = [f['label'] for f in schema if draft.get(f['key'])]
+        captured_labels = [f['label'] for f in visible_schema if f['key'] in draft and str(draft[f['key']]).strip()]
         
         # Build Message
         msg_suffix = f" (You can say 'skip' to bypass this)." if not next_field.get("required", True) else ""
@@ -157,6 +159,10 @@ async def run_draft_workflow(
         instruction += "When the user responds, IMMEDIATELY call the tool again and map their input to the '" + next_field['key'] + "' field.\n"
         instruction += "DO NOT ask for any other information until this field is provided or skipped.\n"
         instruction += "Ask ONE question for this single field. Avoid grouping questions."
+        
+        # Handle CHOICE guidance (e.g. for Title/Salutation)
+        if next_field.get("choices"):
+            instruction += f"\n\nGUIDANCE: Present these as the only suggested options: {', '.join(next_field['choices'])}."
         
         # Handle SKIP option
         if not next_field.get("required", True):
