@@ -114,10 +114,10 @@ logger = logging.getLogger("legal-agentic-ai")
 def get_starter_chips():
     """Returns suggested actions for a blank state chat."""
     return [
-        {"label": "📅 Schedule Consultation", "prompt": "I want to schedule a new consultation"},
-        {"label": "👤 Register New Client", "prompt": "I want to register a new client"},
-        {"label": "📊 View Recent Matters", "prompt": "What are my recent matters?"},
-        {"label": "🔍 Look up Protocol", "prompt": "How do I process a client intake?"}
+        {"label": "👤 Create Contact", "prompt": "I want to create a new contact"},
+        {"label": "🏢 Register Client", "prompt": "I want to register a new client"},
+        {"label": "⚖️ Create Matter", "prompt": "I want to create a new matter for an existing client"},
+        {"label": "📊 Recent matters", "prompt": "Show me my recent matters"}
     ]
 
 def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None, client_draft=None):
