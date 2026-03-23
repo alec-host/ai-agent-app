@@ -45,6 +45,15 @@ async def run_draft_workflow(
         try: metadata = json.loads(metadata)
         except: metadata = {}
     
+    # Start fresh if switching workflows (Isolation)
+    if metadata.get("active_workflow") != workflow_id:
+        logger.info(f"[{tenant_id}] Switching workflow to {workflow_id}. Clearing stale {metadata_key}.")
+        # Also clear other drafts to prevent contamination
+        metadata["event_draft"] = {}
+        metadata["contact_draft"] = {}
+        metadata["client_draft"] = {}
+        metadata["active_workflow"] = workflow_id
+    
     draft = metadata.get(metadata_key, {})
     
     # SYSTEM CONTEXT (for auto-detection)
@@ -101,9 +110,15 @@ async def run_draft_workflow(
         except Exception as e:
             logger.warning(f"Failed to calculate duration-based end time: {e}")
             
-    # Always set workflow context
+    # 1.5 Sync workflow state back to session object
     metadata[metadata_key] = draft
     metadata["active_workflow"] = workflow_id
+    
+    # Handle serialization if DB stored it as a string
+    if isinstance(session.get("metadata"), str):
+        session["metadata"] = json.dumps(metadata)
+    else:
+        session["metadata"] = metadata
     
     # 3. Check for Completion
     # Use 'key in draft' to allow None/Empty values to count as 'Handled'
