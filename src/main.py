@@ -141,6 +141,18 @@ class ChatRequest(BaseModel):
     debug: bool = False
     thread_id: Optional[str] = None
 
+# --- 5.1. Dynamic Model Routing ---
+def get_optimal_model(active_workflow: str, user_message: str) -> str:
+    """Routes simple workflows to mini models and complex ones to large models."""
+    if active_workflow in ["create_matter", "rag_query", "search_knowledge_base", "lookup_firm_protocol"]:
+        return "gpt-4o"
+        
+    complex_keywords = ["policy", "guideline", "summarize", "research", "analyze"]
+    if user_message and any(k in user_message.lower() for k in complex_keywords):
+        return "gpt-4o"
+        
+    return "gpt-4o-mini"
+
 # --- 6. The Core Reasoning Endpoint ---
 @app.post("/ai/chat")
 async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
@@ -411,8 +423,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         async def _call_openai():
             async with tpm_guard:
+                selected_model = get_optimal_model(active_wf, req.prompt)
+                logger.info(f"[ROUTER] Sending payload to model: {selected_model}")
                 return await ai_client.chat.completions.create(
-                    model="gpt-4o-mini", messages=loop_messages, tools=relevant_tools, tool_choice="auto"
+                    model=selected_model, messages=loop_messages, tools=relevant_tools, tool_choice="auto"
                 )
         
         # Wrapped in backoff to handle 429s gracefully
@@ -662,8 +676,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             if i > 0: await asyncio.sleep(0.5)
             
             async def _call_openai_stream():
+                selected_model = get_optimal_model(active_workflow, req.prompt)
+                # logger already handled above, no need to spam stream
                 return await ai_client.chat.completions.create(
-                    model="gpt-4o-mini", messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
+                    model=selected_model, messages=loop_messages, tools=TOOLS, tool_choice="auto", stream=True
                 )
             
             try:
