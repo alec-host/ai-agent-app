@@ -149,6 +149,11 @@ async def run_draft_workflow(
         
         # Build Message
         msg_suffix = f" (You can say 'skip' to bypass this)." if not next_field.get("required", True) else ""
+        
+        choices = next_field.get("choices")
+        if choices:
+            msg_suffix += f" (Options: {', '.join(choices)})"
+            
         if captured_labels:
             msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}.{msg_suffix}"
         else:
@@ -568,6 +573,16 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             
             msg = f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}"
             if contact_id: msg += f" (ID: {contact_id})"
+            
+            # --- ADDITION: Summarized Table ---
+            summary_rows = "\n".join([f"| **{f.get('label', f['key'])}** | {draft.get(f['key'], 'N/A')} |" for f in CONTACT_SCHEMA if not f.get("system_only")])
+            summary_table = (
+                "\n\n### FINAL SUMMARY: CONTACT CREATED\n\n"
+                "| Field | Value |\n"
+                "| :--- | :--- |\n"
+                f"{summary_rows}"
+            )
+            msg += summary_table
             
             return {
                 "status": "success",
