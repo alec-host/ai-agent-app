@@ -86,7 +86,7 @@ class MatterMinerCoreClient:
     async def search_contact_by_email(self, email: str) -> Dict[str, Any]:
         """Searches for a contact by email and returns their contact_id."""
         params = {
-            "search_email": email,
+            "search": email,
             "tenantId": self.tenant_id
         }
         return await self.request("GET", "/search-contact", params=params)
