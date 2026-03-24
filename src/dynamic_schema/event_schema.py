@@ -3,10 +3,10 @@ STANDARD_EVENT_SCHEMA = [
     {"key": "title", "label": "Title", "required": True},
     {"key": "start_datetime", "label": "Start Time", "required": True},
     {"key": "end_datetime", "label": "Duration (e.g. 60m) or End Time", "required": True, "aliases": ["duration", "duration_minutes"]},
-    {"key": "description", "label": "Description", "required": False},
-    {"key": "location", "label": "Location", "required": False},
-    {"key": "timezone", "label": "Timezone", "required": False, "suggest_from_context": "user_timezone_name"},
-    {"key": "attendees", "label": "Attendees", "required": False, "type": "list"}
+    {"key": "description", "label": "Description", "required": True},
+    {"key": "location", "label": "Location", "required": True},
+    {"key": "timezone", "label": "Timezone", "required": True, "suggest_from_context": "user_timezone_name"},
+    {"key": "attendees", "label": "Attendees", "required": True, "type": "list"}
 ]
 
 # Schema for an all-day event or deadline
@@ -14,8 +14,8 @@ ALL_DAY_EVENT_SCHEMA = [
     {"key": "title", "label": "Title", "required": True},
     {"key": "start_datetime", "label": "Start Date", "required": True},
     {"key": "end_datetime", "label": "End Date", "required": True},
-    {"key": "description", "label": "Description", "required": False},
-    {"key": "location", "label": "Location", "required": False}
+    {"key": "description", "label": "Description", "required": True},
+    {"key": "location", "label": "Location", "required": True}
 ]
 
 # Keep generic for back-compat if needed

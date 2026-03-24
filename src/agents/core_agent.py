@@ -500,7 +500,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CONTACT_SCHEMA, args, services, tenant_id, "contact_draft", "contact", history,
-        intro_message="I'll help you create that contact. What is their **First Name**?"
+        intro_message="I'll help you create that contact. To start, what is their **First Name**?"
     )
     
     if partial_resp:
@@ -540,23 +540,15 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             success_email = draft.get("client_email") or resp.get("data", {}).get("data", {}).get("email")
             
             metadata["contact_draft"] = {}
-            metadata["_must_create_contact"] = False
             metadata["active_workflow"] = None
             
-            client_draft = metadata.get("client_draft", {})
-            if contact_id:
-                client_draft["contact_id"] = contact_id
-            
-            if success_email and not client_draft.get("client_email"):
-                client_draft["client_email"] = success_email
-                
-            metadata["client_draft"] = client_draft
+            # Independent Workflow: Contact creation no longer forcibly seeds client_draft.
+            # This ensures that contact management remains a decoupled operation.
             
             payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
                 client_args=session,
                 contact_draft={},
-                client_draft=client_draft,
                 metadata=metadata,
                 history=[],
                 thread_id=services['calendar'].thread_id,
@@ -605,13 +597,67 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CLIENT_SCHEMA, args, services, tenant_id, "client_draft", "client", history,
-        intro_message="I'll help you register that new client. What is their **First Name**?"
+        intro_message="I'll help you register that new client. To start, what is their **Email Address**?"
     )
     
+    # CASE A: Still gathering data
     if partial_resp:
+        # EARLIER LOOKUP PATTERN: Intercept the intake as soon as 'client_email' is available.
+        email = draft.get("client_email")
+        if email and not draft.get("contact_id"):
+            logger.info(f"[{tenant_id}] Early lookup for contact_id using email: {email}")
+            core_client = _get_core_client(tenant_id, user_email)
+            try:
+                search_resp = await core_client.search_contact_by_email(email)
+                is_success = search_resp.get("status") == "success" or search_resp.get("success") is True
+                contact_id = (
+                    search_resp.get("contact_id") or 
+                    search_resp.get("data", {}).get("contact_id") or 
+                    search_resp.get("data", {}).get("data", {}).get("id") or 
+                    search_resp.get("data", {}).get("id")
+                )
+                
+                if is_success and contact_id:
+                    logger.info(f"[{tenant_id}] Found and linked contact_id: {contact_id}")
+                    # Update local draft with the discovered contact_id
+                    draft["contact_id"] = contact_id
+                    
+                    # Update session metadata immediately to reflect progress
+                    metadata = session.get("metadata", {})
+                    if isinstance(metadata, str): metadata = json.loads(metadata)
+                    metadata["client_draft"] = draft
+                    
+                    sync_payload = format_sync_chat_payload(
+                        tenant_id=tenant_id,
+                        client_args=session,
+                        client_draft=draft,
+                        metadata=metadata,
+                        history=[],
+                        thread_id=services['calendar'].thread_id
+                    )
+                    await services['calendar'].sync_client_session(sync_payload)
+                    
+                    # We proceed with the original partial_resp (the LLM will ask the next field in the schema)
+                else:
+                    # BLOCKING FALLBACK: If contact isn't found, the workflow MUST stop.
+                    # This enforces independence between creation workflows.
+                    return {
+                        "status": "partial_success",
+                        "message": f"I couldn't find a contact for the email address '{email}'.",
+                        "response_instruction": (
+                            "Inform the user that a contact record is required to create a client. "
+                            "Explain that you couldn't find one for this email. "
+                            "Ask if they would like to create a contact first (using create_contact) or provide a different email address."
+                        )
+                    }
+            except Exception as e:
+                logger.error(f"[EARLY-LOOKUP] Failed: {e}")
+            finally:
+                await core_client.close()
+
         return partial_resp
         
-    # Case B: Ready to Submit
+    # CASE B: Ready to Submit
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -621,36 +667,6 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     discovered_thread_id = session.get("threadId")
     if discovered_thread_id:
         services['calendar'].thread_id = discovered_thread_id
-
-    # 2. AUTO-LOOKUP PATTERN: Link contact_id automatically if email is provided
-    email = draft.get("client_email")
-    if email and not draft.get("contact_id"):
-        logger.info(f"[{tenant_id}] Attempting auto-lookup for contact_id using email: {email}")
-        core_client = _get_core_client(tenant_id, user_email)
-        try:
-            search_resp = await core_client.search_contact_by_email(email)
-            contact_id = (
-                search_resp.get("contact_id") or 
-                search_resp.get("data", {}).get("contact_id") or 
-                search_resp.get("data", {}).get("data", {}).get("id") or 
-                search_resp.get("data", {}).get("id")
-            )
-            if contact_id:
-                logger.info(f"[{tenant_id}] Found and auto-linked contact_id: {contact_id}")
-                draft["contact_id"] = contact_id
-                metadata["_must_create_contact"] = False
-            else:
-                # Pre-seed Contact Draft if not found
-                contact_draft = metadata.get("contact_draft", {})
-                contact_draft["first_name"] = draft.get("first_name")
-                contact_draft["last_name"] = draft.get("last_name")
-                contact_draft["email"] = email
-                metadata["contact_draft"] = contact_draft
-                metadata["_must_create_contact"] = True
-        except Exception as e:
-            logger.error(f"[AUTO-LOOKUP] Failed: {e}")
-        finally:
-            await core_client.close()
 
     # 3. FINAL SUBMISSION
     core_client = _get_core_client(tenant_id, user_email)
