@@ -179,6 +179,7 @@ async def run_draft_workflow(
         
         # Handle SKIP option
         if not next_field.get("required", True):
+            instruction += f"\n\nCRITICAL: If the user says 'skip', 'no', or 'none', you MUST call the tool and explicitly set `{next_field['key']}` to the exact string 'skip'. DO NOT omit the parameter entirely, or the system will loop."
             instruction += f" Explicitly tell the user: '(You can say \"skip\" to leave this blank)'."
             
         # Handle CONTEXTUAL SUGGESTION (e.g. Timezone)

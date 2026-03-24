@@ -211,11 +211,11 @@ TOOLS = [
            "parameters": {
                "type": "object",
                "properties": {
-                    "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact."},
-                    "title": {"type": "string", "description": "Honorific title (Mr, Dr, etc)."},
-                    "first_name": {"type": "string", "description": "Legal FIRST name."},
+                    "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact. MUST NOT BE GUESSED."},
+                    "title": {"type": "string", "description": "Honorific title (Mr, Dr, etc). MUST NOT BE GUESSED."},
+                    "first_name": {"type": "string", "description": "Legal FIRST name. NEVER guess or split from email. ONLY populate if explicitly stated."},
                     "middle_name": {"type": "string", "description": "Legal MIDDLE name (if any)."},
-                    "last_name": {"type": "string", "description": "Legal LAST name (surname)."},
+                    "last_name": {"type": "string", "description": "Legal LAST name. NEVER guess or split from email. ONLY populate if explicitly stated."},
                     "email": {"type": "string", "description": "Valid email address."},
                     "country_code": {"type": "string", "description": "NUMERIC dialling code ONLY (e.g. +1, +254). NEVER put a country name here."},
                     "phone_number": {"type": "string", "description": "Local phone number WITHOUT the country code."},
