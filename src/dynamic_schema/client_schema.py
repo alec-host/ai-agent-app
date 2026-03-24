@@ -11,6 +11,6 @@ CLIENT_SCHEMA = [
     {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName", "surname", "family_name", "familyName"]},
     {"key": "client_type", "label": "Client Type", "required": True, "choices": ["individual", "company"], "aliases": ["clientType", "type", "customer_type", "customerType"]},
     {"key": "contact_id", "label": "Contact ID", "required": True, "aliases": ["contactId", "contactID", "contact_uuid"]},
-    {"key": "country_id", "label": "Country ID", "required": True, "aliases": ["country", "country_id", "countryId", "county_id", "countyId"]},
+    {"key": "country_id", "label": "Country Name", "required": True, "lookup_tool": "lookup_countries", "aliases": ["country", "country_id", "countryId", "county_id", "countyId"]},
     {"key": "street", "label": "Street Address", "required": True, "aliases": ["streetAddress", "street_address", "address"]},
 ]

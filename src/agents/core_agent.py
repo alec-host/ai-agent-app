@@ -156,7 +156,15 @@ async def run_draft_workflow(
             
         # Build Instruction
         instruction = f"### STRICT GATING: Ask ONLY for the {next_field['label']}.\n"
-        instruction += "When the user responds, IMMEDIATELY call the tool again and map their input to the '" + next_field['key'] + "' field.\n"
+        
+        lookup_tool = next_field.get("lookup_tool")
+        if lookup_tool:
+            instruction += f"CRITICAL: When the user provides the name, DO NOT attempt to map it directly to `{next_field['key']}`.\n"
+            instruction += f"INSTEAD, you MUST call the `{lookup_tool}` tool to search for the correct system ID.\n"
+            instruction += f"Once `{lookup_tool}` finds the ID, it will automatically link it to this drafting session. You can then ask for the next field.\n"
+        else:
+            instruction += "When the user responds, IMMEDIATELY call the tool again and map their input to the '" + next_field['key'] + "' field.\n"
+            
         instruction += "DO NOT ask for any other information until this field is provided or skipped.\n"
         instruction += "Ask ONE question for this single field. Avoid grouping questions."
         
