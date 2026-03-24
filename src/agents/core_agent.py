@@ -641,13 +641,34 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                 else:
                     # BLOCKING FALLBACK: If contact isn't found, the workflow MUST stop.
                     # This enforces independence between creation workflows.
+                    # Clear vault and chat session as required.
+                    metadata = session.get("metadata", {})
+                    if isinstance(metadata, str): metadata = json.loads(metadata)
+                    
+                    metadata["client_draft"] = {}
+                    metadata["active_workflow"] = None
+                    
+                    sync_payload = format_sync_chat_payload(
+                        tenant_id=tenant_id,
+                        client_args=session,
+                        client_draft={},
+                        metadata=metadata,
+                        history=[],
+                        thread_id=services['calendar'].thread_id,
+                        active_workflow="cleared",
+                        session_lifecycle="completed"
+                    )
+                    await services['calendar'].sync_client_session(sync_payload)
+                    await services['calendar'].clear_client_session(tenant_id)
+                    
                     return {
-                        "status": "partial_success",
-                        "message": f"I couldn't find a contact for the email address '{email}'.",
+                        "status": "success",
+                        "_exit_loop": True,
+                        "message": f"I couldn't find a contact for the email address '{email}'. The client registration has been canceled and your session was cleared.",
                         "response_instruction": (
                             "Inform the user that a contact record is required to create a client. "
-                            "Explain that you couldn't find one for this email. "
-                            "Ask if they would like to create a contact first (using create_contact) or provide a different email address."
+                            "Explain that no contact was found for this email, so the client creation process was aborted and the session was cleared. "
+                            "Ask if they would like to create a contact first using 'create_contact'."
                         )
                     }
             except Exception as e:
