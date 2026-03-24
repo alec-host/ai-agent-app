@@ -178,7 +178,7 @@ TOOLS = [
                  "first_name": {"type": "string", "description": "The client's legal first name. NEVER use an alphanumeric ID here."},
                  "last_name": {"type": "string", "description": "The client's legal last name. NEVER use an alphanumeric ID here."},
                  "client_email": {"type": "string", "description": "The primary client's email address."},
-                 "client_type": {"type": "string", "description": "The category of the client (e.g., individual, corporate, associate)."},
+                  "client_type": {"type": "string", "enum": ["individual", "company"], "description": "The category of the client."},
                  "contact_id": {"type": "string", "description": "Relational link: The UUID of the contact record obtained via lookup or creation."},
                  "country_id": {"type": "integer", "description": "Relational link: The ID of the country obtained via lookup_countries."},
                  "street": {"type": "string", "description": "The client's physical street address."}
@@ -195,7 +195,7 @@ TOOLS = [
               "type": "object",
               "properties": {
                   "contact_id": {"type": "string", "description": "The UUID of the existing contact."},
-                  "client_type": {"type": "string", "enum": ["individual", "corporate"], "description": "The category of the profile."},
+                   "client_type": {"type": "string", "enum": ["individual", "company"], "description": "The category of the profile."},
                   "country_id": {"type": "integer", "description": "The ID of the country (lookup via lookup_countries)."},
                   "street": {"type": "string", "description": "The client's physical address."}
               },
@@ -211,7 +211,7 @@ TOOLS = [
            "parameters": {
                "type": "object",
                "properties": {
-                   "contact_type": {"type": "string", "description": "Type of contact (e.g., primary, secondary)."},
+                    "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact."},
                     "title": {"type": "string", "description": "Honorific title (Mr, Dr, etc)."},
                     "first_name": {"type": "string", "description": "Legal FIRST name."},
                     "middle_name": {"type": "string", "description": "Legal MIDDLE name (if any)."},

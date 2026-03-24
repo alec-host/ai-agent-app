@@ -23,7 +23,8 @@ async def test_contact_token_persistence_on_success():
             "title": "Mr",
             "middle_name": "Alan",
             "country_code": "US",
-            "phone_number": "+1234567890"
+            "phone_number": "+1234567890",
+            "contact_type": "primary"
         },
         "active_workflow": "contact"
     }

@@ -5,7 +5,7 @@ CONTACT_SCHEMA = [
     {"key": "first_name", "label": "First Name", "required": True, "aliases": ["firstName", "given_name", "givenName"]},
     {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName", "surname", "family_name", "familyName"]},
     {"key": "client_email", "label": "Email Address", "required": True, "aliases": ["EmailAddress", "client_email", "email", "contact_email"]},
-    {"key": "contact_type", "label": "Contact Type", "required": False, "default": "primary", "system_only": True},
+    {"key": "contact_type", "label": "Contact Type", "required": True, "choices": ["primary", "secondary"]},
     {"key": "title", "label": "Title", "required": True, "aliases": ["honorific", "salutation"], "choices": ["Mr.", "Ms.", "Mrs.", "Dr.", "Prof."]},
     {"key": "middle_name", "label": "Middle Name", "required": False, "aliases": ["middleName"]},
     {"key": "country_code", "label": "Country Code", "required": True, "aliases": ["countryCode", "country_id", "countryId", "dialling_code"]},
