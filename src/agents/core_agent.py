@@ -1,3 +1,4 @@
+import copy
 import json
 from ..logger import logger
 from ..utils import format_sync_chat_payload
@@ -6,6 +7,7 @@ from ..config import settings
 
 from ..dynamic_schema.client_schema import CLIENT_SCHEMA
 from ..dynamic_schema.contact_schema import CONTACT_SCHEMA
+from ..dynamic_schema.matter_schema import MATTER_SCHEMA
 from ..dynamic_schema.event_schema import STANDARD_EVENT_SCHEMA, ALL_DAY_EVENT_SCHEMA, EVENT_SCHEMA
 from ..config import settings
 
@@ -256,6 +258,21 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
     elif func_name == "create_all_day_event":
         args["is_all_day"] = True
         return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
+
+    elif func_name == "create_matter":
+        return await handle_create_matter(args, services, tenant_id, history, user_email=user_email)
+
+    elif func_name == "lookup_client":
+        return await handle_lookup_client(args, services, tenant_id, user_email=user_email)
+
+    elif func_name == "lookup_practice_area":
+        return await handle_lookup_practice_area(args, services, tenant_id, user_email=user_email)
+
+    elif func_name == "lookup_case_stage":
+        return await handle_lookup_case_stage(args, services, tenant_id, user_email=user_email)
+
+    elif func_name == "lookup_billing_type":
+        return await handle_lookup_billing_type(args, services, tenant_id, user_email=user_email)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
 
@@ -845,5 +862,241 @@ def get_workflow_recovery(metadata, db_data):
         if missing:
             recovery["instruction"] = f"Acknowledge the partial info. Ask ONLY for the {missing[0]}."
         return recovery
+    elif active_workflow == "matter":
+        matter_draft = metadata.get("matter_draft", {})
+        
+        # Merge draft and top-level identity for a complete recovery view
+        full_state = {**db_data, **{k:v for k,v in matter_draft.items() if v}}
+        
+        # Filter to only relevant fields
+        recov_data = {f["key"]: full_state.get(f["key"]) for f in MATTER_SCHEMA if full_state.get(f["key"])}
+
+        if not recov_data:
+            return None
+
+        missing = [f["label"] for f in MATTER_SCHEMA if f.get("required") and not recov_data.get(f["key"])]
+        
+        if not missing:
+            return None
+
+        return {
+            "header": "### RECOVERY MODE: MATTER INTAKE DETECTED ###",
+            "data": recov_data,
+            "instruction": f"The user was previously creating a matter. Known: {list(recov_data.keys())}. Acknowledge the partial info and ask for the {missing[0]}."
+        }
 
     return None
+
+async def handle_create_matter(args, services, tenant_id, history, user_email=None):
+    """
+    Handles conversational matter creation with lazy dynamic choice fetching.
+    """
+    # 1. Fetch current session to calculate dynamic state
+    session = await services['calendar'].get_client_session(tenant_id)
+    metadata = session.get("metadata", {})
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
+        
+    # Start fresh if switching workflows
+    if metadata.get("active_workflow") != "matter":
+        metadata["matter_draft"] = {}
+        metadata["active_workflow"] = "matter"
+        
+    # 2. Dynamic Schema population (Scalable & Optimized)
+    dynamic_schema = copy.deepcopy(MATTER_SCHEMA)
+    draft = metadata.get("matter_draft", {})
+    
+    # Find next field to see if it needs a pre-fetch
+    visible_schema = [f for f in dynamic_schema if not f.get("system_only")]
+    missing = [f for f in visible_schema if f["key"] not in draft or not str(draft[f["key"]]).strip()]
+    
+    if missing:
+        field = missing[0]
+        if field.get("is_dynamic"):
+            cache_key = f"{field['key']}_choices"
+            if not metadata.get(cache_key):
+                logger.info(f"[{tenant_id}] Fetching dynamic options for {field['key']}...")
+                core_client = _get_core_client(tenant_id, user_email)
+                try:
+                    resp = None
+                    if field['key'] == "practice_area_id":
+                        resp = await core_client.lookup_practice_areas(is_search=0)
+                    elif field["key"] == "case_stage_id":
+                        # GET /case-stage?is_search=0 as per specification
+                        resp = await core_client.lookup_case_stages(is_search=0)
+                    
+                    if resp and resp.get("status") != "error":
+                        data = resp.get("data", [])
+                        metadata[cache_key] = [d["name"] for d in data if d.get("name")]
+                        
+                        # --- OPTIMIZED CACHE SYNC ---
+                        logger.info(f"[{tenant_id}] Syncing dynamic cache for {field['key']} to session.")
+                        sync_payload = format_sync_chat_payload(
+                            tenant_id=tenant_id,
+                            client_args=session,
+                            metadata=metadata,
+                            history=[],
+                            thread_id=services['calendar'].thread_id
+                        )
+                        await services['calendar'].sync_client_session(sync_payload)
+                finally:
+                    await core_client.close()
+            
+            # Inject cached choices into the current field for run_draft_workflow
+            field["choices"] = metadata.get(cache_key, [])
+
+    # 3. Hand over to unified engine
+    partial_resp, session, draft = await run_draft_workflow(
+        dynamic_schema, args, services, tenant_id, "matter_draft", "matter", history,
+        intro_message="I'll help you create a new matter. To begin, what should we call the **Matter Title**?"
+    )
+    
+    if partial_resp:
+        return partial_resp
+        
+    metadata = session.get("metadata", {})
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except: metadata = {}
+
+    core_client = _get_core_client(tenant_id, user_email)
+    
+    try:
+        clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
+        
+        resp = await core_client.create_matter(clean_draft)
+        is_success = resp.get("status") == "success" or resp.get("success") is True
+        
+        if is_success:
+            metadata["matter_draft"] = {}
+            metadata["active_workflow"] = None
+            
+            payload = format_sync_chat_payload(
+                tenant_id=tenant_id,
+                client_args=session,
+                matter_draft={},
+                metadata=metadata,
+                history=[],
+                thread_id=services['calendar'].thread_id,
+                active_workflow="cleared",
+                session_lifecycle="completed"
+            )
+            await services['calendar'].sync_client_session(payload)
+            await services['calendar'].clear_client_session(tenant_id)
+            
+            summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {clean_draft.get(f['key'], 'N/A')} |" for f in MATTER_SCHEMA if not f.get("system_only")])
+            summary_table = (
+                "### FINAL SUMMARY: MATTER CREATED\n\n"
+                "| Field | Value |\n"
+                "| :--- | :--- |\n"
+                f"{summary_rows}"
+            )
+            
+            return {
+                "status": "success",
+                "message": f"Successfully created matter: {clean_draft.get('title')}\n\n{summary_table}",
+                "data": resp,
+                "response_instruction": "Confirm the matter creation success, display the markdown table, and ask if any further steps are needed."
+            }
+        elif resp.get("status") == "auth_required":
+            payload = format_sync_chat_payload(tenant_id=tenant_id, client_args=session, matter_draft=draft, metadata=metadata, history=[], thread_id=services['calendar'].thread_id)
+            await services['calendar'].sync_client_session(payload)
+            return _get_auth_required_response("Authentication required.", "Display login card.")
+        else:
+            return {"status": "error", "message": resp.get("message", "Failed to create matter."), "response_instruction": "Inform user about the error."}
+    finally:
+        await core_client.close()
+
+async def handle_lookup_client(args, services, tenant_id, user_email=None):
+    term = args.get("search_term", "")
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        resp = await core_client.lookup_clients(term)
+        return await _process_lookup_response(resp, "client_id", "matter_draft", tenant_id, services, term)
+    finally:
+        await core_client.close()
+
+async def handle_lookup_practice_area(args, services, tenant_id, user_email=None):
+    term = args.get("search_term", "")
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        # Use is_search=1 as per user spec for retrieving specific ID
+        resp = await core_client.lookup_practice_areas(term, is_search=1)
+        return await _process_lookup_response(resp, "practice_area_id", "matter_draft", tenant_id, services, term)
+    finally:
+        await core_client.close()
+
+async def handle_lookup_case_stage(args, services, tenant_id, user_email=None):
+    term = args.get("search_term", "")
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        # User specified that case_stage_id is retrieved from /billing-info?is_search=1
+        resp = await core_client.lookup_billing_info(term)
+        return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term)
+    finally:
+        await core_client.close()
+
+async def handle_lookup_billing_type(args, services, tenant_id, user_email=None):
+    term = args.get("search_term", "")
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        resp = await core_client.lookup_billing_types(term)
+        return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term)
+    finally:
+        await core_client.close()
+
+async def _process_lookup_response(resp, link_key, draft_key, tenant_id, services, term):
+    is_success = resp.get("status") == "success" or resp.get("success") is True
+    if is_success:
+        data = resp.get("data", [])
+        
+        # Check for direct ID in root (e.g. practice_area_id or case_stage_id)
+        linked_id = resp.get(link_key)
+        
+        # If no direct ID, check if it's a unique match in the data list
+        if linked_id is None and data and isinstance(data, list) and len(data) == 1:
+            linked_id = data[0].get("id")
+        
+        # Fallback for direct data object
+        if linked_id is None and data and isinstance(data, dict) and "id" in data:
+            linked_id = data.get("id")
+            
+        if linked_id is not None:
+            # --- PATTERN: LINKING DISCOVERED DATA ---
+            try:
+                session = await services['calendar'].get_client_session(tenant_id)
+                metadata = session.get("metadata", {})
+                if isinstance(metadata, str): metadata = json.loads(metadata)
+                
+                draft = metadata.get(draft_key, {})
+                draft[link_key] = linked_id
+                metadata[draft_key] = draft
+                
+                payload_args = {
+                    "tenant_id": tenant_id,
+                    "client_args": session,
+                    "metadata": metadata,
+                    "history": [],
+                    "thread_id": services['calendar'].thread_id
+                }
+                payload_args[draft_key] = draft
+                sync_payload = format_sync_chat_payload(**payload_args)
+                await services['calendar'].sync_client_session(sync_payload)
+                logger.info(f"[{tenant_id}] Auto-linked {link_key}: {linked_id}")
+            except Exception as e:
+                logger.error(f"[MATTER-LINK] Failed to sync {link_key}: {e}")
+
+            return {
+                "status": "success",
+                "message": f"Successfully resolved '{term}' to ID: {linked_id}.",
+                "response_instruction": f"The ID {linked_id} has been automatically resolved and linked for {link_key}. Do not ask the user for it again. Ask for the next field."
+            }
+            
+        elif data and isinstance(data, list) and len(data) > 1:
+            options = [f"{d.get('name')} (ID: {d.get('id')})" for d in data]
+            return {"status": "partial_success", "message": f"Multiple found: {', '.join(options)}", "response_instruction": "Ask the user to clarify which one."}
+        else:
+            return {"status": "error", "message": f"No matches found for {term}.", "response_instruction": "Inform the user no exact match was found."}
+            
+    return {"status": "error", "message": "Failed lookup", "response_instruction": "Lookup failed, report error."}

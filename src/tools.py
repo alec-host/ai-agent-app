@@ -311,5 +311,81 @@ TOOLS = [
                "required": ["title", "start_datetime", "end_datetime"]
            }
        }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_client",
+           "description": "Searches for a client in the system to retrieve the client_id. Required before creating a matter.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search_term": {"type": "string", "description": "The client name or email to search for."}
+               },
+               "required": ["search_term"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_practice_area",
+           "description": "Searches for a practice area to retrieve the practice_area_id. Required before creating a matter.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search_term": {"type": "string", "description": "The practice area name to search for (e.g. Contract Dispute)."}
+               },
+               "required": ["search_term"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_case_stage",
+           "description": "Searches for a case stage to retrieve the case_stage_id. Required before creating a matter.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search_term": {"type": "string", "description": "The case stage to search for (e.g. Initial Contact)."}
+               },
+               "required": ["search_term"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_billing_type",
+           "description": "Searches for a billing type to retrieve the billing_type_id. Required before creating a matter.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search_term": {"type": "string", "description": "The billing type to search for (e.g. Hourly, Contingency)."}
+               },
+               "required": ["search_term"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "create_matter",
+           "description": "Creates a new matter. Call this ONLY after all required fields and IDs have been successfully gathered and confirmed.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "title": {"type": "string", "description": "The title of the matter."},
+                   "name": {"type": "string", "description": "The internal name reference for the matter."},
+                   "client_id": {"type": "integer", "description": "The ID of the client (obtained via lookup_client)."},
+                   "practice_area_id": {"type": "integer", "description": "The ID of the practice area (obtained via lookup_practice_area)."},
+                   "description": {"type": "string", "description": "The details or summary of the matter."},
+                   "case_stage_id": {"type": "integer", "description": "The ID of the case stage (obtained via lookup_case_stage)."},
+                   "billing_type_id": {"type": "integer", "description": "The ID of the billing type (obtained via lookup_billing_type)."}
+               },
+               "required": ["title", "name", "client_id", "practice_area_id", "description", "case_stage_id", "billing_type_id"]
+           }
+       }
     }
 ]

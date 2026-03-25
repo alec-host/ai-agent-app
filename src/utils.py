@@ -120,7 +120,7 @@ def get_starter_chips():
         {"label": "📊 Recent matters", "prompt": "Show me my recent matters"}
     ]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None, client_draft=None):
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None, client_draft=None, matter_draft=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
@@ -129,6 +129,7 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
     - metadata['client_draft']: For the 'Register New Client' workflow.
     - metadata['contact_draft']: For the 'Create Contact' workflow.
     - metadata['event_draft']: For the 'Calendar' workflow.
+    - metadata['matter_draft']: For the 'Create Matter' workflow.
     """
     client_data = client_args or {}
     
@@ -155,6 +156,13 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
             logger.warning("[PAYLOAD-GUARD] client_draft was a list (corrupt). Wiping to {}")
             client_draft = {}
         final_metadata["client_draft"] = client_draft
+
+    if matter_draft is not None:
+        # GUARD: matter_draft must always be a dict
+        if isinstance(matter_draft, list):
+            logger.warning("[PAYLOAD-GUARD] matter_draft was a list (corrupt). Wiping to {}")
+            matter_draft = {}
+        final_metadata["matter_draft"] = matter_draft
         
     if active_workflow:
         final_metadata["active_workflow"] = active_workflow

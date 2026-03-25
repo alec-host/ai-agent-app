@@ -160,6 +160,60 @@ class MatterMinerCoreClient:
             self.user_profile = data.get("user")
         return resp
 
+    async def create_matter(self, matter_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates a new matter record in MatterMiner Core."""
+        payload = {
+            "tenantId": self.tenant_id,
+            **matter_data
+        }
+        logger.info(f"[MATTER-POST] Payload: {payload}")
+        return await self.request("POST", "/matters", json_data=payload)
+
+    async def lookup_clients(self, search: str = "") -> Dict[str, Any]:
+        """Retrieves a list of clients based on search terms."""
+        params = {"search": search, "tenantId": self.tenant_id}
+        return await self.request("GET", "/clients", params=params)
+
+    async def lookup_practice_areas(self, search: str = "", is_search: int = 0) -> Dict[str, Any]:
+        """Retrieves configured practice areas."""
+        params = {
+            "page": 1,
+            "per_page": 15,
+            "search": search,
+            "sort_by": "created_at",
+            "sort_order": "desc",
+            "is_search": is_search,
+            "tenantId": self.tenant_id
+        }
+        return await self.request("GET", "/practice-area", params=params)
+
+    async def lookup_case_stages(self, search: str = "", is_search: int = 0) -> Dict[str, Any]:
+        """Retrieves configured case stages list."""
+        params = {
+            "page": 1,
+            "per_page": 15,
+            "search": search,
+            "sort_by": "created_at",
+            "sort_order": "desc",
+            "is_search": is_search,
+            "tenantId": self.tenant_id
+        }
+        return await self.request("GET", "/case-stage", params=params)
+
+    async def lookup_billing_info(self, search: str = "") -> Dict[str, Any]:
+        """Retrieves billing info and case stage ID via search."""
+        params = {
+            "search": search,
+            "is_search": 1,
+            "tenantId": self.tenant_id
+        }
+        return await self.request("GET", "/billing-info", params=params)
+
+    async def lookup_billing_types(self, search: str = "") -> Dict[str, Any]:
+        """Retrieves configured billing types."""
+        params = {"search": search, "tenantId": self.tenant_id}
+        return await self.request("GET", "/billing-types", params=params)
+
     def _get_headers(self) -> Dict[str, str]:
         """Constructs headers with necessary context."""
         headers = {

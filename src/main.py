@@ -360,6 +360,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         if contact_draft and active_workflow == "contact":
              vault_segments.append(f"CONTACT_DRAFT: {contact_draft}")
+             
+        matter_draft = metadata.get("matter_draft", {})
+        if matter_draft and active_workflow == "matter":
+             vault_segments.append(f"MATTER_DRAFT: {matter_draft}")
 
         vault_str = " | ".join(vault_segments) if vault_segments else "Empty"
 
@@ -407,11 +411,11 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if active_wf:
             from .tools import TOOLS as ALL_TOOLS
             google_funcs = ["schedule_event", "initialize_calendar_session", "check_calendar_connection"]
-            core_funcs = ["create_standard_event", "create_all_day_event", "create_contact", "create_client_record", "search_contact_by_email", "lookup_countries"]
+            core_funcs = ["create_standard_event", "create_all_day_event", "create_contact", "create_client_record", "search_contact_by_email", "lookup_countries", "lookup_client", "lookup_practice_area", "lookup_case_stage", "lookup_billing_type", "create_matter"]
             
             if active_wf == "google_calendar":
                 relevant_tools = [t for t in ALL_TOOLS if t["function"]["name"] in google_funcs or t["function"]["name"] == "get_system_status"]
-            elif active_wf in ["standard_event", "all_day_event", "contact", "client"]:
+            elif active_wf in ["standard_event", "all_day_event", "contact", "client", "matter"]:
                 relevant_tools = [t for t in ALL_TOOLS if t["function"]["name"] in core_funcs or t["function"]["name"] == "get_system_status"]
             
             logger.info(f"[Token-Guard] Filtered toolset to {len(relevant_tools)} items for workflow: {active_wf}")
