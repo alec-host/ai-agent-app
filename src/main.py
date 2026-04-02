@@ -215,7 +215,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
         if not user_email:
             logger.warning(f"[CHAT] [{tenant_id}] No X-User-Email header. Surface login card.")
-            return {
+            return standardize_response({
                 "role": "assistant",
                 "content": "Authentication Required",
                 "message": "Please login to MatterMiner Core to proceed.",
@@ -228,7 +228,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         try:
             status = await core_client.has_valid_token(user_email)
             if status.get("status") == "auth_required" or status.get("code") == 404:
-                 logger.warning(f"[CHAT] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
+                 return standardize_response({
+                    "role": "assistant",
+                    "content": "Authentication Required",
+                    "message": "Your MatterMiner session has expired. Please login again.",
+                    "status": "auth_required",
+                    "auth_type": "matterminer_core",
                     "history": cleaned_history
                  })
             logger.info(f"[CHAT] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
@@ -457,9 +462,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             
             if isinstance(result, dict):
                 # Detect Terminal Success (Gives us direct control over the final output)
-                # CRITICAL: If auth is required, terminate loop immediately to show the card
                 if result.get("status") == "auth_required":
                     last_action = "Google session expired. Presenting Auth link."
+                    return standardize_response({
+                        "role": "assistant",
+                        "content": result.get("message", "Authorization required."),
+                        "status": "auth_required",
+                        "auth_type": result.get("auth_type"),
+                        "auth_url": result.get("auth_url"),
                         "history": messages[1:]
                     })
                 
@@ -481,7 +491,13 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
              final_db = await services['calendar'].get_client_session(tenant_id)
              return standardize_response({"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db})
 
-        # If a tool marked itself as terminal success, we break the loop and return its message directly
+        if terminal_success_msg and not assistant_msg.content:
+             final_db = await services['calendar'].get_client_session(tenant_id)
+             return standardize_response({"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db})
+        elif terminal_success_msg:
+             # If assistant already had words, append the success table to it
+             final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
+             final_db = await services['calendar'].get_client_session(tenant_id)
              return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
     final_db = await services['calendar'].get_client_session(tenant_id)
