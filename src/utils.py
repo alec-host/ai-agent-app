@@ -189,3 +189,18 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
     }
     return payload
 
+def standardize_response(payload: dict, history: list = None) -> dict:
+    """
+    Standardizes the server response by ensuring 'response' and 'history' attributes 
+    are always present through injection if they are missing from the original payload.
+    """
+    # 1. Ensure 'response' exists (fallback to 'message' then 'content')
+    if "response" not in payload:
+        payload["response"] = payload.get("message") or payload.get("content") or ""
+        
+    # 2. Ensure 'history' exists (fallback to provided history or empty list)
+    if "history" not in payload:
+        payload["history"] = history or []
+        
+    return payload
+

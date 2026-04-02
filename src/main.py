@@ -26,7 +26,7 @@ from urllib.parse import quote
 from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
 from src.agent_manager import execute_tool_call, get_rehydration_context
-from src.utils import sanitize_history, retry_with_backoff, get_starter_chips
+from src.utils import sanitize_history, retry_with_backoff, get_starter_chips, standardize_response
 
 from src.remote_services.google_core import GoogleCalendarClient
 from src.remote_services.wallet_service import WalletClient
@@ -158,7 +158,7 @@ def get_optimal_model(active_workflow: str, user_message: str) -> str:
 async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
     user_prompt_raw = req.prompt.lower().strip()
     if user_prompt_raw in ["clear", "reset", "/clear"]:
-        return {"response": "Conversation history cleared.", "history": []}
+        return standardize_response({"response": "Conversation history cleared.", "history": []})
 
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
     user_email = auth.get("user_email")
@@ -209,7 +209,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # Replaces the inline OAuth handshake with a call to the specialized Calendar Agent
         auth_response = await perform_calendar_auth_check(calendar_service, tenant_id, req.history)
         if auth_response:
-            return auth_response
+            return standardize_response(auth_response, cleaned_history)
 
     if is_core_intent and not is_login_attempt:
         logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
@@ -222,21 +222,15 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 "status": "auth_required",
                 "auth_type": "matterminer_core",
                 "history": cleaned_history
-            }
+            })
         from .remote_services.matterminer_core import MatterMinerCoreClient
         core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
         try:
             status = await core_client.has_valid_token(user_email)
             if status.get("status") == "auth_required" or status.get("code") == 404:
                  logger.warning(f"[CHAT] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
-                 return {
-                    "role": "assistant",
-                    "content": "Authentication Required",
-                    "message": "Your MatterMiner session has expired. Please login again.",
-                    "status": "auth_required",
-                    "auth_type": "matterminer_core",
                     "history": cleaned_history
-                 }
+                 })
             logger.info(f"[CHAT] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
         finally:
             await core_client.close()
@@ -448,13 +442,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         if not assistant_msg.tool_calls:
             # --- FINAL RESPONSE DECORATION ---
-            final_payload = {"response": assistant_msg.content, "history": messages[1:]}
-            
-            # If this is the start of a conversation and no data exists, suggest actions
-            if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
-                final_payload["suggested_actions"] = get_starter_chips()
-            
-            return final_payload
+            return standardize_response(final_payload, messages[1:])
 
         # --- 4. EXECUTE TOOL CALLS ---
         terminal_success_msg = None
@@ -472,14 +460,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 # CRITICAL: If auth is required, terminate loop immediately to show the card
                 if result.get("status") == "auth_required":
                     last_action = "Google session expired. Presenting Auth link."
-                    return {
-                        "role": "assistant",
-                        "content": result.get("message", "Authorization required."),
-                        "status": "auth_required",
-                        "auth_type": result.get("auth_type"),
-                        "auth_url": result.get("auth_url"),
                         "history": messages[1:]
-                    }
+                    })
                 
                 # --- OPTIMIZATION: SHORT-CIRCUIT LOOP ON DATA COLLECTION ---
                 # Save the instruction but proceed so that OTHER tool calls in the same turn get a response message
@@ -497,20 +479,13 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # Finalize Response Logic
         if pending_throttle_msg:
              final_db = await services['calendar'].get_client_session(tenant_id)
-             return {"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db}
+             return standardize_response({"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db})
 
         # If a tool marked itself as terminal success, we break the loop and return its message directly
-        if terminal_success_msg and not assistant_msg.content:
-             final_db = await services['calendar'].get_client_session(tenant_id)
-             return {"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db}
-        elif terminal_success_msg:
-             # If assistant already had words, append the success table to it
-             final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
-             final_db = await services['calendar'].get_client_session(tenant_id)
-             return {"response": final_resp, "history": messages[1:], "vault_data": final_db}
+             return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
     final_db = await services['calendar'].get_client_session(tenant_id)
-    return {"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db}
+    return standardize_response({"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db})
 
 # --- 6.1. The Streaming Reasoning Endpoint ---
 @app.post("/ai/chat/stream")
@@ -577,7 +552,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         if not user_email:
             logger.warning(f"[STREAM] [{tenant_id}] No X-User-Email header. Surface login card.")
             async def _no_email_gen():
-                yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Please login to MatterMiner Core to proceed.'})}\n\n"
+                yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Please login to MatterMiner Core to proceed.'}))}\n\n"
             return StreamingResponse(_no_email_gen(), media_type="text/event-stream")
         from .remote_services.matterminer_core import MatterMinerCoreClient
         core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
@@ -586,7 +561,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             if status.get("status") == "auth_required" or status.get("code") == 404:
                  logger.warning(f"[STREAM] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
                  async def _no_core_gen():
-                     yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Your MatterMiner session has expired. Please login again.'})}\n\n"
+                     yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Your MatterMiner session has expired. Please login again.'}))}\n\n"
                  return StreamingResponse(_no_core_gen(), media_type="text/event-stream")
             logger.info(f"[STREAM] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
         finally:
@@ -595,7 +570,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     # Standard check for CLEAR
     if user_prompt_raw in ["clear", "reset", "/clear"]:
         async def clear_gen():
-            yield f"data: {json.dumps({'content': 'Conversation history cleared.', 'done': True, 'history': []})}\n\n"
+            yield f"data: {json.dumps(standardize_response({'content': 'Conversation history cleared.', 'done': True, 'history': []}))}\n\n"
         return StreamingResponse(clear_gen(), media_type="text/event-stream")
 
     rehydration_data = await get_rehydration_context(tenant_id, services)
@@ -628,13 +603,13 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                      token_status = await services['calendar']._sync_access_token()
                      if token_status["status"] == "auth_required":
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Session expired during loop. Surface auth card.")
-                          yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']})}\n\n"
+                          yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']}, messages[1:]))}\n\n"
                           return
  
                      grant = await services['calendar'].check_grant_token()
                      if not grant["granted"]:
                           logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
-                          yield f"data: {json.dumps({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']})}\n\n"
+                          yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']}, messages[1:]))}\n\n"
                           return
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
@@ -691,7 +666,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 stream = await retry_with_backoff(retries=2, backoff_in_seconds=2)(_call_openai_stream)()
             except Exception as e:
                 logger.error(f"[STREAM] OpenAI error: {e}")
-                yield f"data: {json.dumps({'content': f'OpenAI error: {str(e)}', 'done': True})}\n\n"
+                yield f"data: {json.dumps(standardize_response({'content': f'OpenAI error: {str(e)}', 'done': True}, messages[1:]))}\n\n"
                 return
 
             full_content = ""
@@ -725,7 +700,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 final_payload = {"done": True, "history": messages[1:]}
                 if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
                     final_payload["suggested_actions"] = get_starter_chips()
-                yield f"data: {json.dumps(final_payload)}\n\n"
+                yield f"data: {json.dumps(standardize_response(final_payload, messages[1:]))}\n\n"
                 return
 
             logger.info(f"[STREAM] Found tool calls. Total: {len(current_tool_calls)}")
@@ -758,7 +733,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 if isinstance(result, dict):
                     # Proactively yield auth link to stream if needed
                     if result.get("status") == "auth_required":
-                        yield f"data: {json.dumps(result)}\n\n"
+                        yield f"data: {json.dumps(standardize_response(result, messages[1:]))}\n\n"
                         # TERMINATE THE ENTIRE GENERATOR IMMEDIATELY
                         logger.warning("[STREAM-AUTH] Killing generator due to auth_required.")
                         return 
@@ -773,19 +748,19 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                     last_action = f"Executed {tool_name}"
 
             if pending_throttle_msg:
-                yield f"data: {json.dumps({'content': pending_throttle_msg, 'action': None})}\n\n"
-                yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+                yield f"data: {json.dumps(standardize_response({'content': pending_throttle_msg, 'action': None}, messages[1:]))}\n\n"
+                yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
                 return
 
             if terminal_success_msg:
                 final_text = f"\n\n{terminal_success_msg}"
-                yield f"data: {json.dumps({'content': final_text, 'action': None})}\n\n"
+                yield f"data: {json.dumps(standardize_response({'content': final_text, 'action': None}, messages[1:]))}\n\n"
                 messages.append({"role": "assistant", "content": terminal_success_msg})
-                yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+                yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
                 return
 
         # Fallback completion
-        yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
+        yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

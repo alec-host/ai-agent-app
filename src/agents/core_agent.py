@@ -1,7 +1,7 @@
 import copy
 import json
 from ..logger import logger
-from ..utils import format_sync_chat_payload
+from ..utils import format_sync_chat_payload, standardize_response
 from ..remote_services.matterminer_core import MatterMinerCoreClient
 from ..config import settings
 
@@ -11,13 +11,13 @@ from ..dynamic_schema.matter_schema import MATTER_SCHEMA
 from ..dynamic_schema.event_schema import STANDARD_EVENT_SCHEMA, ALL_DAY_EVENT_SCHEMA, EVENT_SCHEMA
 from ..config import settings
 
-def _get_auth_required_response(message, response_instruction):
-    return {
+def _get_auth_required_response(message, response_instruction, history=None):
+    return standardize_response({
         "status": "auth_required",
         "auth_type": "matterminer_core",
         "message": message,
         "response_instruction": response_instruction
-    }
+    }, history)
 
 def _get_core_client(tenant_id, user_email=None):
     return MatterMinerCoreClient(
