@@ -14,7 +14,7 @@ class WalletClient:
     def __init__(self, tenant_id: str, http_client: httpx.AsyncClient):
         self.tenant_id = tenant_id
         self.client = http_client
-        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/api", "")
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/app", "")
 
     async def update_usage(self, usage_object, auth_headers: dict = None):
         """
@@ -41,7 +41,7 @@ class WalletClient:
         try:
             # Note: We use the provided auth_headers or the client's default if available.
             # Usually, the dispatcher provides the service client that already has headers.
-            url = f"{self.base_url}/api/wallet/deplete"
+            url = f"{self.base_url}/app/wallet/deplete"
             response = await self.client.post(
                 url, 
                 json=payload, 
@@ -65,7 +65,7 @@ class WalletClient:
         Proactively checks if the tenant has sufficient funds to continue AI operations.
         """
         try:
-            url = f"{self.base_url}/api/wallet/check-balance?tenantId={self.tenant_id}"
+            url = f"{self.base_url}/app/wallet/check-balance?tenantId={self.tenant_id}"
             response = await self.client.get(url, headers=auth_headers, timeout=10.0)
             
             if response.status_code == 200:
