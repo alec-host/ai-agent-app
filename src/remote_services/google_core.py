@@ -20,7 +20,7 @@ class GoogleCalendarClient:
         self.correlation_id = correlation_id
         self.thread_id = thread_id or "default"
         self.access_token = access_token # The token passed from frontend
-        self.base_url = settings.NODE_SERVICE_URL
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
