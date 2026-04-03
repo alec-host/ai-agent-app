@@ -6,7 +6,7 @@ import asyncio
 import functools
 from src.logger import logger
 
-def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n: int = 3):
+def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n: int = 3, redact_values: list = None):
     """
     Truncates older message content to save tokens, but STRICTLY PRESERVES 
     the most recent messages to ensure immediate context and JSON validity.
@@ -62,13 +62,20 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
             for marker in scrub_markers:
                 if marker in content:
                     content = content.split(marker)[0].strip()
+            
+            # 3.4.1 LITERAL VALUE REDACTION (High-Sensitivity Scrub)
+            if redact_values:
+                for val in redact_values:
+                    if val and isinstance(val, str) and val in content:
+                        content = content.replace(val, "[REDACTED]")
                     
             # 3.5 SECURITY & SENSITIVE TOKEN MASKING
-            mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization"]
+            mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization", "X-User-Email"]
             for target in mask_targets:
                 if target in content:
                     content = content.replace(target, "********")
             
+            # Additional keys to mask in generic objects
             msg_dict["content"] = content
 
             if not is_recent:
@@ -82,11 +89,20 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                 if tc.get("function") and tc["function"].get("arguments"):
                     try:
                         args_dict = json.loads(tc["function"]["arguments"])
-                        mask_keys = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "token"]
+                        mask_keys = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "token", "X-User-Email", "user_email"]
                         for key in mask_keys:
                             if key in args_dict:
                                 args_dict[key] = "********"
-                        tc["function"]["arguments"] = json.dumps(args_dict)
+                        
+                        # Literal redaction in arguments too
+                        if redact_values:
+                            args_str = json.dumps(args_dict)
+                            for val in redact_values:
+                                if val and isinstance(val, str) and val in args_str:
+                                    args_str = args_str.replace(val, "[REDACTED]")
+                            tc["function"]["arguments"] = args_str
+                        else:
+                            tc["function"]["arguments"] = json.dumps(args_dict)
                     except:
                         pass
         

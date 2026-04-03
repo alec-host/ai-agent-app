@@ -69,6 +69,23 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
     Acts as a central Dispatcher (Router).
     Injects shared context and routes tool calls to specialized agent handlers.
     """
+    def _redact_dict(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    _redact_dict(v)
+                elif isinstance(v, str):
+                    if user_email and user_email in v: obj[k] = v.replace(user_email, "[REDACTED]")
+                    if tenant_id and tenant_id in v: obj[k] = v.replace(tenant_id, "[REDACTED]")
+        elif isinstance(obj, list):
+            for i in range(len(obj)):
+                if isinstance(obj[i], (dict, list)):
+                    _redact_dict(obj[i])
+                elif isinstance(obj[i], str):
+                    if user_email and user_email in obj[i]: obj[i] = obj[i].replace(user_email, "[REDACTED]")
+                    if tenant_id and tenant_id in obj[i]: obj[i] = obj[i].replace(tenant_id, "[REDACTED]")
+        return obj
+
     func_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
 
@@ -134,28 +151,28 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
                 token = result.pop("jwtToken", None) # STRENGHTENED: Remove from result to prevent history leakage
                 if token: services['calendar'].set_auth_token(token, is_jwt=True)
                 result["_continue_chaining"] = True
-            return result
+            return _redact_dict(result)
             
         elif is_client_tool:
             # GATING: If we are in an active Google Calendar workflow, block MM-Client tools.
             if active_workflow == "google_calendar" and not is_session_done:
-                return {"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting a client registration."}
+                return _redact_dict({"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting a client registration."})
 
-            return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
+            return _redact_dict(await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email))
             
         elif func_name in core_funcs:
             # GATING: If we are in an active Google Calendar workflow, block MM-Core tools (Contact/Event).
             if active_workflow == "google_calendar" and not is_session_done:
-                 return {"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting this MatterMiner operation."}
+                 return _redact_dict({"status": "error", "message": "Conflict: Active Google Calendar draft. Finish the event before starting this MatterMiner operation."})
 
-            return await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
+            return _redact_dict(await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email))
             
         elif func_name in rag_funcs:
-            return await handle_rag_lookup(func_name, args, services, tenant_id)
+            return _redact_dict(await handle_rag_lookup(func_name, args, services, tenant_id))
 
     except Exception as e:
         logger.error(f"CRITICAL DISPATCH ERROR: {func_name} failed. {e}", exc_info=True)
-        return {"status": "error", "message": "An internal error occurred in the tool dispatcher.", "details": str(e)}
+        return _redact_dict({"status": "error", "message": "An internal error occurred in the tool dispatcher.", "details": str(e)})
 
     # 4. DEFAULT
-    return {"status": "error", "message": f"Tool '{func_name}' is not recognized or has no registered handler.", "code": 404}
+    return _redact_dict({"status": "error", "message": f"Tool '{func_name}' is not recognized or has no registered handler.", "code": 404})
