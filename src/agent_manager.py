@@ -75,15 +75,20 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
                 if isinstance(v, (dict, list)):
                     _redact_dict(v)
                 elif isinstance(v, str):
-                    if user_email and user_email in v: obj[k] = v.replace(user_email, "[REDACTED]")
-                    if tenant_id and tenant_id in v: obj[k] = v.replace(tenant_id, "[REDACTED]")
+                    new_val = v
+                    if user_email and user_email in new_val: new_val = new_val.replace(user_email, "[REDACTED]")
+                    if tenant_id and tenant_id in new_val: new_val = new_val.replace(tenant_id, "[REDACTED]")
+                    obj[k] = new_val
         elif isinstance(obj, list):
             for i in range(len(obj)):
-                if isinstance(obj[i], (dict, list)):
-                    _redact_dict(obj[i])
-                elif isinstance(obj[i], str):
-                    if user_email and user_email in obj[i]: obj[i] = obj[i].replace(user_email, "[REDACTED]")
-                    if tenant_id and tenant_id in obj[i]: obj[i] = obj[i].replace(tenant_id, "[REDACTED]")
+                val = obj[i]
+                if isinstance(val, (dict, list)):
+                    _redact_dict(val)
+                elif isinstance(val, str):
+                    new_val = val
+                    if user_email and user_email in new_val: new_val = new_val.replace(user_email, "[REDACTED]")
+                    if tenant_id and tenant_id in new_val: new_val = new_val.replace(tenant_id, "[REDACTED]")
+                    obj[i] = new_val
         return obj
 
     func_name = tool_call.function.name

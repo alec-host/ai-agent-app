@@ -69,11 +69,16 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                     if val and isinstance(val, str) and val in content:
                         content = content.replace(val, "[REDACTED]")
                     
-            # 3.5 SECURITY & SENSITIVE TOKEN MASKING
+            # 3.5 SECURITY & SENSITIVE TOKEN MASKING (Regex-based for Values)
             mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization", "X-User-Email"]
             for target in mask_targets:
                 if target in content:
+                    # Replace the key itelf
                     content = content.replace(target, "********")
+                    # Also try to mask the value if it follows a JSON-like pattern: "key": "value"
+                    # Pattern: \*\*\*\*\*\*\*\*"\s*:\s*"([^"]+)"
+                    import re
+                    content = re.sub(r'(\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', content)
             
             # Additional keys to mask in generic objects
             msg_dict["content"] = content
