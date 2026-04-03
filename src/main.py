@@ -447,6 +447,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         if not assistant_msg.tool_calls:
             # --- FINAL RESPONSE DECORATION ---
+            final_payload = {"response": assistant_msg.content, "history": messages[1:]}
+            
+            # If this is the start of a conversation and no data exists, suggest actions
+            if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
+                final_payload["suggested_actions"] = get_starter_chips()
+            
             return standardize_response(final_payload, messages[1:])
 
         # --- 4. EXECUTE TOOL CALLS ---
