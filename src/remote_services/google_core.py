@@ -20,7 +20,7 @@ class GoogleCalendarClient:
         self.correlation_id = correlation_id
         self.thread_id = thread_id or "default"
         self.access_token = access_token # The token passed from frontend
-        self.base_url = settings.NODE_REMOTE_SERVICE_URL
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/api", "")
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
@@ -51,7 +51,7 @@ class GoogleCalendarClient:
           { "status": "auth_required", "auth_url": "..." }          -> No session, must OAuth
         """
         try:
-            url = f"{settings.NODE_SERVICE_URL}/auth/accessToken?tenant_id={self.tenant_id}"
+            url = f"{self.base_url}/api/auth/accessToken?tenant_id={self.tenant_id}"
             
             # Pass BOTH camelCase and snake_case for maximum compatibility
             if self.access_token:
@@ -70,7 +70,7 @@ class GoogleCalendarClient:
                 return {
                     "status": "auth_required",
                     "auth_type": "google_calendar",
-                    "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}"
+                    "auth_url": f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}"
                 }
             data = resp.json()
             if data.get("status") == "ready" and data.get("jwtToken"):
@@ -82,14 +82,14 @@ class GoogleCalendarClient:
             return {
                 "status": "auth_required",
                 "auth_type": "google_calendar",
-                "auth_url": data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}"
+                "auth_url": data.get("auth_url") or f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}"
             }
         except Exception as e:
             logger.error(f"[ACCESS-TOKEN] Failed for {self.tenant_id}: {e}")
             return {
                 "status": "auth_required",
                 "auth_type": "google_calendar",
-                "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}"
+                "auth_url": f"{settings.NODE_REMOTE_SERVICE_URL}/api/auth/google?tenant_id={self.tenant_id}"
             }
 
     async def silent_refresh(self) -> bool:
@@ -98,7 +98,7 @@ class GoogleCalendarClient:
         Requires active Bearer JWT in headers.
         """
         try:
-            url = f"{settings.NODE_SERVICE_URL}/auth/googleRefreshToken"
+            url = f"{self.base_url}/api/auth/googleRefreshToken"
             payload = {
                 "tenant_id": self.tenant_id,
                 "accessToken": self.access_token,
@@ -138,7 +138,7 @@ class GoogleCalendarClient:
                 logger.info(f"[GRANT-CHECK] JWT not synced yet for {self.tenant_id}. Syncing first...")
                 await self._sync_access_token()
 
-            url = f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken?tenant_id={self.tenant_id}"
+            url = f"{self.base_url}/api/auth/hasGrantToken?tenant_id={self.tenant_id}"
             # Try with current JWT headers first
             resp = await self.client.get(url, headers=self.headers, timeout=10)
             
@@ -176,14 +176,14 @@ class GoogleCalendarClient:
             return {
                 "granted": False,
                 "auth_type": "google_calendar",
-                "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                "auth_url": f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}",
                 "reason": data.get("message", "Google Calendar access required.")
             }
         except Exception as e:
             logger.error(f"[GRANT-CHECK] check_grant_token failed for {self.tenant_id}: {e}")
             return {
                 "granted": False,
-                "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                "auth_url": f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}",
                 "reason": "Auth service unreachable."
             }
 
@@ -200,7 +200,7 @@ class GoogleCalendarClient:
             }
             # Calling the Node.js endpoint we created above
             response = await self.client.get(
-                "/rag/lookup", 
+                "/api/rag/lookup", 
                 params=params, 
                 headers=self.headers,
                 timeout=10
@@ -254,7 +254,7 @@ class GoogleCalendarClient:
             return None            
             
     async def request(self, method: str, path: str, json_data: dict = None, _retry_on_auth: bool = True):
-        url = f"{settings.NODE_SERVICE_URL}{path}"
+        url = f"{self.base_url}/api{path}"
         if json_data and isinstance(json_data, dict):
             for field in ["startTime", "endTime"]:
                 val = json_data.get(field)
@@ -284,7 +284,7 @@ class GoogleCalendarClient:
                      logger.warning(f"[AUTH-HEAL] Internal status confirms auth required for {self.tenant_id}.")
                      return {
                         "status": "auth_required",
-                        "auth_url": auth_data.get("auth_url") or f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                        "auth_url": auth_data.get("auth_url") or f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}",
                         "message": "Calendar Access Required",
                         "code": 401
                      }
@@ -294,7 +294,7 @@ class GoogleCalendarClient:
                 logger.warning(f"[AUTH-GUARD] Authentication block for {path}. Redirecting to OAuth.")
                 return {
                     "status": "auth_required",
-                    "auth_url": f"{settings.NODE_SERVICE_URL}/auth/google?tenant_id={self.tenant_id}",
+                    "auth_url": f"{self.base_url}/api/auth/google?tenant_id={self.tenant_id}",
                     "message": "Calendar Access Required",
                     "code": response.status_code
                 }

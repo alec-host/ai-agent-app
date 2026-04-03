@@ -321,7 +321,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             }
         return {
             "status": "auth_required",
-            "auth_url": f"{calendar_service.base_url}/auth/google?tenant_id={tenant_id}",
+            "auth_url": f"{calendar_service.base_url}/api/auth/google?tenant_id={tenant_id}",
             "message": "Calendar Access Required",
             "response_instruction": "Verification failed. Please authorize Google Calendar to continue."
         }
