@@ -131,8 +131,8 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
             
             # Post-execution Hook: If a new token was recovered, set it in the service
             if func_name == "initialize_calendar_session" and isinstance(result, dict) and result.get("status") == "ready":
-                token = result.get("jwtToken")
-                if token: services['calendar'].set_auth_token(token)
+                token = result.pop("jwtToken", None) # STRENGHTENED: Remove from result to prevent history leakage
+                if token: services['calendar'].set_auth_token(token, is_jwt=True)
                 result["_continue_chaining"] = True
             return result
             

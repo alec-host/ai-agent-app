@@ -171,19 +171,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     
-    # Session Recovery: Restore JWT from history if present (CRITICAL: Fixes auth-healing on first turn)
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-    for msg in reversed(cleaned_history):
-        content = msg.get("content") or ""
-        if '"jwtToken":' in content:
-            try:
-                data = json.loads(content)
-                if data.get("jwtToken"):
-                    # NOTE: This replaces any token passed from verify_tenant_access
-                    # with the one from history (which is the most recent JWT).
-                    calendar_service.set_auth_token(data["jwtToken"], is_jwt=True)
-                    break
-            except: continue
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
         "schedule", "event", "meeting", "book", "appointment", "calendar",
@@ -253,19 +240,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         elif error_type == "no_wallet":
              return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
     '''
-    # --- 1. HISTORY CLEANUP (Already done during recovery) ---
-    # cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-    
-    # Session Recovery: Restore JWT from history if present
-    # for msg in reversed(cleaned_history):
-    #     content = msg.get("content") or ""
-    #     if '"jwtToken":' in content:
-    #         try:
-    #             data = json.loads(content)
-    #             if data.get("jwtToken"):
-    #                 calendar_service.set_auth_token(data["jwtToken"])
-    #                 break
-    #         except: continue
+    # --- 1. HISTORY CLEANUP ---
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
 
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
@@ -526,17 +502,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
-    # Setup Context (Reused from /ai/chat - duplication preferred for stability as requested)
+    # Setup Context
     cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-    for msg in reversed(cleaned_history):
-        content = msg.get("content") or ""
-        if '"jwtToken":' in content:
-            try:
-                data = json.loads(content)
-                if data.get("jwtToken"):
-                    calendar_service.set_auth_token(data["jwtToken"], is_jwt=True)
-                    break
-            except: continue
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()

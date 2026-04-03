@@ -63,8 +63,12 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                 if marker in content:
                     content = content.split(marker)[0].strip()
                     
-            # 3.5 PASSWORD MASKING (SAFETY GUARD)
-            content = content.replace("password", "********")
+            # 3.5 SECURITY & SENSITIVE TOKEN MASKING
+            mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization"]
+            for target in mask_targets:
+                if target in content:
+                    content = content.replace(target, "********")
+            
             msg_dict["content"] = content
 
             if not is_recent:
@@ -78,9 +82,11 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                 if tc.get("function") and tc["function"].get("arguments"):
                     try:
                         args_dict = json.loads(tc["function"]["arguments"])
-                        if "password" in args_dict:
-                            args_dict["password"] = "********"
-                            tc["function"]["arguments"] = json.dumps(args_dict)
+                        mask_keys = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "token"]
+                        for key in mask_keys:
+                            if key in args_dict:
+                                args_dict[key] = "********"
+                        tc["function"]["arguments"] = json.dumps(args_dict)
                     except:
                         pass
         
