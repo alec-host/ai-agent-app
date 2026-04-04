@@ -10,7 +10,8 @@ class MatterMinerCoreClient:
     Authentication is handled by the backend; this client passes tenant context.
     """
     def __init__(self, base_url: str, tenant_id: str, user_email: Optional[str] = None, correlation_id: Optional[str] = None):
-        self.base_url = base_url.rstrip("/").replace("/app", "")
+        # Strip ALL known path segments to ensure a clean Host-Only base
+        self.base_url = base_url.rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "").replace("/core", "")
         self.tenant_id = tenant_id
         self.user_email = user_email
         self.correlation_id = correlation_id
@@ -34,7 +35,7 @@ class MatterMinerCoreClient:
         Reusable method for calling remote operations.
         Passes tenant information via headers.
         """
-        url = f"{self.base_url}/app/{endpoint.lstrip('/')}"
+        url = f"{self.base_url}/app/core/app/{endpoint.lstrip('/')}"
         headers = self._get_headers()
         
         try:

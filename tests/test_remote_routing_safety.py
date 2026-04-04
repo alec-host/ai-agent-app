@@ -20,35 +20,35 @@ async def test_google_client_routing_safety():
         resp = await client_host.get_client_session("123")
         assert resp == {"status": "success"}
 
-    # 2. Test with /app suffix (Safety Check)
-    client_api = GoogleCalendarClient("123", httpx.AsyncClient(), "corr")
-    # This imitates a misconfigured .env that someone might set
-    client_api.base_url = "https://dev.matterminer.com/app".rstrip("/").replace("/app", "")
-    assert client_api.base_url == "https://dev.matterminer.com"
+    # 2. Test with legacy /api or /calendar suffix (Safety Check)
+    client_legacy = GoogleCalendarClient("123", httpx.AsyncClient(), "corr")
+    # Simulate a legacy .env
+    client_legacy.base_url = "https://dev.matterminer.com/calendar".rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "")
+    assert client_legacy.base_url == "https://dev.matterminer.com"
     
     with respx.mock:
         respx.get("https://dev.matterminer.com/app/chat/session").mock(return_value=httpx.Response(200, json={"status": "success"}))
-        resp = await client_api.get_client_session("123")
+        resp = await client_legacy.get_client_session("123")
         assert resp == {"status": "success"}
 
 @pytest.mark.asyncio
 async def test_matterminer_core_routing_safety():
     """
-    Verify MatterMinerCoreClient prepends /app correctly.
+    Verify MatterMinerCoreClient prepends /app/core/app correctly.
     """
     # Test with domain only
     client = MatterMinerCoreClient(base_url="https://dev.matterminer.com", tenant_id="123")
     assert client.base_url == "https://dev.matterminer.com"
     
     with respx.mock:
-        respx.get("https://dev.matterminer.com/app/search-contact").mock(return_value=httpx.Response(200, json={"id": 1}))
+        respx.get("https://dev.matterminer.com/app/core/app/search-contact").mock(return_value=httpx.Response(200, json={"id": 1}))
         resp = await client.search_contact_by_email("test@test.com")
         assert resp["id"] == 1
 
 @pytest.mark.asyncio
 async def test_wallet_client_routing_safety():
     """
-    Verify WalletClient prepends /app correctly.
+    Verify WalletClient prepends /app wallet path correctly.
     """
     client = WalletClient("123", httpx.AsyncClient())
     client.base_url = "https://dev.matterminer.com"

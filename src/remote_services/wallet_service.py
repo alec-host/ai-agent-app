@@ -14,7 +14,7 @@ class WalletClient:
     def __init__(self, tenant_id: str, http_client: httpx.AsyncClient):
         self.tenant_id = tenant_id
         self.client = http_client
-        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/app", "")
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "")
 
     async def update_usage(self, usage_object, auth_headers: dict = None):
         """
