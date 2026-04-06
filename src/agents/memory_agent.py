@@ -1,5 +1,7 @@
 import json
+import asyncio
 from src.logger import logger
+from src.remote_services.pinecone_service import PineconeClient
 
 async def extract_and_save_facts(tenant_id, history, services, ai_client):
     """
@@ -72,8 +74,54 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client):
         
         logger.info(f"[MEMORY-AGENT] Successfully extracted and saved {len(new_facts)} new facts for {tenant_id}")
 
+        # 3. VECTORIZE AND INDEX TO PINECONE (Cognitive Bridge)
+        asyncio.create_task(index_facts_in_pinecone(tenant_id, new_facts, ai_client))
+
     except Exception as e:
         logger.error(f"[MEMORY-AGENT] Fact extraction failed: {e}", exc_info=True)
+
+async def index_facts_in_pinecone(tenant_id, facts, ai_client):
+    """
+    Tier 3: Semantics Indexing.
+    Encodes persistent facts as vectors and upserts them into a dedicated namespace for the tenant.
+    """
+    if not facts or not isinstance(facts, dict):
+        return
+
+    pinecone = PineconeClient()
+    if not pinecone.is_configured:
+        return
+
+    try:
+        vectors = []
+        for key, value in facts.items():
+            context_string = f"Fact about the user: {key} is {value}"
+            
+            # Generate Embedding (Tier 2/3 Encoding)
+            resp = await ai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=context_string
+            )
+            embedding = resp.data[0].embedding
+            
+            vectors.append({
+                "id": f"fact_{tenant_id}_{hash(key)}", # Stable ID for idempotency
+                "values": embedding,
+                "metadata": {
+                    "tenant_id": tenant_id,
+                    "fact_name": key,
+                    "fact_value": str(value),
+                    "context": context_string,
+                    "type": "persistent_fact"
+                }
+            })
+            
+        if vectors:
+            await pinecone.upsert_vectors(vectors, namespace=tenant_id)
+            logger.info(f"[MEMORY-AGENT] Indexed {len(vectors)} facts into Pinecone for {tenant_id}")
+
+    except Exception as e:
+        logger.error(f"[MEMORY-AGENT] Pinecone indexing failed: {e}", exc_info=True)
 
 async def summarize_and_save(tenant_id, history, services, ai_client):
     """
@@ -199,7 +247,37 @@ async def handle_recall(func_name, args, tenant_id, metadata, db_session):
             "message": "Found a related segment in our conversation recap. Here is what I remember: " + history_summary
         }
 
-    # 3. Default (Placeholder for true Vector Search)
+    # 3. Pinecone Semantic Search (The Real Thing)
+    pinecone = PineconeClient()
+    if pinecone.is_configured:
+        try:
+             # Embed Query
+            resp = await ai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=query
+            )
+            query_vector = resp.data[0].embedding
+            
+            # Search Namespace
+            matches = await pinecone.query_namespace(query_vector, namespace=tenant_id, top_k=2)
+            
+            if matches:
+                # Format segments for injection
+                snippets = []
+                for m in matches:
+                    meta = m.get("metadata", {})
+                    snippets.append(meta.get("context", meta.get("fact_value", "Unknown segment")))
+                
+                return {
+                    "status": "success",
+                    "source": "pinecone_semantic_recall",
+                    "recalled_info": snippets,
+                    "message": "I searched our long-term memory vault and found these relevant details: " + "\n- ".join(snippets)
+                }
+        except Exception as e:
+            logger.error(f"[MEMORY-RECALL] Pinecone Search failed: {str(e)}")
+
+    # 4. Default (Placeholder for true Vector Search)
     return {
         "status": "partial_success",
         "message": "I'm searching my long-term memory for that specific detail. Based on my current records, I don't see a direct match. Do you remember when we discussed this?",

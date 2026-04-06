@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     
     # API Keys (Required)
     OPENAI_API_KEY: str
+    PINECONE_API_KEY: str = "" # Optional defaults to prevent breaking local dev
+    PINECONE_HOST: str = ""    # The full URL for the index (e.g., https://...pinecone.io)
+    PINECONE_INDEX_NAME: str = "matterminer-memory"
     
     # Sentry
     SENTRY_DSN: str = "11111111"
