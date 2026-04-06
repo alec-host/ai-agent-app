@@ -17,7 +17,7 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client):
         recent_context = json.dumps(history[-4:], indent=2)
         
         extraction_prompt = f"""
-        Analyze the following conversation segment and extract ONLY new, high-certainty persistent facts about the user or their preferences.
+        Analyze the following conversation segment and extract NEW persistent facts OR updates/corrections to existing facts about the user.
         
         Focus on:
         - Job Title / Role
@@ -26,10 +26,12 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client):
         - Firm-wide policies or specific workflow preferences
         - Personal name (if not already known)
 
+        CRITICAL: If the user explicitly CORRECTS a previously mentioned fact (e.g., "Actually, my title is Partner now" or "Change my timezone to PST"), prioritize this new value.
+
         FORMAT: JSON object with 'facts' key.
         Example: {{"facts": {{"preferred_timezone": "Africa/Nairobi", "role": "Senior Partner"}}}}
         
-        If no NEW persistent facts are found, return {{"facts": {{}}}}.
+        If no NEW persistent facts or CORRECTIONS are found, return {{"facts": {{}}}}.
         
         CONVERSATION:
         {recent_context}
@@ -211,7 +213,7 @@ def get_memory_recovery(metadata, db_session):
 
     return blocks if blocks else None
 
-async def handle_recall(func_name, args, tenant_id, metadata, db_session):
+async def handle_recall(func_name, args, tenant_id, metadata, db_session, ai_client):
     """
     Tier 2/3: Semantic Recall.
     Attempts to find specific details from past conversations.

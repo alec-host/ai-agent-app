@@ -71,7 +71,7 @@ async def get_rehydration_context(tenant_id, services):
         return None
 
 
-async def execute_tool_call(tool_call, services, user_role, tenant_id, history, user_email: str = None, user_tz: str = None):
+async def execute_tool_call(tool_call, services, user_role, tenant_id, history, user_email: str = None, user_tz: str = None, ai_client = None):
     """
     Acts as a central Dispatcher (Router).
     Injects shared context and routes tool calls to specialized agent handlers.
@@ -185,7 +185,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
 
         elif func_name in memory_funcs:
             from .agents.memory_agent import handle_recall
-            return _redact_dict(await handle_recall(func_name, args, tenant_id, metadata, db_session))
+            return _redact_dict(await handle_recall(func_name, args, tenant_id, metadata, db_session, ai_client))
 
     except Exception as e:
         logger.error(f"CRITICAL DISPATCH ERROR: {func_name} failed. {e}", exc_info=True)

@@ -428,7 +428,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             
             # If this is the start of a conversation and no data exists, suggest actions
             if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
-                final_payload["suggested_actions"] = get_starter_chips()
+                final_payload["suggested_actions"] = get_starter_chips(metadata if 'metadata' in locals() else {})
             
             # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
             asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
@@ -443,7 +443,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             # Dispatch directly to Agent Manager
             result = await execute_tool_call(
                 tool_call, services, user_role, tenant_id, messages, 
-                user_email=user_email, user_tz=user_tz
+                user_email=user_email, user_tz=user_tz, ai_client=ai_client
             )
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
             
@@ -697,7 +697,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 # Terminal check: suggest actions
                 final_payload = {"done": True, "history": messages[1:]}
                 if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
-                    final_payload["suggested_actions"] = get_starter_chips()
+                    final_payload["suggested_actions"] = get_starter_chips(metadata if 'metadata' in locals() else {})
                 # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
@@ -729,7 +729,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 tool_name = tool_call_data['function']['name']
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 
-                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email)
+                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email, ai_client=ai_client)
                 messages.append({"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)})
                 
                 if isinstance(result, dict):
