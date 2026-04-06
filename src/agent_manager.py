@@ -36,9 +36,10 @@ async def get_rehydration_context(tenant_id, services):
         # 1. AGENT REGISTRY FOR RECOVERY
         blocks = []
         from .agents.calendar_agent import get_workflow_recovery as cal_recovery
+        from .agents.memory_agent import get_memory_recovery as mem_recovery
         # core_recovery is already imported above
 
-        agent_hooks = [cal_recovery, core_recovery]
+        agent_hooks = [cal_recovery, core_recovery, mem_recovery]
         
         for hook in agent_hooks:
             recovery = hook(metadata, db_session)
