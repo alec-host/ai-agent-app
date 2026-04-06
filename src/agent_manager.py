@@ -43,11 +43,17 @@ async def get_rehydration_context(tenant_id, services):
         
         for hook in agent_hooks:
             recovery = hook(metadata, db_session)
-            if recovery:
-                block = f"{recovery['header']}\n{json.dumps(recovery['data'], indent=2)}"
-                if recovery.get("instruction"):
-                    block += f"\n\n{recovery['instruction']}"
-                blocks.append(block)
+            if not recovery:
+                continue
+                
+            # Handle list of blocks (like Memory Agent) or single block
+            items = recovery if isinstance(recovery, list) else [recovery]
+            
+            for item in items:
+                block_content = f"{item['header']}\n{json.dumps(item['data'], indent=2)}"
+                if item.get("instruction"):
+                    block_content += f"\n\n{item['instruction']}"
+                blocks.append(block_content)
 
         if not blocks:
             return None

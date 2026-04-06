@@ -31,7 +31,7 @@ from src.utils import sanitize_history, retry_with_backoff, get_starter_chips, s
 from src.remote_services.google_core import GoogleCalendarClient
 from src.remote_services.wallet_service import WalletClient
 from src.agents.calendar_agent import perform_calendar_auth_check
-from src.agents.memory_agent import extract_and_save_facts
+from src.agents.memory_agent import extract_and_save_facts, summarize_and_save
 
 from src.config import settings
 from src.logger import logger
@@ -430,8 +430,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
                 final_payload["suggested_actions"] = get_starter_chips()
             
-            # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+            # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
             asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+            asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
             
             return standardize_response(final_payload, messages[1:])
 
@@ -486,8 +487,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
              final_db = await services['calendar'].get_client_session(tenant_id)
              return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
-    # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+    # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
     asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+    asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
     
     final_db = await services['calendar'].get_client_session(tenant_id)
     return standardize_response({"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db})
@@ -696,8 +698,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 final_payload = {"done": True, "history": messages[1:]}
                 if len(cleaned_history) <= 1 and not (rehydration_data and rehydration_data.get("has_data")):
                     final_payload["suggested_actions"] = get_starter_chips()
-                # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+                # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+                asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 yield f"data: {json.dumps(standardize_response(final_payload, messages[1:]))}\n\n"
                 return
@@ -747,16 +750,18 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                     last_action = f"Executed {tool_name}"
 
             if pending_throttle_msg:
-                # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+                # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+                asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 yield f"data: {json.dumps(standardize_response({'content': pending_throttle_msg, 'action': None}, messages[1:]))}\n\n"
                 yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
                 return
 
             if terminal_success_msg:
-                # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+                # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+                asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 final_text = f"\n\n{terminal_success_msg}"
                 yield f"data: {json.dumps(standardize_response({'content': final_text, 'action': None}, messages[1:]))}\n\n"
@@ -764,8 +769,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
                 return
 
-        # --- BACKGROUND: EXTRACT FACTS FOR KNOWLEDGE VAULT ---
+        # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
         asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
+        asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
         
         # Fallback completion
         yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"

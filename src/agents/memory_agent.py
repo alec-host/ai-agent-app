@@ -75,17 +75,90 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client):
     except Exception as e:
         logger.error(f"[MEMORY-AGENT] Fact extraction failed: {e}", exc_info=True)
 
+async def summarize_and_save(tenant_id, history, services, ai_client):
+    """
+    Tier 2: Incremental Summarization.
+    Collapses long conversation history into a concise summary to preserve context
+    while staying within token limits.
+    """
+    # Threshold for summarization (e.g., more than 15 actual turns)
+    if not history or len(history) < 15:
+        return
+
+    try:
+        calendar_service = services.get("calendar")
+        db_session = await calendar_service.get_client_session(tenant_id)
+        metadata = db_session.get("metadata", {})
+        if isinstance(metadata, str):
+            try: metadata = json.loads(metadata)
+            except: metadata = {}
+            
+        # Don't summarize if we recently did it
+        last_summary_turn = metadata.get("last_summary_turn_count", 0)
+        if len(history) - last_summary_turn < 10:
+            return
+
+        logger.info(f"[MEMORY-AGENT] Triggering incremental summarization for {tenant_id} (History: {len(history)} turns)")
+
+        # 1. Summarize oldest messages
+        old_history = json.dumps(history[:-5], indent=2) # Keep the last 5 turns for immediate context
+        
+        summary_prompt = f"""
+        Summarize the following conversation history into a concise, high-density paragraph.
+        Focus on:
+        - The current active goal or workflow
+        - Any decisions made or data confirmed
+        - Remaining blockers or missing information
+
+        FORMAT: A single paragraph of max 150 words.
+        
+        HISTORY:
+        {old_history}
+        """
+
+        response = await ai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": "You are a specialized summarization sub-agent."},
+                      {"role": "user", "content": summary_prompt}]
+        )
+
+        new_summary = response.choices[0].message.content
+        
+        # 2. Update Persisted Metadata
+        metadata["history_summary"] = new_summary
+        metadata["last_summary_turn_count"] = len(history)
+        
+        await calendar_service.sync_client_session({
+            "metadata": metadata
+        })
+        
+        logger.info(f"[MEMORY-AGENT] Saved new history summary for {tenant_id}")
+
+    except Exception as e:
+        logger.error(f"[MEMORY-AGENT] Summarization failed: {e}", exc_info=True)
+
 def get_memory_recovery(metadata, db_session):
     """
     Retrieves global facts for injection into the system prompt.
     Used by agent_manager.get_rehydration_context.
     """
     global_facts = metadata.get("global_facts", {})
-    if not global_facts:
-        return None
+    history_summary = metadata.get("history_summary")
+    
+    blocks = []
+    
+    if global_facts:
+        blocks.append({
+            "header": "### USER KNOWLEDGE (GLOBAL FACTS) ###",
+            "data": global_facts,
+            "instruction": "These are persistent facts about the user. Do not ask for them again unless the user explicitly corrects them."
+        })
         
-    return {
-        "header": "### USER KNOWLEDGE (GLOBAL FACTS) ###",
-        "data": global_facts,
-        "instruction": "These are persistent facts about the user. Do not ask for them again unless the user explicitly corrects them."
-    }
+    if history_summary:
+         blocks.append({
+            "header": "### RECAP (OLD CONVERSATION SUMMARY) ###",
+            "data": {"summary": history_summary},
+            "instruction": "This is a summary of the conversation before the current window. Use it to maintain continuity."
+        })
+
+    return blocks if blocks else None
