@@ -162,3 +162,46 @@ def get_memory_recovery(metadata, db_session):
         })
 
     return blocks if blocks else None
+
+async def handle_recall(func_name, args, tenant_id, metadata, db_session):
+    """
+    Tier 2/3: Semantic Recall.
+    Attempts to find specific details from past conversations.
+    In the first version, this searches the extracted Facts and Summaries.
+    In future versions, this will trigger a Vector Search.
+    """
+    query = args.get("query", "").lower()
+    global_facts = metadata.get("global_facts", {})
+    history_summary = metadata.get("history_summary", "")
+    
+    logger.info(f"[MEMORY-AGENT] Recall requested: '{query}' for {tenant_id}")
+    
+    # 1. Simple Keyword Match in Facts
+    found_facts = {}
+    for k, v in global_facts.items():
+        if query in k.lower() or query in str(v).lower():
+            found_facts[k] = v
+            
+    if found_facts:
+        return {
+            "status": "success",
+            "source": "vault_facts",
+            "recalled_info": found_facts,
+            "message": f"I found the following related facts in our history: {json.dumps(found_facts)}"
+        }
+        
+    # 2. Check Summary
+    if history_summary and query in history_summary.lower():
+         return {
+            "status": "success",
+            "source": "history_summary",
+            "recalled_info": history_summary,
+            "message": "Found a related segment in our conversation recap. Here is what I remember: " + history_summary
+        }
+
+    # 3. Default (Placeholder for true Vector Search)
+    return {
+        "status": "partial_success",
+        "message": "I'm searching my long-term memory for that specific detail. Based on my current records, I don't see a direct match. Do you remember when we discussed this?",
+        "log_trace": f"Recall Query: {query} - No local match found."
+    }

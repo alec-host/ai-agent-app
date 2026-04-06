@@ -387,5 +387,19 @@ TOOLS = [
                "required": ["title", "name", "client_id", "practice_area_id", "description", "case_stage_id", "billing_type_id"]
            }
        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall_past_conversation",
+            "description": "Searches for specific facts, decisions, or context in OLDER conversation history that is no longer in the immediate chat window. Use this when the user refers to a past discussion you don't fully remember.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The specific fact or context you are trying to remember (e.g., 'the price we discussed yesterday')."}
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]

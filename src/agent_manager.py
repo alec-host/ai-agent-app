@@ -123,6 +123,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
     client_funcs = ["create_client_record", "setup_client"]
     rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
     core_funcs = ["authenticate_to_core", "create_contact", "lookup_countries", "create_standard_event", "create_all_day_event", "lookup_client", "lookup_practice_area", "lookup_case_stage", "lookup_billing_type", "create_matter"]
+    memory_funcs = ["recall_past_conversation"]
 
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:
@@ -181,6 +182,10 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
             
         elif func_name in rag_funcs:
             return _redact_dict(await handle_rag_lookup(func_name, args, services, tenant_id))
+
+        elif func_name in memory_funcs:
+            from .agents.memory_agent import handle_recall
+            return _redact_dict(await handle_recall(func_name, args, tenant_id, metadata, db_session))
 
     except Exception as e:
         logger.error(f"CRITICAL DISPATCH ERROR: {func_name} failed. {e}", exc_info=True)
