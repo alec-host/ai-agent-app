@@ -669,18 +669,23 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             full_content = ""
             current_tool_calls = {} # index -> call
+            content_buffer = "" # Optimization: Batch small tokens
 
             logger.info(f"[STREAM] Iterating over chunks...")
             async for chunk in stream:
                 if not chunk.choices: continue
                 delta = chunk.choices[0].delta
                 
-                # Stream Content
+                # Stream Content with Batching
                 if delta.content:
                     full_content += delta.content
-                    logger.debug(f"[STREAM] Content delta: {delta.content}")
-                    yield f"data: {json.dumps({'content': delta.content})}\n\n"
-                
+                    content_buffer += delta.content
+                    
+                    # Yield when buffer reaches certain size to reduce packet-per-token overhead
+                    if len(content_buffer) >= 20: 
+                        yield f"data: {json.dumps({'content': content_buffer})}\n\n"
+                        content_buffer = ""
+
                 # Accumulate Tool Calls
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
@@ -689,6 +694,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                             current_tool_calls[idx] = {"id": tc.id, "function": {"name": tc.function.name, "arguments": ""}}
                         if tc.function.arguments:
                             current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+            # Flush remaining content buffer after loop
+            if content_buffer:
+                yield f"data: {json.dumps({'content': content_buffer})}\n\n"
 
             # Finalize this round of streaming
             if not current_tool_calls:
