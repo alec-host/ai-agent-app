@@ -211,3 +211,6 @@ __marimo__/
 .vscode/
 pyproject.toml
 
+
+# PM2 logs
+logs/

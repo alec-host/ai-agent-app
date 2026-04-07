@@ -2,13 +2,12 @@ module.exports = {
   apps: [
     {
       name: "MATTER_MINER_AGENTIC_AI",
-      // Path to the gunicorn executable inside your virtual environment
-      script: "venv/bin/gunicorn",
-      // cwd: "./src",	    
-      // Arguments passed to gunicorn
-      args: "-w 4 -k uvicorn.workers.UvicornWorker src.main:app --bind 0.0.0.0:8005",
-      // Ensure PM2 knows it's a direct binary execution
-      interpreter: "none",
+       // Path to the uvicorn executable inside your virtual environment (Windows)
+       script: "venv/Scripts/uvicorn.exe",
+       // Arguments passed to uvicorn
+       args: "src.main:app --host 0.0.0.0 --port 8005",
+       // Ensure PM2 knows it's a direct binary execution
+       interpreter: "none",
       env: {
         NODE_ENV: "production",
         PYTHONPATH: "."
