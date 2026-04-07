@@ -138,16 +138,34 @@ def retry_with_backoff(retries=3, backoff_in_seconds=1):
 
 logger = logging.getLogger("legal-agentic-ai")
 
-def get_starter_chips():
-    """Returns suggested actions for a blank state chat."""
-    return [
+def get_starter_chips(vault_metadata: dict = None):
+    """Returns suggested actions for a blank state chat, prioritized by active drafts."""
+    chips = []
+    
+    # 1. Check for DRAFTS in the vault to enable Proactive Resumption (Phase D)
+    if vault_metadata:
+        if vault_metadata.get("contact_draft"):
+            chips.append({"label": "🔄 Resume Contact", "prompt": "Resume my contact creation"})
+        if vault_metadata.get("client_draft"):
+            chips.append({"label": "🔄 Resume Client", "prompt": "Resume my client registration"})
+        if vault_metadata.get("event_draft"):
+            chips.append({"label": "🔄 Resume Event", "prompt": "Resume my meeting draft"})
+        if vault_metadata.get("matter_draft"):
+            chips.append({"label": "🔄 Resume Matter", "prompt": "Resume my matter creation"})
+
+    # 2. Default standard workflows
+    chips.extend([
         {"label": "👤 Create Contact", "prompt": "I want to create a new contact"},
         {"label": "🏢 Register Client", "prompt": "I want to register a new client"},
-        {"label": "⚖️ Create Matter", "prompt": "I want to create a new matter for an existing client"},
-        {"label": "📊 Recent matters", "prompt": "Show me my recent matters"}
-    ]
+        {"label": "⚖️ Create Matter", "prompt": "I want to create a new matter for an existing client"}
+    ])
+    
+    # 3. Optimization: Limit to top 4 most relevant chips
+    return chips[:4]
 
-def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=None, thread_id=None, session_lifecycle="active", metadata=None, client_draft=None, matter_draft=None):
+_SENTINEL = object()
+
+def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, contact_draft=None, history=None, active_workflow=_SENTINEL, thread_id=None, session_lifecycle=_SENTINEL, metadata=None, client_draft=None, matter_draft=None):
     """
     Unified transformer for the Node.js 'chatsessions' model.
     Maps client fields to top-level columns and events/states to 'metadata'.
@@ -191,10 +209,10 @@ def format_sync_chat_payload(tenant_id, client_args=None, event_draft=None, cont
             matter_draft = {}
         final_metadata["matter_draft"] = matter_draft
         
-    if active_workflow:
+    if active_workflow is not _SENTINEL:
         final_metadata["active_workflow"] = active_workflow
         
-    if session_lifecycle:
+    if session_lifecycle is not _SENTINEL:
         final_metadata["session_lifecycle"] = session_lifecycle
     
     # 3. Construct the flat payload for the database

@@ -119,3 +119,44 @@ async def test_memory_layer_resilience():
         assert result["status"] == "success"
         assert result["source"] == "vault_facts"
         assert "Nairobi" in result["message"]
+
+@pytest.mark.asyncio
+async def test_automated_state_purging():
+    """
+    Verifies that when a tool returns _exit_loop=True, the dispatcher 
+    automatically triggers a state purge for the corresponding draft.
+    """
+    from src.agent_manager import execute_tool_call
+    
+    # 1. Mock Specialist Result (Terminal Success)
+    mock_result = {
+        "status": "success", 
+        "message": "Contact Created!", 
+        "_exit_loop": True
+    }
+    
+    mock_tool = MagicMock()
+    mock_tool.function.name = "create_contact"
+    mock_tool.function.arguments = json.dumps({"first_name": "Jane"})
+
+    mock_calendar_service = AsyncMock()
+    # Mocking successful session fetch
+    mock_calendar_service.get_client_session.return_value = {"metadata": {"active_workflow": "contact", "contact_draft": {"first_name": "Jane"}}}
+    
+    mock_services = {"calendar": mock_calendar_service}
+
+    # Patch handle_core_ops to return our terminal success
+    with patch("src.agent_manager.handle_core_ops", new_callable=AsyncMock) as mock_core:
+        mock_core.return_value = mock_result
+        
+        await execute_tool_call(mock_tool, mock_services, "user", "tenant_123", [], ai_client=AsyncMock())
+
+        # Verify SYNC was called to PURGE
+        # It should be called once in the dispatcher 'finally' block
+        assert mock_calendar_service.sync_client_session.called
+        purge_payload = mock_calendar_service.sync_client_session.call_args[0][0]
+        
+        # Verify purge values
+        assert purge_payload["metadata"]["active_workflow"] is None
+        assert purge_payload["metadata"]["contact_draft"] == {}
+        assert purge_payload["metadata"]["session_lifecycle"] == "completed"
