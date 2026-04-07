@@ -189,10 +189,14 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
         "contact", "country", "countries", "client", "investigate",
-        "matter", "firm", "internal", "matterminer", "deadline", "filing"
+        "matter", "firm", "internal", "deadline", "filing"
     ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
+
+    # Informational bypass: Don't trigger auth for brand inquiry or general info
+    safe_keywords = ["what is", "how do i", "who is", "help", "info", "about"]
+    is_safe_inquiry = any(kw in user_prompt_raw for kw in safe_keywords)
     
     # Only trigger Google Pre-flight if it is EXPLICITLY external (Google Calendar)
     # MatterMiner Core events (e.g. "schedule a strategy meeting") do NOT require Google OAuth
@@ -202,7 +206,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if auth_response:
             return standardize_response(auth_response, cleaned_history)
 
-    if is_core_intent and not is_login_attempt:
+    if is_core_intent and not is_login_attempt and not is_safe_inquiry:
         logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
         if not user_email:
             logger.warning(f"[CHAT] [{tenant_id}] No X-User-Email header. Surface login card.")
@@ -528,13 +532,17 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     core_keywords = [
         "register", "onboard", "new client", "create client", "setup client",
         "contact", "country", "countries", "client", "investigate",
-        "matter", "firm", "internal", "matterminer", "deadline", "filing"
+        "matter", "firm", "internal", "deadline", "filing"
     ]
     is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
     is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
 
     is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
-    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
+    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "deadline", "filing"])
+
+    # Informational bypass: Don't trigger auth for brand inquiry or general info
+    safe_keywords = ["what is", "how do i", "who is", "help", "info", "about"]
+    is_safe_inquiry = any(kw in user_prompt_raw for kw in safe_keywords)
 
     # 2. Pre-LLM Auth Guard – only for explicit Google Calendar requests
     if is_calendar_intent and is_explicit_google and not is_login_attempt:
@@ -545,7 +553,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                  yield f"data: {json.dumps(auth_response)}\n\n"
              return StreamingResponse(_auth_stream_gen(), media_type="text/event-stream")
 
-    if is_core_intent and not is_login_attempt:
+    if is_core_intent and not is_login_attempt and not is_safe_inquiry:
         logger.info(f"[STREAM] [{tenant_id}] Core intent detected. Checking token validity.")
         if not user_email:
             logger.warning(f"[STREAM] [{tenant_id}] No X-User-Email header. Surface login card.")
