@@ -172,6 +172,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     
+    # --- 1. HISTORY CLEANUP (Moved up to prevent UnboundLocalError) ---
+    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
         "schedule", "event", "meeting", "book", "appointment", "calendar",
@@ -241,9 +244,6 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         elif error_type == "no_wallet":
              return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
     '''
-    # --- 1. HISTORY CLEANUP ---
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
     # --- 2. CONTEXT REHYDRATION (Source of Truth) ---
