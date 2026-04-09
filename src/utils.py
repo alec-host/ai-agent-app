@@ -4,6 +4,7 @@ import json
 import logging
 import asyncio
 import functools
+from typing import Any, List, Dict, Union
 from src.logger import logger
 
 def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n: int = 3, redact_values: list = None):
@@ -273,7 +274,7 @@ def compact_tool_result(result: Any, max_len: int = 1500) -> str:
     except Exception:
         return str(result)[:max_len]
 
-def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_turns: int = 3) -> List[Dict[str, Any]]:
+def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_turns: int = 2) -> List[Dict[str, Any]]:
     """
     Cost Optimization: Keeps the full conversation text, but drops granular 
     tool reasoning for older turns to save massive amounts of tokens.
@@ -282,25 +283,20 @@ def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_tur
         return history
         
     compressed = []
-    # Identify how many tool-turns are in the history
-    # We only keep tool calls/results for the most recent N reasoning chains.
     reasoning_chains_found = 0
     
     # Iterate backwards to keep the most recent
     for msg in reversed(history):
         role = msg.get("role")
-        has_tools = "tool_calls" in msg or role == "tool"
+        is_reasoning = "tool_calls" in msg or role == "tool"
         
-        if has_tools:
+        if is_reasoning:
             if reasoning_chains_found < keep_reasoning_turns:
                 compressed.append(msg)
-                # Every time we see a 'user' or 'assistant' without tools, we've hit a turn boundary
-            else:
-                # Drop old reasoning to save tokens
-                continue
         else:
-            if role in ["user", "assistant"]:
-                reasoning_chains_found += 1
             compressed.append(msg)
+            # A user message marks the completion of a reasoning cycle for the previous (since we are moving backwards) assistant response.
+            if role == "user":
+                reasoning_chains_found += 1
             
     return list(reversed(compressed))
