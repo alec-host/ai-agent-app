@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import traceback
-from src.config import settings
+from ..src.config import settings
 import redis.asyncio as redis
 
 logging.basicConfig(level=logging.DEBUG)
