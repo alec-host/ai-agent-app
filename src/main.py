@@ -433,11 +433,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         active_wf = (rehydration_data.get("metadata", {}) if rehydration_data else {}).get("active_workflow")
         
         # A. History Pruning (Keep System Prompt + Last 10 Turns)
-        # We prune the middle of the history to keep token usage sub-linear.
-        if len(messages) > 12:
-            pruned = [messages[0]] + messages[-10:]
-            loop_messages = pruned
-            logger.info(f"[Token-Guard] Pruned conversation history from {len(messages)} to {len(loop_messages)} turns.")
+        # Using the safe utility to ensure tool calls are never separated from results
+        from src.utils import compress_reasoning_history
+        loop_messages = [messages[0]] + compress_reasoning_history(messages[1:], keep_reasoning_turns=2)
+        
+        if len(messages) != len(loop_messages):
+            logger.info(f"[Token-Guard] Safely pruned conversation context from {len(messages)} to {len(loop_messages)} messages.")
         else:
             loop_messages = messages
 
@@ -543,14 +544,19 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if pending_throttle_msg:
              final_db = await services['calendar'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": pending_throttle_msg}])
+             # We include ALL reasoning steps to satisfy OpenAI's conversation requirements
+             turn_messages = [{"role": "user", "content": req.prompt}] + turn_deltas
+             if pending_throttle_msg:
+                 turn_messages.append({"role": "assistant", "content": pending_throttle_msg})
+             
+             await redis_memory.append_messages(turn_messages)
              await redis_memory.close()
-             return standardize_response({"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db})
+             return standardize_response({"response": pending_throttle_msg or "", "history": messages[1:], "vault_data": final_db})
 
         if terminal_success_msg and not assistant_msg.content:
              final_db = await services['calendar'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": terminal_success_msg}])
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": terminal_success_msg}])
              await redis_memory.close()
              return standardize_response({"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db})
         elif terminal_success_msg:
@@ -558,7 +564,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
              final_db = await services['calendar'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": final_resp}])
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": final_resp}])
              await redis_memory.close()
              return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
@@ -866,7 +872,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 # [PROTOCOL-SC] Atomic Save of entire turn sequence
-                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": pending_throttle_msg}])
+                # Correctly include tool results to prevent BadRequestErrors
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": pending_throttle_msg}])
                 await redis_memory.close()
                 
                 yield f"data: {json.dumps(standardize_response({'content': pending_throttle_msg, 'action': None}, messages[1:]))}\n\n"
@@ -881,7 +888,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 final_text = f"\n\n{terminal_success_msg}"
                 
                 # [PROTOCOL-SC] Atomic Save of entire turn sequence
-                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": f"{full_content or ''}{final_text}"}])
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": f"{full_content or ''}{final_text}"}])
                 await redis_memory.close()
                 
                 yield f"data: {json.dumps(standardize_response({'content': final_text, 'action': None}, messages[1:]))}\n\n"
