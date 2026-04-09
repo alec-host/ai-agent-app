@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "matterminer-memory"
     
     # Redis (Memory/Context Awareness)
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_PASS: str = ""
+    REDIS_HOST: str = "127.0.0.1"
+    REDIS_PORT: int = 6379
 
     # CORS — Allowed Origins (SEC-02)
     CORS_ALLOWED_ORIGINS: list = [

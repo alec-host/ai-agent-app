@@ -16,9 +16,12 @@ class RedisMemoryClient:
         # Namespace keys to prevent collision across tenants/threads
         self.key = f"matterminer:chat_history:{self.tenant_id}:{self.thread_id}"
         
-        # Configure Redis with strict timeouts so missing Redis doesn't hang the app
-        self.redis = redis.from_url(
-            settings.REDIS_URL, 
+        # Configure Redis with explicit authentication and timeouts
+        self.redis = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            password=settings.REDIS_PASS or None,
+            db=0,
             decode_responses=True,
             socket_connect_timeout=2,
             socket_timeout=2
