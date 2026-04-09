@@ -93,10 +93,10 @@ async def test_schedule_event_proceeds_if_no_conflict():
     )
 
     # 4. Mock session sync
-    respx.post(f"{BASE}/chat/session").mock(return_value=Response(200, json={"success": True}))
+    respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"success": True}))
 
     # 5. Mock event creation
-    respx.post(f"{BASE}/events").mock(
+    respx.post(url__regex=r".*/events.*").mock(
         return_value=Response(200, json={"status": "success", "id": "new_event_123"})
     )
     

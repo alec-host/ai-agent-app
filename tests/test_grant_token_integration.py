@@ -79,7 +79,7 @@ async def test_sync_access_token_returns_ready_and_sets_jwt():
     import httpx
     from src.remote_services.google_core import GoogleCalendarClient
 
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "tok-abc"})
     )
 
@@ -99,7 +99,7 @@ async def test_sync_access_token_returns_auth_required_for_no_session():
     import httpx
     from src.remote_services.google_core import GoogleCalendarClient
 
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "auth_required", "auth_url": "https://google/auth"})
     )
 
@@ -120,7 +120,7 @@ async def test_check_grant_token_returns_granted_true():
     import httpx
     from src.remote_services.google_core import GoogleCalendarClient
 
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
 
@@ -140,7 +140,7 @@ async def test_check_grant_token_returns_granted_false_when_no_token():
     import httpx
     from src.remote_services.google_core import GoogleCalendarClient
 
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": False, "valid": False,
             "message": "No Google Calendar integration found for this tenant."
@@ -166,7 +166,7 @@ async def test_check_grant_token_returns_granted_false_when_refresh_failed():
     from src.remote_services.google_core import GoogleCalendarClient
 
     # hasGrantToken always returns invalid
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Google Calendar integration exists but session is invalid. Re-authentication required."
@@ -174,7 +174,7 @@ async def test_check_grant_token_returns_granted_false_when_refresh_failed():
     )
 
     # Silent refresh fails
-    respx.post(f"{BASE}/auth/googleRefreshToken").mock(
+    respx.post(url__regex=r".*/auth/googleRefreshToken.*").mock(
         return_value=Response(200, json={"success": False, "message": "No refresh token"})
     )
 
@@ -196,13 +196,13 @@ async def test_check_grant_token_with_successful_silent_refresh():
     from src.remote_services.google_core import GoogleCalendarClient
 
     # 1. First call to hasGrantToken returns INVALID
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(side_effect=[
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(side_effect=[
         Response(200, json={"success": True, "exists": True, "valid": False}), # First check
         Response(200, json={"success": True, "exists": True, "valid": True})   # Second check after refresh
     ])
     
     # 2. Mock the refresh endpoint as SUCCESS
-    respx.post(f"{BASE}/auth/googleRefreshToken").mock(
+    respx.post(url__regex=r".*/auth/googleRefreshToken.*").mock(
         return_value=Response(200, json={"success": True})
     )
 
@@ -232,7 +232,7 @@ async def test_check_grant_token_graceful_on_service_error():
     import httpx
     from src.remote_services.google_core import GoogleCalendarClient
 
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(side_effect=Exception("Connection refused"))
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(side_effect=Exception("Connection refused"))
 
     http = httpx.AsyncClient(base_url=BASE, verify=False)
     svc = GoogleCalendarClient(TENANT, http, "corr-6")
@@ -256,14 +256,14 @@ async def test_chat_happy_path_proceeds_to_llm():
     Scenario 1: Happy path.
     Step 1 returns JWT, Step 2 confirms grant -> LLM is called and returns response.
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "happy-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=_mock_wallet())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=_mock_wallet())
 
     with patch("src.main.AsyncOpenAI") as mock_cls:
         mock_cls.return_value.chat.completions.create = AsyncMock(
@@ -289,10 +289,10 @@ async def test_chat_blocked_at_step1_no_session():
     """
     Scenario 2: Step 1 fails (no session) -> auth_required immediately, no grant check.
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "auth_required", "auth_url": "https://google/auth"})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
@@ -313,16 +313,16 @@ async def test_chat_blocked_at_step2_new_user_no_token():
     """
     Scenario 3: JWT acquired (Step 1 OK) but user never granted Calendar access (exists=False).
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "valid-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": False, "valid": False,
             "message": "No Google Calendar integration found for this tenant."
         })
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
@@ -341,16 +341,16 @@ async def test_chat_blocked_at_step2_refresh_failed():
     """
     Scenario 4: JWT acquired (Step 1 OK) but token refresh failed (exists=True, valid=False).
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "stale-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Google Calendar integration exists but session is invalid. Re-authentication required."
         })
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
@@ -370,14 +370,14 @@ async def test_chat_non_calendar_prompt_skips_handshake():
     auth handshake. hasGrantToken and accessToken should NOT be called.
     """
     # These should NOT be called for non-calendar prompts
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "tok"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=_mock_wallet())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=_mock_wallet())
 
     with patch("src.main.AsyncOpenAI") as mock_cls:
         mock_cls.return_value.chat.completions.create = AsyncMock(
@@ -403,13 +403,13 @@ async def test_stream_happy_path_passes_gate():
     """
     Scenario 6: Streaming happy path. Both steps pass -> SSE stream starts (no auth chunk).
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "stream-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=_mock_empty_session())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=_mock_empty_session())
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
@@ -429,7 +429,7 @@ async def test_stream_blocked_step1_no_session():
     """
     Scenario 7: Streaming, Step 1 fails -> SSE yields auth_required chunk immediately.
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "auth_required", "auth_url": "https://google/auth"})
     )
 
@@ -450,10 +450,10 @@ async def test_stream_blocked_step2_grant_invalid():
     """
     Scenario 8: Streaming, Step 1 OK, Step 2 grant invalid -> SSE yields auth_required.
     """
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "stale-stream-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Re-authentication required."
@@ -486,14 +486,14 @@ async def test_loop_gate_valid_grant_continues():
         "tenantId": TENANT,
         "metadata": {"active_workflow": "calendar", "event_draft": {"title": "Team Sync"}}
     }
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "mid-jwt"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json=active_session))
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=_mock_wallet())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=active_session))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=_mock_wallet())
 
     with patch("src.main.AsyncOpenAI") as mock_cls:
         mock_cls.return_value.chat.completions.create = AsyncMock(
@@ -521,19 +521,19 @@ async def test_loop_gate_invalid_grant_surfaces_auth_card():
         "tenantId": TENANT,
         "metadata": {"active_workflow": "calendar", "event_draft": {"title": "Team Sync"}}
     }
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "mid-jwtt"})
     )
     # Pre-LLM gate passes (keyword "meeting" not in "3pm tomorrow")
     # Loop gate: grant becomes invalid
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Re-authentication required."
         })
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json=active_session))
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=_mock_wallet())
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=active_session))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=_mock_wallet())
 
     # We need to mock OpenAI because "3pm tomorrow" doesn't trigger the Pre-LLM gate.
     # The LLM will then try to call schedule_event, which will trigger the Agent-level gate.
@@ -574,18 +574,18 @@ async def test_agent_preflight_blocks_schedule_event_when_grant_invalid():
         }
     }
     # Step 1: JWT ready
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "agent-jwt"})
     )
     # Grant check: called TWICE (once at loop gate, once in calendar_agent preflight)
     # Both return invalid so the loop gate catches it first
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Re-authentication required."
         })
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json=active_session))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=active_session))
 
     async with LifespanManager(app) as mgr:
         async with AsyncClient(transport=ASGITransport(mgr.app), base_url="http://test") as ac:
@@ -608,17 +608,17 @@ async def test_get_system_status_bypasses_grant_check():
     Google Calendar access. It must bypass check_grant_token entirely.
     """
     active_session = {"tenantId": TENANT, "metadata": {}}
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "sys-jwt"})
     )
     # Grant check should NOT be called for get_system_status
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": False, "valid": False})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json=active_session))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=active_session))
     # Mock the health endpoint the tool calls
-    respx.get(f"{BASE}/").mock(return_value=Response(200, json={"status": "online"}))
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=_mock_wallet())
+    respx.get(url__regex=r".*/.*.*").mock(return_value=Response(200, json={"status": "online"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=_mock_wallet())
 
     tool_call_mock = MagicMock()
     tool_call_mock.id = "call_sys"

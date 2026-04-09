@@ -30,32 +30,32 @@ async def test_advanced_event_creation_flow():
     # --- 1. MOCK BACKEND RESPONSES ---
     
     # Mock Token Ready
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
     
     # Mock Grant Ready (Required for the new Handshake)
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
     
     # Mock Wallet
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(
         return_value=Response(200, json={"status": "ok"})
     )
 
     # Mock Session Sync (POST)
-    sync_mock = respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    sync_mock = respx.post(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={"status": "success"})
     )
 
     # Mock Event Execution (POST to /events)
-    event_mock = respx.post(f"{settings.NODE_SERVICE_URL}/events").mock(
+    event_mock = respx.post(url__regex=r".*/events.*").mock(
         return_value=Response(200, json={"status": "success", "id": "evt_123"})
     )
 
     # Mock Session Clear (DELETE)
-    clear_mock = respx.delete(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    clear_mock = respx.delete(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={"status": "success"})
     )
 
@@ -74,7 +74,7 @@ async def test_advanced_event_creation_flow():
         }
     }
     
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json=active_session_step1)
     )
 
@@ -153,7 +153,7 @@ async def test_advanced_event_creation_flow():
             }
         }
         
-        respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+        respx.get(url__regex=r".*/chat/session.*").mock(
             return_value=Response(200, json=active_session_step2)
         )
 
@@ -238,10 +238,10 @@ async def test_session_recovery_after_wipe():
     headers = {"X-Tenant-ID": tenant_id, "X-User-Timezone": "UTC", "User-Role": "Associate"}
     
     # Mock Token & Wallet
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"}))
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"}))
     # Mock Grant Ready
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(return_value=Response(200, json={"success": True, "exists": True, "valid": True}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(return_value=Response(200, json={"success": True, "exists": True, "valid": True}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
     
     # CASE: EVERYTHING IS NULL (The aftermath of a successful booking)
     wiped_session = {
@@ -259,7 +259,7 @@ async def test_session_recovery_after_wipe():
         }
     }
     
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json=wiped_session)
     )
 

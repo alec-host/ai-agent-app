@@ -12,7 +12,7 @@ async def test_404_auth_trigger_lookup_countries():
     
     # Mock the 404 Not Found response
     with respx.mock:
-        respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/countries").mock(return_value=Response(
+        respx.get(url__regex=r".*/countries.*").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Not found"}
         ))
@@ -41,7 +41,7 @@ async def test_404_auth_trigger_create_contact():
     tenant_id = "test-tenant"
     
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/contact").mock(return_value=Response(
+        respx.post(url__regex=r".*/contact.*").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Not found"}
         ))
@@ -50,11 +50,13 @@ async def test_404_auth_trigger_create_contact():
         async def mock_get_session(t):
             return {
                 "metadata": {
+                    "active_workflow": "contact",
                     "contact_draft": {
                         "first_name": "John",
                         "last_name": "Doe",
                         "client_email": "john@doe.com",
-                        "title": "Mr",
+                        "contact_type": "primary",
+                        "title": "Mr.",
                         "middle_name": "James",
                         "country_code": "US",
                         "phone_number": "1234567890"

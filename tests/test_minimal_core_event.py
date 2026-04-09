@@ -16,11 +16,11 @@ async def test_simple_core_event():
     headers = {"X-Tenant-ID": tenant_id, "X-User-Email": "user@test.com"}
     
     # 1. Mock External Services
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/auth/check-session").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id, "metadata": {}}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.get(url__regex=r".*/auth/check-session.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id, "metadata": {}}))
+    respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     transport = ASGITransport(app=app)
     from asgi_lifespan import LifespanManager

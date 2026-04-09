@@ -48,11 +48,11 @@ async def test_mm_core_standard_event_drafting_flow():
         "User-Role": "Associate", "X-User-Email": "user@test.com"
     }
 
-    respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/auth/check-session").mock(return_value=Response(200, json={"status": "ready", "user": {"email": "user@test.com"}}))
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id, "metadata": {}}))
-    sync_mock = respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/auth/check-session.*").mock(return_value=Response(200, json={"status": "ready", "user": {"email": "user@test.com"}}))
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id, "metadata": {}}))
+    sync_mock = respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     transport = ASGITransport(app=app)
     from asgi_lifespan import LifespanManager
@@ -84,9 +84,9 @@ async def test_mm_core_event_timezone_instruction():
     tenant_id = "tz-test"
     headers = {"X-Tenant-ID": tenant_id, "X-User-Email": "user@test.com"}
     
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/auth/check-session").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.get(url__regex=r".*/auth/check-session.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
     
     existing_session = {
         "tenantId": tenant_id,
@@ -99,8 +99,8 @@ async def test_mm_core_event_timezone_instruction():
             }
         }
     }
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json=existing_session))
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=existing_session))
+    respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
 
     transport = ASGITransport(app=app)
     from asgi_lifespan import LifespanManager
@@ -128,22 +128,23 @@ async def test_mm_core_event_final_submission():
     tenant_id = "final-test"
     headers = {"X-Tenant-ID": tenant_id, "X-User-Email": "user@test.com"}
     
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/auth/check-session").mock(return_value=Response(200, json={"status": "ready"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.get(url__regex=r".*/auth/check-session.*").mock(return_value=Response(200, json={"status": "ready"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
     
     full_draft = {
         "title": "Strategy Meeting", "start_datetime": "2026-03-20T10:00:00",
-        "end_datetime": "2026-03-20T11:00:00", "timezone": "UTC"
+        "end_datetime": "2026-03-20T11:00:00", "timezone": "UTC",
+        "description": "Discuss the plan", "location": "Office", "attendees": ["team@example.com"]
     }
     existing_session = {"tenantId": tenant_id, "metadata": {"active_workflow": "standard_event", "event_draft": full_draft}}
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json=existing_session))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json=existing_session))
     # Mock Core API call
-    core_mock = respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/standard-event").mock(
+    core_mock = respx.post(url__regex=r".*/standard-event.*").mock(
         return_value=Response(200, json={"status": "success", "id": 999})
     )
-    sync_mock = respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
-    clear_mock = respx.delete(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
+    sync_mock = respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
+    clear_mock = respx.delete(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
 
     transport = ASGITransport(app=app)
     from asgi_lifespan import LifespanManager

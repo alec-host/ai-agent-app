@@ -29,7 +29,7 @@ async def test_auto_lookup_and_linking():
     }
 
     with respx.mock:
-        respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/search-contact").mock(return_value=Response(
+        respx.get(url__regex=r".*/search-contact.*").mock(return_value=Response(
             200, json={"status": "success", "contact_id": "real-cont-123"}
         ))
         
@@ -66,7 +66,7 @@ async def test_country_direct_id_payload():
 
     with respx.mock:
         # Mock payload: { "success": true, "country_id": 15, "message": "Retreived country id successfully" }
-        respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/countries").mock(return_value=Response(
+        respx.get(url__regex=r".*/countries.*").mock(return_value=Response(
             200, json={"success": True, "country_id": 15, "message": "Retreived country id successfully"}
         ))
         

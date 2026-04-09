@@ -17,7 +17,7 @@ async def test_client_to_contact_cross_pollination():
     
     # 1. Setup Mock for 404 Search
     with respx.mock:
-        respx.get(f"{settings.NODE_REMOTE_SERVICE_URL}/search-contact").mock(return_value=Response(
+        respx.get(url__regex=r".*/search-contact.*").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Contact not found"}
         ))

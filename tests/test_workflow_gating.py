@@ -39,16 +39,16 @@ async def test_workflow_gating_production_logic():
     respx.get(f"{settings.NODE_SERVICE_URL}/chat/session", params={"tenantId": tenant_id}).mock(
         return_value=Response(200, json=active_session)
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.post(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={"status": "success"})
     )
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     # 2. Mock AI: Attempting to call 'create_client_record' (Failure Scenario)
     # Even if AI hallucinates and calls client tool, the AgentManager should BLOCK it
@@ -119,16 +119,16 @@ async def test_field_priority_and_single_word_mapping():
     respx.get(f"{settings.NODE_SERVICE_URL}/chat/session", params={"tenantId": tenant_id}).mock(
         return_value=Response(200, json=vault_peter)
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.post(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={"status": "success"})
     )
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     # Mock AI: Should call tool with first_name='Peter' AND last_name='Pan'
     mock_msg = MagicMock()

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,8 +22,26 @@ class Settings(BaseSettings):
     PINECONE_HOST: str = ""    # The full URL for the index (e.g., https://...pinecone.io)
     PINECONE_INDEX_NAME: str = "matterminer-memory"
     
+    # CORS — Allowed Origins (SEC-02)
+    CORS_ALLOWED_ORIGINS: list = [
+        "https://app.matterminer.com",
+        "https://dev.matterminer.com",
+        "http://localhost:3000",
+    ]
+
+    # TLS Verification for outbound HTTP clients (SEC-03)
+    # Set to True (default, secure), False (INSECURE — dev only), or a CA bundle path string
+    TLS_VERIFY: bool = True
+
     # Sentry
-    SENTRY_DSN: str = "11111111"
+    SENTRY_DSN: str = ""
+
+    # JWT Verification (SEC-05)
+    # Confirm with Node.js backend: HS256 or RS256?
+    JWT_SECRET: str = "your-placeholder-secret-change-me"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_AUDIENCE: Optional[str] = None
+    JWT_ENABLED: bool = True # Set to False only for local testing without Core backend
 
     # Supported Timezones for Event Creation
     SUPPORTED_TIMEZONES: list = [

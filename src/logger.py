@@ -15,7 +15,7 @@ def setup_logging():
             integrations=[FastApiIntegration()],
             traces_sample_rate=1.0,
             profiles_sample_rate=1.0,
-            send_default_pii=True # Helps identify tenant issues
+            send_default_pii=False # Privacy compliance (SEC-08)
         )
 
     # 2. Define Format

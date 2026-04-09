@@ -136,8 +136,6 @@ def retry_with_backoff(retries=3, backoff_in_seconds=1):
         return wrapper
     return decorator
 
-logger = logging.getLogger("legal-agentic-ai")
-
 def get_starter_chips(vault_metadata: dict = None):
     """Returns suggested actions for a blank state chat, prioritized by active drafts."""
     chips = []

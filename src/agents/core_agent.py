@@ -47,9 +47,10 @@ async def run_draft_workflow(
         try: metadata = json.loads(metadata)
         except: metadata = {}
     
-    # Start fresh if switching workflows (Isolation)
-    if metadata.get("active_workflow") != workflow_id:
-        logger.info(f"[{tenant_id}] Switching workflow to {workflow_id}. Clearing stale {metadata_key}.")
+    # Start fresh ONLY if switching to a DIFFERENT active workflow (Isolation Guard)
+    current_wf = metadata.get("active_workflow")
+    if current_wf and current_wf != workflow_id:
+        logger.info(f"[{tenant_id}] Switching workflow from {current_wf} to {workflow_id}. Clearing stale {metadata_key}.")
         # Also clear other drafts to prevent contamination
         metadata["event_draft"] = {}
         metadata["contact_draft"] = {}

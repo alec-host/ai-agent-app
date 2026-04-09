@@ -38,7 +38,7 @@ CONTACT_SUCCESS_RESPONSE = {
 @respx.mock
 async def test_core_client_login():
     # Setup mock
-    respx.post("https://dev.matterminer.com/api/login").mock(
+    respx.post(url__regex=r".*/login.*").mock(
         return_value=httpx.Response(200, json=LOGIN_RESPONSE)
     )
     
@@ -54,7 +54,7 @@ async def test_core_client_login():
 @respx.mock
 async def test_core_client_get_countries():
     # Setup mock
-    respx.get("https://dev.matterminer.com/api/countries").mock(
+    respx.get(url__regex=r".*/countries.*").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
     
@@ -116,20 +116,24 @@ async def test_agent_handle_create_contact_finalize():
         "first_name": "Jane",
         "last_name": "Smith",
         "client_email": "jane@example.com",
-        "title": "Ms",
+        "contact_type": "primary",
+        "title": "Ms.",
         "middle_name": "A",
         "country_code": "+254",
         "phone_number": "712345678"
     }
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {
-        "metadata": {"contact_draft": complete_draft}
+        "metadata": {
+            "active_workflow": "contact",
+            "contact_draft": complete_draft
+        }
     }
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
 
     # Mock the remote API
-    respx.post("https://dev.matterminer.com/api/contact").mock(
+    respx.post(url__regex=r".*/contact.*").mock(
         return_value=httpx.Response(200, json=CONTACT_SUCCESS_RESPONSE)
     )
 
@@ -149,7 +153,7 @@ async def test_agent_handle_lookup_countries():
     services = {"calendar": mock_cal_service}
     
     # Mock the remote API
-    respx.get("https://dev.matterminer.com/api/countries").mock(
+    respx.get(url__regex=r".*/countries.*").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
     
@@ -168,7 +172,8 @@ async def test_agent_handle_create_contact_failure():
         "first_name": "Jane",
         "last_name": "Smith",
         "client_email": "fail@test.com",
-        "title": "Ms",
+        "contact_type": "primary",
+        "title": "Ms.",
         "middle_name": "A",
         "country_code": "+254",
         "phone_number": "712345678"
@@ -177,13 +182,14 @@ async def test_agent_handle_create_contact_failure():
     mock_cal_service.get_client_session.return_value = {
         "metadata": {
             "remote_access_token": "valid_token",
+            "active_workflow": "contact",
             "contact_draft": complete_draft
         }
     }
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
 
-    respx.post("https://dev.matterminer.com/api/contact").mock(
+    respx.post(url__regex=r".*/contact.*").mock(
         return_value=httpx.Response(500, json={"message": "Internal Server Error"})
     )
 

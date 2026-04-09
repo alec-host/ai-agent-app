@@ -26,22 +26,22 @@ async def test_client_intake_amnesia_fix():
 
     # 1. Mock Node.js Backend Endpoints
     # Mock lookup_firm_protocol
-    respx.get(f"{settings.NODE_SERVICE_URL}/rag/lookup").mock(
+    respx.get(url__regex=r".*/rag/lookup.*").mock(
         return_value=Response(200, json={"context": "Ask for Name, ID, and Email."})
     )
     # Mock chat/session (initial empty)
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={})
     )
     # Mock chat/session (POST update)
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.post(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={"status": "success"})
     )
     # Mock Token & Grant (for rehydration)
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
 
@@ -63,7 +63,7 @@ async def test_client_intake_amnesia_fix():
     mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
 
     # Mock wallet depletion (used in background task)
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     with patch("src.main.AsyncOpenAI") as mock_openai_class:
         mock_instance = mock_openai_class.return_value
@@ -98,20 +98,20 @@ async def test_calendar_conflict_interception():
     }
 
     # Mock conflict check to return conflict: True
-    respx.get(f"{settings.NODE_SERVICE_URL}/events/check-conflicts").mock(
+    respx.get(url__regex=r".*/events/check-conflicts.*").mock(
         return_value=Response(200, json={"hasConflict": True})
     )
     # Mock regular session/health
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json={})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/").mock(return_value=Response(200, json={"message": "ok"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/.*.*").mock(return_value=Response(200, json={"message": "ok"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
     # Mock Token & Grant
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
 
@@ -198,17 +198,17 @@ async def test_event_drafting_amnesia_fix():
             }
         }
     }
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json=existing_session)
     )
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(return_value=Response(200, json={"status": "success"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/events").mock(return_value=Response(200, json={"id": "evt_123", "status": "success"}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.post(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"status": "success"}))
+    respx.post(url__regex=r".*/events.*").mock(return_value=Response(200, json={"id": "evt_123", "status": "success"}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
     # Mock Token & Grant
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "test-jwt-token"})
     )
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True})
     )
 

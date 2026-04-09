@@ -28,7 +28,7 @@ ENDPOINT = f"{BASE_URL}/search-contact"
 @pytest.mark.asyncio
 @respx.mock
 async def test_core_client_search_contact_by_email():
-    respx.get(ENDPOINT).mock(
+    respx.get(url__regex=r".*/search-contact.*").mock(
         return_value=httpx.Response(200, json=CONTACT_FOUND_RESPONSE)
     )
     
@@ -54,7 +54,7 @@ def mock_services():
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_search_contact_found(mock_services):
-    respx.get(ENDPOINT).mock(
+    respx.get(url__regex=r".*/search-contact.*").mock(
         return_value=httpx.Response(200, json=CONTACT_FOUND_RESPONSE)
     )
     
@@ -69,7 +69,7 @@ async def test_agent_handle_search_contact_found(mock_services):
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_search_contact_not_found(mock_services):
-    respx.get(ENDPOINT).mock(
+    respx.get(url__regex=r".*/search-contact.*").mock(
         return_value=httpx.Response(404, json=CONTACT_NOT_FOUND_RESPONSE)
     )
     
@@ -82,7 +82,7 @@ async def test_agent_handle_search_contact_not_found(mock_services):
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_search_contact_auth_required(mock_services):
-    respx.get(ENDPOINT).mock(
+    respx.get(url__regex=r".*/search-contact.*").mock(
         return_value=httpx.Response(404, json=AUTH_REQUIRED_RESPONSE)
     )
     
@@ -95,7 +95,7 @@ async def test_agent_handle_search_contact_auth_required(mock_services):
 @respx.mock
 async def test_agent_handle_search_contact_nested_found(mock_services):
     nested_response = {"status": "success", "data": {"contact_id": 8888}}
-    respx.get(ENDPOINT).mock(return_value=httpx.Response(200, json=nested_response))
+    respx.get(url__regex=r".*/search-contact.*").mock(return_value=httpx.Response(200, json=nested_response))
     
     args = {"email": "nested@example.com"}
     result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
@@ -112,7 +112,7 @@ async def test_agent_handle_search_contact_missing_email(mock_services):
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_search_contact_server_error(mock_services):
-    respx.get(ENDPOINT).mock(return_value=httpx.Response(500, json={}))
+    respx.get(url__regex=r".*/search-contact.*").mock(return_value=httpx.Response(500, json={}))
     args = {"email": "broken@example.com"}
     result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     assert result["status"] == "error"
@@ -120,7 +120,7 @@ async def test_agent_handle_search_contact_server_error(mock_services):
 @pytest.mark.asyncio
 @respx.mock
 async def test_agent_handle_search_contact_200_empty_response(mock_services):
-    respx.get(ENDPOINT).mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.get(url__regex=r".*/search-contact.*").mock(return_value=httpx.Response(200, json={"status": "success"}))
     args = {"email": "nothing@example.com"}
     result = await handle_search_contact(args, mock_services, tenant_id="test_tenant")
     assert result["status"] == "not_found"

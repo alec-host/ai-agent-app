@@ -36,17 +36,17 @@ async def test_handshake_existing_user_silent_healing():
     }
 
     # Step 1: accessToken returns a fresh JWT
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "fresh-token-xyz"})
     )
     # Step 2: hasGrantToken confirms the grant is valid
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True,
                                         "message": "Google Calendar integration is active and valid."})
     )
 
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id}))
-    respx.post(f"{BASE}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     from unittest.mock import patch, AsyncMock, MagicMock
     with patch("src.main.AsyncOpenAI") as mock_openai_class:
@@ -102,10 +102,10 @@ async def test_handshake_existing_user_revoked():
 
     auth_url = "https://google.com/auth"
     # Step 1 confirms no session
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "auth_required", "auth_url": auth_url})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id}))
 
     async with LifespanManager(app) as manager:
         transport = ASGITransport(app=manager.app)
@@ -142,16 +142,16 @@ async def test_handshake_existing_user_refresh_failed():
         "User-Role": "Associate"
     }
 
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "stale-token"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={
             "success": True, "exists": True, "valid": False,
             "message": "Google Calendar integration exists but session is invalid. Re-authentication required."
         })
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id}))
 
     async with LifespanManager(app) as manager:
         transport = ASGITransport(app=manager.app)
@@ -183,14 +183,14 @@ async def test_handshake_streaming_healing():
         "User-Role": "Associate"
     }
 
-    respx.get(f"{BASE}/auth/accessToken").mock(
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(
         return_value=Response(200, json={"status": "ready", "jwtToken": "stream-token"})
     )
-    respx.get(f"{BASE}/auth/hasGrantToken").mock(
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(
         return_value=Response(200, json={"success": True, "exists": True, "valid": True,
                                         "message": "Google Calendar integration is active and valid."})
     )
-    respx.get(f"{BASE}/chat/session").mock(return_value=Response(200, json={"tenantId": tenant_id}))
+    respx.get(url__regex=r".*/chat/session.*").mock(return_value=Response(200, json={"tenantId": tenant_id}))
 
     async with LifespanManager(app) as manager:
         transport = ASGITransport(app=manager.app)

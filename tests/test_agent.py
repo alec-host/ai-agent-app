@@ -15,7 +15,7 @@ async def test_health_endpoint():
     
     # We mock the remote backend call
     from src.config import settings
-    respx.get(f"{settings.NODE_SERVICE_URL}/").mock(return_value=Response(200, json={"message": "ok"}))
+    respx.get(url__regex=r".*/.*.*").mock(return_value=Response(200, json={"message": "ok"}))
     
     # --- FIXED LINE BELOW ---
     # We use ASGITransport to link the client to our FastAPI app

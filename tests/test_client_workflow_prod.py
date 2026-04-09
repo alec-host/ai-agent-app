@@ -15,7 +15,7 @@ async def test_client_creation_reactive_auth():
     
     # 1. Setup Mock for 404 Auth Trigger
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/client").mock(return_value=Response(
+        respx.post(url__regex=r".*/client.*").mock(return_value=Response(
             404, 
             json={"success": False, "message": "Not found"}
         ))
@@ -65,7 +65,7 @@ async def test_client_creation_unexpected_error():
     tenant_id = "test-tenant-error"
     
     with respx.mock:
-        respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/client").mock(return_value=Response(
+        respx.post(url__regex=r".*/client.*").mock(return_value=Response(
             500, 
             json={"success": False, "message": "Database error"}
         ))

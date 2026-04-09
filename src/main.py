@@ -10,6 +10,8 @@ import asyncio
 import dateparser
 
 import sentry_sdk
+import jwt
+from jwt.exceptions import PyJWTError
 
 from contextlib import asynccontextmanager
 from typing import Optional, List
@@ -25,6 +27,17 @@ from urllib.parse import quote
 
 from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
+
+# --- AGENT CONCURRENCY & TOOL MOCKS (DEP-02, CQ-04) ---
+# Global Semaphore to prevent Token-Per-Minute (TPM) exhaustion
+_tpm_guard = asyncio.Semaphore(5) 
+
+class MockTool:
+    """Mock a tool-call object for execute_tool_call (DEP-02 optimization)"""
+    def __init__(self, d):
+        self.id = d["id"]
+        self.function = type('obj', (object,), d["function"])
+
 from src.agent_manager import execute_tool_call, get_rehydration_context
 from src.utils import sanitize_history, retry_with_backoff, get_starter_chips, standardize_response
 
@@ -45,33 +58,32 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(
         base_url=settings.NODE_SERVICE_URL,
         headers={"User-Agent": "Legal-AI-Agent/1.0"},
-        verify=False,
+        verify=settings.TLS_VERIFY,  # SEC-03: TLS verification enabled by default
         timeout=httpx.Timeout(15.0)
     )
     
     app.state.ai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    print(f"--- {settings.APP_NAME} Started Successfully ---")
+    logger.info(f"--- {settings.APP_NAME} Started Successfully ---")
     
     yield  # --- The app runs here ---
 
     # [SHUTDOWN LOGIC]
-    print(f"--- {settings.APP_NAME} Shutting Down ---")
+    logger.info(f"--- {settings.APP_NAME} Shutting Down ---")
     await app.state.http_client.aclose()
-    print("Resources cleaned up. Goodbye.")
+    logger.info("Resources cleaned up. Goodbye.")
 
 app = FastAPI(title=settings.APP_NAME,description=settings.APP_DESCRIPTION, lifespan=lifespan)
 
 # --- 0. CORS & Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,  # SEC-02: Explicit allowlist replaces wildcard
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("legal-agentic-ai")
 
 # --- 1. Health Check Endpoint ---
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -92,8 +104,6 @@ async def health_check(request: Request):
     
     return health_status
 
-    return health_status
-
 # --- 2. Security & Multi-tenancy Guardrails ---
 async def verify_tenant_access(
     x_tenant_id: str = Header(...), 
@@ -110,10 +120,41 @@ async def verify_tenant_access(
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:]
     
-    if token:
-        logger.info(f"[AUTH-GUARD] Header Token detected for tenant {x_tenant_id} (Length: {len(token)})")
+    # SEC-05: Cryptographic JWT Verification
+    if settings.JWT_ENABLED:
+        if not token:
+            logger.warning(f"[AUTH-GUARD] Missing Authorization token for tenant {x_tenant_id}")
+            raise HTTPException(status_code=401, detail="Authentication token is required.")
+        
+        try:
+            # Decode and verify the JWT
+            payload = jwt.decode(
+                token, 
+                settings.JWT_SECRET, 
+                algorithms=[settings.JWT_ALGORITHM],
+                audience=settings.JWT_AUDIENCE
+            )
+            
+            # Verify Tenant Matching (Integrity check)
+            token_tenant_id = payload.get("tenant_id")
+            if token_tenant_id and str(token_tenant_id) != str(x_tenant_id):
+                logger.error(f"[AUTH-GUARD] Tenant Mismatch: Header={x_tenant_id}, Token={token_tenant_id}")
+                raise HTTPException(status_code=403, detail="Tenant ID mismatch in token.")
+                
+            logger.info(f"[AUTH-GUARD] JWT Verified for tenant {x_tenant_id} (User: {payload.get('email', 'unknown')})")
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning(f"[AUTH-GUARD] Expired token for tenant {x_tenant_id}")
+            raise HTTPException(status_code=401, detail="Token has expired.")
+        except PyJWTError as e:
+            logger.error(f"[AUTH-GUARD] JWT Validation failed: {str(e)}")
+            raise HTTPException(status_code=401, detail="Invalid authentication token.")
     else:
-        logger.warning(f"[AUTH-GUARD] No Header Token provided for tenant {x_tenant_id}")
+        # Fallback for dev mode where JWT is disabled
+        if token:
+            logger.info(f"[AUTH-GUARD] JWT disabled, skipping verification for tenant {x_tenant_id}")
+        else:
+            logger.warning(f"[AUTH-GUARD] No Header Token provided for tenant {x_tenant_id}")
 
     return {
         "tenant_id": x_tenant_id, 
@@ -400,13 +441,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             
             logger.info(f"[Token-Guard] Filtered toolset to {len(relevant_tools)} items for workflow: {active_wf}")
 
-        # --- 3. CALL LLM WITH CONCURRENCY GUARD ---
-        # Global Semaphore to prevent Token-Per-Minute (TPM) exhaustion
-        from asyncio import Semaphore
-        tpm_guard = Semaphore(5) # Allow 5 concurrent LLM calls
-        
+        # --- 3. CALL LLM WITH CONCURRENCY GUARD ---        
         async def _call_openai():
-            async with tpm_guard:
+            async with _tpm_guard:
                 selected_model = get_optimal_model(active_wf, req.prompt)
                 logger.info(f"[ROUTER] Sending payload to model: {selected_model}")
                 return await ai_client.chat.completions.create(
@@ -671,8 +708,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 from src.utils import retry_with_backoff
                 stream = await retry_with_backoff(retries=2, backoff_in_seconds=2)(_call_openai_stream)()
             except Exception as e:
-                logger.error(f"[STREAM] OpenAI error: {e}")
-                yield f"data: {json.dumps(standardize_response({'content': f'OpenAI error: {str(e)}', 'done': True}, messages[1:]))}\n\n"
+                logger.error(f"[STREAM] OpenAI error: {e}", exc_info=True)
+                yield f"data: {json.dumps(standardize_response({'content': 'An internal processing error occurred. Please try again.', 'done': True}, messages[1:]))}\n\n"
                 return
 
             full_content = ""
@@ -737,12 +774,6 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
             pending_throttle_msg = None
 
             for tool_call_data in assistant_msg_dict["tool_calls"]:
-                # Mock a tool-call object for execute_tool_call
-                class MockTool:
-                    def __init__(self, d):
-                        self.id = d["id"]
-                        self.function = type('obj', (object,), d["function"])
-                
                 tool_name = tool_call_data['function']['name']
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 

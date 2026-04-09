@@ -1,8 +1,9 @@
-fastapi
-uvicorn[standard]
-openai
-httpx
-python-dotenv
-pydantic-settings
-sentry-sdk
-dateparser>=1.2.0
+fastapi==0.135.*
+uvicorn[standard]==0.22.*
+openai==2.26.*
+httpx==0.28.*
+python-dotenv==1.0.*
+pydantic-settings==2.13.*
+sentry-sdk==2.54.*
+PyJWT==2.12.*
+dateparser==1.3.*

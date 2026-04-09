@@ -42,7 +42,7 @@ async def test_matter_workflow_full_cycle():
     respx.get(re.compile(f".*/case-stage.*")).mock(side_effect=cs_side_effect)
     respx.get(re.compile(f".*/billing-info.*")).mock(side_effect=cs_side_effect)
     
-    respx.post(f"{settings.NODE_REMOTE_SERVICE_URL}/matters").mock(
+    respx.post(url__regex=r".*/matters.*").mock(
         return_value=Response(200, json={"status": "success", "id": 500})
     )
 
@@ -72,11 +72,11 @@ async def test_matter_workflow_full_cycle():
             session_data["metadata"] = payload["metadata"]
         return Response(200, json={"status": "success"})
 
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session").mock(side_effect=get_session_mock)
-    respx.post(f"{settings.NODE_SERVICE_URL}/chat/session").mock(side_effect=update_session_mock)
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/accessToken").mock(return_value=Response(200, json={"status": "ready", "jwtToken": "token"}))
-    respx.get(f"{settings.NODE_SERVICE_URL}/auth/hasGrantToken").mock(return_value=Response(200, json={"success": True, "exists": True, "valid": True}))
-    respx.post(f"{settings.NODE_SERVICE_URL}/wallet/deplete").mock(return_value=Response(200, json={"status": "ok"}))
+    respx.get(url__regex=r".*/chat/session.*").mock(side_effect=get_session_mock)
+    respx.post(url__regex=r".*/chat/session.*").mock(side_effect=update_session_mock)
+    respx.get(url__regex=r".*/auth/accessToken.*").mock(return_value=Response(200, json={"status": "ready", "jwtToken": "token"}))
+    respx.get(url__regex=r".*/auth/hasGrantToken.*").mock(return_value=Response(200, json={"success": True, "exists": True, "valid": True}))
+    respx.post(url__regex=r".*/wallet/deplete.*").mock(return_value=Response(200, json={"status": "ok"}))
 
     # 3. MOCK AI BEHAVIOR
     # Turn 1: LLM calls lookup tool

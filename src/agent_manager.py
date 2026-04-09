@@ -24,7 +24,7 @@ async def get_rehydration_context(tenant_id, services):
         if isinstance(raw_metadata, str):
             try:
                 metadata = json.loads(raw_metadata)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 metadata = {}
         else:
             metadata = raw_metadata or {}
@@ -84,7 +84,17 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
     def _redact_dict(d: dict) -> dict:
         if not isinstance(d, dict): return d
         redact_keys = ["jwtToken", "accessToken", "password", "token"]
-        return {k: ("********" if k in redact_keys else v) for k, v in d.items()}
+        res = {k: ("********" if k in redact_keys else v) for k, v in d.items()}
+        
+        # New: Literal redaction for PII values in strings (SEC-06 hardening)
+        redact_vals = [user_email, tenant_id]
+        for k, v in res.items():
+            if isinstance(v, str):
+                for val in redact_vals:
+                    if val and val in v:
+                        v = v.replace(val, "[REDACTED]")
+                        res[k] = v
+        return res
 
     calendar_funcs = ["schedule_event", "initialize_calendar_session", "check_calendar_connection", "list_upcoming_events"]
     client_funcs = ["create_client_record", "setup_client"]
@@ -98,7 +108,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         raw_metadata = db_session.get("metadata", {})
         if isinstance(raw_metadata, str):
             try: metadata = json.loads(raw_metadata)
-            except: metadata = {}
+            except (json.JSONDecodeError, ValueError): metadata = {}
         else:
             metadata = raw_metadata or {}
 
@@ -150,7 +160,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
 
     except Exception as e:
         logger.error(f"CRITICAL DISPATCH ERROR: {func_name} failed. {e}", exc_info=True)
-        return _redact_dict({"status": "error", "message": "An internal error occurred in the tool dispatcher.", "details": str(e)})
+        return _redact_dict({"status": "error", "message": "An internal error occurred in the tool dispatcher."})
 
     finally:
         # --- PHASE E: AUTOMATED STATE PURGING (Efficiency & Scalability) ---
