@@ -491,6 +491,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
             asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
             
+            # [PROTOCOL-SC] Final context save for linear (non-tool) response
+            await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": assistant_msg.content}])
+            await redis_memory.close()
+            
             return standardize_response(final_payload, messages[1:])
 
         # --- 4. EXECUTE TOOL CALLS ---

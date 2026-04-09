@@ -131,8 +131,8 @@ async def summarize_and_save(tenant_id, history, services, ai_client):
     Collapses long conversation history into a concise summary to preserve context
     while staying within token limits.
     """
-    # Threshold for summarization (e.g., more than 15 actual turns)
-    if not history or len(history) < 15:
+    # Threshold for summarization (proactive at 10 turns)
+    if not history or len(history) < 10:
         return
 
     try:
@@ -143,26 +143,28 @@ async def summarize_and_save(tenant_id, history, services, ai_client):
             try: metadata = json.loads(metadata)
             except: metadata = {}
             
-        # Don't summarize if we recently did it
+        # Don't summarize if we recently did it (within last 5 turns)
         last_summary_turn = metadata.get("last_summary_turn_count", 0)
-        if len(history) - last_summary_turn < 10:
+        if len(history) - last_summary_turn < 5:
             return
 
         logger.info(f"[MEMORY-AGENT] Triggering incremental summarization for {tenant_id} (History: {len(history)} turns)")
 
         # 1. Summarize oldest messages
-        old_history = json.dumps(history[:-5], indent=2) # Keep the last 5 turns for immediate context
+        old_history = json.dumps(history[:-4], indent=2) # Keep the last 4 turns for immediate context
         
         summary_prompt = f"""
-        Summarize the following conversation history into a concise, high-density paragraph.
-        Focus on:
-        - The current active goal or workflow
-        - Any decisions made or data confirmed
-        - Remaining blockers or missing information
-
-        FORMAT: A single paragraph of max 150 words.
+        Summarize the conversation history into a high-density, fact-rich paragraph.
         
-        HISTORY:
+        STRICT FOCUS:
+        - The user's initial greeting and first questions (e.g., 'who are you', 'how can you help')
+        - The current active goal or specific workflow status
+        - Any confirmed client names, matter numbers, or dates
+        - Key decisions or blockers identified
+
+        FORMAT: A single dense paragraph (approx 200 words).
+        
+        HISTORY TO COMPRESS:
         {old_history}
         """
 
