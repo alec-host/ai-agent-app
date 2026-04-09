@@ -527,15 +527,21 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # Finalize Response Logic
         if pending_throttle_msg:
              final_db = await services['calendar'].get_client_session(tenant_id)
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": pending_throttle_msg}])
+             await redis_memory.close()
              return standardize_response({"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db})
 
         if terminal_success_msg and not assistant_msg.content:
              final_db = await services['calendar'].get_client_session(tenant_id)
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": terminal_success_msg}])
+             await redis_memory.close()
              return standardize_response({"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db})
         elif terminal_success_msg:
              # If assistant already had words, append the success table to it
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
              final_db = await services['calendar'].get_client_session(tenant_id)
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": final_resp}])
+             await redis_memory.close()
              return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
     # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
