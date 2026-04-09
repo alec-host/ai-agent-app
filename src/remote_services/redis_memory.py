@@ -16,10 +16,10 @@ class RedisMemoryClient:
         # Namespace keys to prevent collision across tenants/threads
         self.key = f"matterminer:chat_history:{self.tenant_id}:{self.thread_id}"
         
-        # Configure Redis with explicit authentication and timeouts
+            # Configure Redis with explicit authentication and timeouts
         self.redis = redis.Redis(
             host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
+            port=int(settings.REDIS_PORT),
             password=settings.REDIS_PASS or None,
             db=0,
             decode_responses=True,
@@ -39,7 +39,7 @@ class RedisMemoryClient:
                 return []
             return [json.loads(item) for item in items]
         except Exception as e:
-            logger.warning(f"[REDIS-MEMORY] Failed to fetch history for {self.key}. Is Redis running? ({e})")
+            logger.error(f"[REDIS-MEMORY] Failed to fetch history for {self.key}. Is Redis running? Exception details:", exc_info=True)
             return []
 
     async def append_messages(self, messages: List[Dict[str, Any]]):
@@ -61,8 +61,9 @@ class RedisMemoryClient:
             
             # Refresh the TTL for the whole conversation thread
             await self.redis.expire(self.key, self.ttl)
+            logger.info(f"[REDIS-MEMORY] Successfully appended {len(messages)} messages to {self.key}")
         except Exception as e:
-            logger.warning(f"[REDIS-MEMORY] Failed to append to {self.key}. ({e})")
+            logger.error(f"[REDIS-MEMORY] Critical failure appending to {self.key}. Traceback below:", exc_info=True)
 
     async def clear_history(self):
         """
