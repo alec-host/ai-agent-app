@@ -884,10 +884,70 @@ async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_acce
     calendar = GoogleCalendarClient(
         auth["tenant_id"], 
         request.app.state.http_client, 
-        getattr(request.state, "correlation_id", str(uuid.uuid4())),
+        correlation_id=request.state.correlation_id,
         access_token=auth.get("token")
     )
-    return await calendar.request("POST", "/events/sync-google")
+    result = await calendar.sync_all_events()
+    return standardize_response({"response": result})
+
+# --- 8. Redis Diagnostic Health Route ---
+@app.get("/ai/redis-health")
+async def check_redis_health(auth: dict = Depends(verify_tenant_access)):
+    """
+    Diagnostic Endpoint: Explicitly tests the Redis Memory pipeline within the exact
+    FastAPI Execution environmental constraints (Network, Async Event Loop, Auth).
+    """
+    from src.remote_services.redis_memory import RedisMemoryClient
+    import traceback
+    
+    tenant_id = auth["tenant_id"]
+    test_thread = "health_test_thread"
+    
+    redis_memory = RedisMemoryClient(tenant_id, test_thread)
+    
+    try:
+        # Step 1: Ping Data
+        pong = await redis_memory.redis.ping()
+        
+        # Step 2: Clear any old test data
+        await redis_memory.clear_history()
+        
+        # Step 3: Append 2 items simultaneously
+         # NOTE: We ensure explicit strings just like the main chat loop
+        await redis_memory.append_messages([
+            {"role": "user", "content": "health_ping"},
+            {"role": "assistant", "content": "health_pong"}
+        ])
+        
+        # Step 4: Retrieve List
+        memory_state = await redis_memory.get_history()
+        
+        # Set 5: Clean it
+        await redis_memory.clear_history()
+        await redis_memory.close()
+        
+        return {
+            "status": "Healthy",
+            "ping_response": pong,
+            "memory_retrieved": len(memory_state),
+            "memory_payload": memory_state,
+            "connected_to": {
+                "host": settings.REDIS_HOST,
+                "port": settings.REDIS_PORT
+            }
+        }
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        return {
+            "status": "Degraded or Offline",
+            "error_type": str(type(e).__name__),
+            "error_message": str(e),
+            "traceback": error_trace,
+            "connected_to": {
+                "host": settings.REDIS_HOST,
+                "port": settings.REDIS_PORT
+            }
+        }
 
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
