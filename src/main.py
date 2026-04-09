@@ -227,12 +227,21 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        # [PROTOCOL-SC] New Session Detected.
-        # To prevent 'Bleed-Through' from older sessions, we do NOT rehydrate raw text
-        # if the client-side history is empty. Continuity is preserved via the 
-        # 'history_summary' and 'global_facts' injected into the system prompt.
-        cleaned_history = []
-        logger.info(f"[SESSION] [{tenant_id}] Clean start detected via UI. Raw history omitted.")
+        # [PROTOCOL-SC] Rehydrate from Redis with Session Isolation Marker
+        from src.utils import compress_reasoning_history
+        raw_history = await redis_memory.get_history()
+        
+        # If Redis has history, we inject a marker to separate this new session from legacy logs
+        if raw_history:
+            session_marker = {"role": "system", "content": f"--- [NEW CONVERSATION STARTED AT {datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p UTC')}] ---"}
+            cleaned_history = compress_reasoning_history(raw_history, keep_reasoning_turns=2)
+            cleaned_history.append(session_marker)
+            # Sync the marker back to Redis so later turns in THIS session know where it started
+            await redis_memory.append_messages([session_marker])
+            logger.info(f"[SESSION] [{tenant_id}] Rehydrated history and injected session marker.")
+        else:
+            cleaned_history = []
+            logger.info(f"[SESSION] [{tenant_id}] Fresh start - no legacy history found.")
     
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
@@ -613,10 +622,17 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        # [PROTOCOL-SC] New Session Detected via UI.
-        # We start fresh to avoid bleed-through from legacy reasoning chains.
-        cleaned_history = []
-        logger.info(f"[STREAM-SESSION] [{tenant_id}] Clean start detected. Raw history omitted.")
+        # [PROTOCOL-SC] Rehydrate with Session Isolation Marker (Streaming)
+        from src.utils import compress_reasoning_history
+        raw_history = await redis_memory.get_history()
+        if raw_history:
+            session_marker = {"role": "system", "content": f"--- [NEW CONVERSATION STARTED AT {datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p UTC')}] ---"}
+            cleaned_history = compress_reasoning_history(raw_history, keep_reasoning_turns=2)
+            cleaned_history.append(session_marker)
+            await redis_memory.append_messages([session_marker])
+            logger.info(f"[STREAM-SESSION] [{tenant_id}] Rehydrated history with session marker.")
+        else:
+            cleaned_history = []
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
