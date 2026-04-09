@@ -11,110 +11,87 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
     """
     Truncates older message content to save tokens, but STRICTLY PRESERVES 
     the most recent messages to ensure immediate context and JSON validity.
+    
+    [SECURITY & INTEGRITY]
+    1. Redacts sensitive info (JWTs, Passwords).
+    2. Heals corrupted assistant-tool chains by dropping incomplete tool calls.
     """
     sanitized = []
-    total_msgs = len(history)
+    total_raw = len(history)
 
+    # 1. First Pass: Conversion and Basic Cleanup
     for i, msg in enumerate(history):
-        # 1. Convert Pydantic objects to dicts safely
         if hasattr(msg, 'model_dump'):
-            msg_dict = msg.model_dump(exclude_none=True)
+            msg_dict = msg.model_dump() # Note: No exclude_none=True to keep 'content' keys
         elif hasattr(msg, 'dict'):
-            msg_dict = msg.dict(exclude_none=True)
+            msg_dict = msg.dict()
         else:
             msg_dict = dict(msg)
         
-        # 2. Handle 'tool_calls' (Preserve metadata)
-        if "tool_calls" in msg_dict and msg_dict["tool_calls"]:
-            raw_calls = msg_dict["tool_calls"]
-            msg_dict["tool_calls"] = [
-                (tc.model_dump() if hasattr(tc, 'model_dump') else tc) 
-                for tc in raw_calls
-            ]
-        
-        # 3. Explicitly preserve Tool identity fields
+        # Identity field preservation
         if msg_dict.get("role") == "tool":
-            # Ensure tool_call_id and name are present if they were in the original msg
-            if not msg_dict.get("tool_call_id") and "tool_call_id" in msg_dict:
-                 pass # model_dump with exclude_none might have removed it if it was None, but for tools it shouldn't be None
-            
-            # OpenAI requires 'content' to be a string (even empty) for tool role
-            if msg_dict.get("content") is None:
-                msg_dict["content"] = ""
-
-        # 4. SMART TRUNCATION
-        # We NEVER truncate the last 'n' messages. 
-        # This ensures the AI always sees the full "Pending Task" injection and the User's latest prompt.
-        is_recent = i >= (total_msgs - keep_last_n)
+            if msg_dict.get("content") is None: msg_dict["content"] = ""
         
+        # Scrubbing & Truncation (Same as before)
+        is_recent = i >= (total_raw - keep_last_n)
         content = msg_dict.get("content")
         
         if isinstance(content, str):
-            # 3.4 GHOST DATA SCRUBBING
-            # Completely strip out previous system injections from historical messages 
-            # to prevent the LLM from hallucinating old state after a workflow completes.
-            scrub_markers = [
-                "### DATABASE VAULT",
-                "### RECOVERY MODE",
-                "### PENDING CONTACT",
-                "### PENDING CALENDAR",
-                "The following data is ALREADY SYNCED" # fallback
-            ]
+            scrub_markers = ["### DATABASE VAULT", "### RECOVERY MODE", "### PENDING CONTACT", "### PENDING CALENDAR"]
             for marker in scrub_markers:
-                if marker in content:
-                    content = content.split(marker)[0].strip()
+                if marker in content: content = content.split(marker)[0].strip()
             
-            # 3.4.1 LITERAL VALUE REDACTION (High-Sensitivity Scrub)
             if redact_values:
                 for val in redact_values:
                     if val and isinstance(val, str) and val in content:
                         content = content.replace(val, "[REDACTED]")
-                    
-            # 3.5 SECURITY & SENSITIVE TOKEN MASKING (Regex-based for Values)
+            
             mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization", "X-User-Email"]
             for target in mask_targets:
                 if target in content:
-                    # Replace the key itelf
                     content = content.replace(target, "********")
-                    # Also try to mask the value if it follows a JSON-like pattern: "key": "value"
-                    # Pattern: \*\*\*\*\*\*\*\*"\s*:\s*"([^"]+)"
                     import re
                     content = re.sub(r'(\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', content)
             
-            # Additional keys to mask in generic objects
             msg_dict["content"] = content
-
-            if not is_recent:
-                if len(content) > max_content_length:
-                    # Keep the beginning (summary/status) and cut the rest
-                    msg_dict["content"] = content[:max_content_length] + f" ... [Truncated: {len(content) - max_content_length} chars]"
-        
-        # Mask passwords in tool_calls arguments if they exist
-        if "tool_calls" in msg_dict and msg_dict["tool_calls"]:
-            for tc in msg_dict["tool_calls"]:
-                if tc.get("function") and tc["function"].get("arguments"):
-                    try:
-                        args_dict = json.loads(tc["function"]["arguments"])
-                        mask_keys = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "token", "X-User-Email", "user_email"]
-                        for key in mask_keys:
-                            if key in args_dict:
-                                args_dict[key] = "********"
-                        
-                        # Literal redaction in arguments too
-                        if redact_values:
-                            args_str = json.dumps(args_dict)
-                            for val in redact_values:
-                                if val and isinstance(val, str) and val in args_str:
-                                    args_str = args_str.replace(val, "[REDACTED]")
-                            tc["function"]["arguments"] = args_str
-                        else:
-                            tc["function"]["arguments"] = json.dumps(args_dict)
-                    except:
-                        pass
+            if not is_recent and len(content) > max_content_length:
+                msg_dict["content"] = content[:max_content_length] + f" ... [Truncated]"
         
         sanitized.append(msg_dict)
-        
-    return sanitized
+
+    # 2. Second Pass: Logic Healing (Prevent 400 BadRequest)
+    # We must ensure every Assistant tool_call is followed by its Tool results.
+    healed = []
+    for i, msg in enumerate(sanitized):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            # Look ahead for tool results
+            call_ids = [tc.get("id") for tc in msg.get("tool_calls")]
+            # We check the next sequence of messages for 'tool' roles with matching IDs
+            found_ids = set()
+            j = i + 1
+            while j < len(sanitized) and sanitized[j].get("role") == "tool":
+                tid = sanitized[j].get("tool_call_id")
+                if tid in call_ids:
+                    found_ids.add(tid)
+                j += 1
+            
+            if len(found_ids) == len(call_ids):
+                # Chain is complete, keep it
+                healed.append(msg)
+            else:
+                # Chain is broken (missing tool results). 
+                # DROP the tool_calls part to satisfy OpenAI, keep content if any.
+                msg_copy = {**msg}
+                msg_copy.pop("tool_calls", None)
+                if msg_copy.get("content"):
+                    healed.append(msg_copy)
+                else:
+                    # If it has no content and no tool calls, it's an empty shell, drop it completely.
+                    continue
+        else:
+            healed.append(msg)
+
+    return healed
     
 def retry_with_backoff(retries=3, backoff_in_seconds=1):
     def decorator(func):
