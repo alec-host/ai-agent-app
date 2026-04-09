@@ -227,9 +227,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        from src.utils import compress_reasoning_history
-        raw_history = await redis_memory.get_history()
-        cleaned_history = compress_reasoning_history(raw_history)
+        # [PROTOCOL-SC] New Session Detected.
+        # To prevent 'Bleed-Through' from older sessions, we do NOT rehydrate raw text
+        # if the client-side history is empty. Continuity is preserved via the 
+        # 'history_summary' and 'global_facts' injected into the system prompt.
+        cleaned_history = []
+        logger.info(f"[SESSION] [{tenant_id}] Clean start detected via UI. Raw history omitted.")
     
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
@@ -610,9 +613,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        from src.utils import compress_reasoning_history
-        raw_history = await redis_memory.get_history()
-        cleaned_history = compress_reasoning_history(raw_history)
+        # [PROTOCOL-SC] New Session Detected via UI.
+        # We start fresh to avoid bleed-through from legacy reasoning chains.
+        cleaned_history = []
+        logger.info(f"[STREAM-SESSION] [{tenant_id}] Clean start detected. Raw history omitted.")
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
