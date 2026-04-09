@@ -200,6 +200,10 @@ def get_optimal_model(active_workflow: str, user_message: str) -> str:
 async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = Depends(verify_tenant_access)):
     user_prompt_raw = req.prompt.lower().strip()
     if user_prompt_raw in ["clear", "reset", "/clear"]:
+        from src.remote_services.redis_memory import RedisMemoryClient
+        redis_c = RedisMemoryClient(auth["tenant_id"], req.thread_id or "default")
+        await redis_c.clear_history()
+        await redis_c.close()
         return standardize_response({"response": "Conversation history cleared.", "history": []})
 
     tenant_id, user_role, corr_id = auth["tenant_id"], auth["role"], request.state.correlation_id
@@ -213,9 +217,15 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     
-    # --- 1. HISTORY CLEANUP (Moved up to prevent UnboundLocalError) ---
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
-
+    # --- 1. HISTORY CLEANUP & REDIS MEMORY ---
+    from src.remote_services.redis_memory import RedisMemoryClient
+    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
+    
+    if req.history and len(req.history) > 0:
+        cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    else:
+        cleaned_history = await redis_memory.get_history()
+    
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
         "schedule", "event", "meeting", "book", "appointment", "calendar",
@@ -533,7 +543,16 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
     
     final_db = await services['calendar'].get_client_session(tenant_id)
-    return standardize_response({"response": messages[-1].get("content"), "history": messages[1:], "vault_data": final_db})
+    final_response_text = messages[-1].get("content")
+    
+    if final_response_text:
+        await redis_memory.append_messages([
+            {"role": "user", "content": req.prompt},
+            {"role": "assistant", "content": final_response_text}
+        ])
+    await redis_memory.close()
+    
+    return standardize_response({"response": final_response_text, "history": messages[1:], "vault_data": final_db})
 
 # --- 6.1. The Streaming Reasoning Endpoint ---
 @app.post("/ai/chat/stream")
@@ -552,8 +571,14 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
-    # Setup Context
-    cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    # Setup Context & Redis Memory
+    from src.remote_services.redis_memory import RedisMemoryClient
+    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
+    
+    if req.history and len(req.history) > 0:
+        cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
+    else:
+        cleaned_history = await redis_memory.get_history()
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
@@ -802,6 +827,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
+                await redis_memory.append_messages([
+                    {"role": "user", "content": req.prompt}, 
+                    {"role": "assistant", "content": pending_throttle_msg}
+                ])
+                await redis_memory.close()
+                
                 yield f"data: {json.dumps(standardize_response({'content': pending_throttle_msg, 'action': None}, messages[1:]))}\n\n"
                 yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
                 return
@@ -812,6 +843,13 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 final_text = f"\n\n{terminal_success_msg}"
+                
+                await redis_memory.append_messages([
+                    {"role": "user", "content": req.prompt}, 
+                    {"role": "assistant", "content": f"{full_content or ''}{final_text}"}
+                ])
+                await redis_memory.close()
+                
                 yield f"data: {json.dumps(standardize_response({'content': final_text, 'action': None}, messages[1:]))}\n\n"
                 messages.append({"role": "assistant", "content": terminal_success_msg})
                 yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"
@@ -820,6 +858,13 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
         asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
         asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
+        
+        if full_content:
+            await redis_memory.append_messages([
+                {"role": "user", "content": req.prompt}, 
+                {"role": "assistant", "content": full_content}
+            ])
+        await redis_memory.close()
         
         # Fallback completion
         yield f"data: {json.dumps(standardize_response({'done': True, 'history': messages[1:]}))}\n\n"

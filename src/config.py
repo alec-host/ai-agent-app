@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     PINECONE_HOST: str = ""    # The full URL for the index (e.g., https://...pinecone.io)
     PINECONE_INDEX_NAME: str = "matterminer-memory"
     
+    # Redis (Memory/Context Awareness)
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     # CORS — Allowed Origins (SEC-02)
     CORS_ALLOWED_ORIGINS: list = [
         "https://app.matterminer.com",
