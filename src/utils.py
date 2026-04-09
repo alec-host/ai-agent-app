@@ -247,3 +247,60 @@ def standardize_response(payload: dict, history: list = None) -> dict:
         
     return payload
 
+def compact_tool_result(result: Any, max_len: int = 1500) -> str:
+    """
+    Truncates extremely large tool responses to prevent token overflow in Redis/LLM.
+    If the result is a massive list, we keep the first few items and summarize the rest.
+    """
+    if not result:
+        return ""
+        
+    try:
+        raw_str = json.dumps(result) if not isinstance(result, str) else result
+        if len(raw_str) <= max_len:
+            return raw_str
+            
+        # If it's a list, provide a summary
+        if isinstance(result, list):
+            summary = [result[0]] if len(result) > 0 else []
+            return json.dumps({
+                "summary": summary,
+                "total_count": len(result),
+                "notice": "Results truncated for token efficiency."
+            })
+            
+        return raw_str[:max_len] + "... [Truncated]"
+    except Exception:
+        return str(result)[:max_len]
+
+def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_turns: int = 3) -> List[Dict[str, Any]]:
+    """
+    Cost Optimization: Keeps the full conversation text, but drops granular 
+    tool reasoning for older turns to save massive amounts of tokens.
+    """
+    if len(history) <= 10:
+        return history
+        
+    compressed = []
+    # Identify how many tool-turns are in the history
+    # We only keep tool calls/results for the most recent N reasoning chains.
+    reasoning_chains_found = 0
+    
+    # Iterate backwards to keep the most recent
+    for msg in reversed(history):
+        role = msg.get("role")
+        has_tools = "tool_calls" in msg or role == "tool"
+        
+        if has_tools:
+            if reasoning_chains_found < keep_reasoning_turns:
+                compressed.append(msg)
+                # Every time we see a 'user' or 'assistant' without tools, we've hit a turn boundary
+            else:
+                # Drop old reasoning to save tokens
+                continue
+        else:
+            if role in ["user", "assistant"]:
+                reasoning_chains_found += 1
+            compressed.append(msg)
+            
+    return list(reversed(compressed))

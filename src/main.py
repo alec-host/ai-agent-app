@@ -221,10 +221,15 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     from src.remote_services.redis_memory import RedisMemoryClient
     redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
     
+    # [PROTOCOL-SC] Tracking reasoning deltas for server-side state consistency
+    turn_deltas = []
+    
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        cleaned_history = await redis_memory.get_history()
+        from src.utils import compress_reasoning_history
+        raw_history = await redis_memory.get_history()
+        cleaned_history = compress_reasoning_history(raw_history)
     
     # --- Intent Gating (Proactive Auth Checks) ---
     calendar_keywords = [
@@ -472,6 +477,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         
         assistant_dict = assistant_msg.model_dump(exclude_none=True)
         messages.append(assistant_dict)
+        turn_deltas.append(assistant_dict) # [PROTOCOL-SC] Capture reasoning delta
 
         if not assistant_msg.tool_calls:
             # --- FINAL RESPONSE DECORATION ---
@@ -496,7 +502,12 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 tool_call, services, user_role, tenant_id, messages, 
                 user_email=user_email, user_tz=user_tz, ai_client=ai_client
             )
-            messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)})
+            from src.utils import compact_tool_result
+            tool_msg = {"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)}
+            messages.append(tool_msg)
+            
+            # [PROTOCOL-SC] Capture compacted reasoning delta
+            turn_deltas.append({**tool_msg, "content": compact_tool_result(result)})
             
             if isinstance(result, dict):
                 # Detect Terminal Success (Gives us direct control over the final output)
@@ -527,20 +538,23 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         # Finalize Response Logic
         if pending_throttle_msg:
              final_db = await services['calendar'].get_client_session(tenant_id)
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": pending_throttle_msg}])
+             # [PROTOCOL-SC] Atomic Save of entire turn sequence
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": pending_throttle_msg}])
              await redis_memory.close()
              return standardize_response({"response": pending_throttle_msg, "history": messages[1:], "vault_data": final_db})
 
         if terminal_success_msg and not assistant_msg.content:
              final_db = await services['calendar'].get_client_session(tenant_id)
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": terminal_success_msg}])
+             # [PROTOCOL-SC] Atomic Save of entire turn sequence
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": terminal_success_msg}])
              await redis_memory.close()
              return standardize_response({"response": terminal_success_msg, "history": messages[1:], "vault_data": final_db})
         elif terminal_success_msg:
              # If assistant already had words, append the success table to it
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
              final_db = await services['calendar'].get_client_session(tenant_id)
-             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": final_resp}])
+             # [PROTOCOL-SC] Atomic Save of entire turn sequence
+             await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": final_resp}])
              await redis_memory.close()
              return standardize_response({"response": final_resp, "history": messages[1:], "vault_data": final_db})
 
@@ -552,10 +566,9 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     final_response_text = messages[-1].get("content")
     
     if final_response_text:
-        await redis_memory.append_messages([
-            {"role": "user", "content": req.prompt},
-            {"role": "assistant", "content": final_response_text}
-        ])
+        # [PROTOCOL-SC] Atomic Save of entire turn sequence
+        await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas)
+        
     await redis_memory.close()
     
     return standardize_response({"response": final_response_text, "history": messages[1:], "vault_data": final_db})
@@ -577,14 +590,19 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
-    # Setup Context & Redis Memory
+    # Setup Redis Memory
     from src.remote_services.redis_memory import RedisMemoryClient
     redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
+    
+    # [PROTOCOL-SC] Tracking reasoning deltas for server-side state consistency
+    turn_deltas = []
     
     if req.history and len(req.history) > 0:
         cleaned_history = [m.model_dump() if hasattr(m, 'model_dump') else m.dict() for m in req.history]
     else:
-        cleaned_history = await redis_memory.get_history()
+        from src.utils import compress_reasoning_history
+        raw_history = await redis_memory.get_history()
+        cleaned_history = compress_reasoning_history(raw_history)
 
     # --- 0. PROGRAMMATIC INTENT GATE (PRE-LLM) ---
     user_prompt_raw = req.prompt.lower().strip()
@@ -788,6 +806,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
                 yield f"data: {json.dumps(standardize_response(final_payload, messages[1:]))}\n\n"
+                
+                # [PROTOCOL-SC] Final context save for linear (non-tool) response
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": full_content}])
+                await redis_memory.close()
                 return
 
             logger.info(f"[STREAM] Found tool calls. Total: {len(current_tool_calls)}")
@@ -801,6 +823,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 })
             
             messages.append(assistant_msg_dict)
+            turn_deltas.append(assistant_msg_dict) # [PROTOCOL-SC] Capture reasoning delta
             terminal_success_msg = None
             pending_throttle_msg = None
 
@@ -809,7 +832,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 
                 result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email, ai_client=ai_client)
-                messages.append({"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)})
+                from src.utils import compact_tool_result
+                tool_msg = {"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)}
+                messages.append(tool_msg)
+                
+                # [PROTOCOL-SC] Capture compacted reasoning delta
+                turn_deltas.append({**tool_msg, "content": compact_tool_result(result)})
                 
                 if isinstance(result, dict):
                     # Proactively yield auth link to stream if needed
@@ -833,10 +861,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
                 
-                await redis_memory.append_messages([
-                    {"role": "user", "content": req.prompt}, 
-                    {"role": "assistant", "content": pending_throttle_msg}
-                ])
+                # [PROTOCOL-SC] Atomic Save of entire turn sequence
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": pending_throttle_msg}])
                 await redis_memory.close()
                 
                 yield f"data: {json.dumps(standardize_response({'content': pending_throttle_msg, 'action': None}, messages[1:]))}\n\n"
@@ -850,10 +876,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 
                 final_text = f"\n\n{terminal_success_msg}"
                 
-                await redis_memory.append_messages([
-                    {"role": "user", "content": req.prompt}, 
-                    {"role": "assistant", "content": f"{full_content or ''}{final_text}"}
-                ])
+                # [PROTOCOL-SC] Atomic Save of entire turn sequence
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas[:-1] + [{"role": "assistant", "content": f"{full_content or ''}{final_text}"}])
                 await redis_memory.close()
                 
                 yield f"data: {json.dumps(standardize_response({'content': final_text, 'action': None}, messages[1:]))}\n\n"
@@ -866,10 +890,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
         
         if full_content:
-            await redis_memory.append_messages([
-                {"role": "user", "content": req.prompt}, 
-                {"role": "assistant", "content": full_content}
-            ])
+            # [PROTOCOL-SC] Atomic Save of entire turn sequence
+            await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas)
+            
         await redis_memory.close()
         
         # Fallback completion
