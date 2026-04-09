@@ -10,11 +10,13 @@ class RedisMemoryClient:
     Provides automatic context awareness for stateless integrations like Postman
     or third-party plugins that don't pass the 'history' array.
     """
-    def __init__(self, tenant_id: str, thread_id: str = "default"):
+    def __init__(self, tenant_id: str, thread_id: str = "default", user_email: str = None):
         self.tenant_id = tenant_id
         self.thread_id = thread_id
-        # Namespace keys to prevent collision across tenants/threads
-        self.key = f"matterminer:chat_history:{self.tenant_id}:{self.thread_id}"
+        self.user_email = user_email or "default_user"
+        # Namespace keys to prevent collision across tenants/users/threads
+        # Key Pattern: matterminer:chat_history:{tenant_id}:{user_email}:{thread_id}
+        self.key = f"matterminer:chat_history:{self.tenant_id}:{self.user_email}:{self.thread_id}"
         
             # Configure Redis with explicit authentication and timeouts
         self.redis = redis.Redis(

@@ -219,7 +219,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     
     # --- 1. HISTORY CLEANUP & REDIS MEMORY ---
     from src.remote_services.redis_memory import RedisMemoryClient
-    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
+    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default", user_email=user_email)
     
     # [PROTOCOL-SC] Tracking reasoning deltas for server-side state consistency
     turn_deltas = []
@@ -612,9 +612,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_tz = auth.get("timezone", "UTC")
     services = {"calendar": calendar_service, "wallet": wallet_service}
 
-    # Setup Redis Memory
+    # Setup Redis Memory with User Isolation
     from src.remote_services.redis_memory import RedisMemoryClient
-    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default")
+    redis_memory = RedisMemoryClient(tenant_id, req.thread_id or "default", user_email=user_email)
     
     # [PROTOCOL-SC] Tracking reasoning deltas for server-side state consistency
     turn_deltas = []
