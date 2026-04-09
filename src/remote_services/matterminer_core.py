@@ -39,7 +39,7 @@ class MatterMinerCoreClient:
         Passes tenant information via headers (SEC-05).
         """
         # Architectural Requirement: Prepend standard routing path
-        url = f"{self.base_url}/app/core/app/{endpoint.lstrip('/')}"
+        url = f"{self.base_url}/app/core/{endpoint.lstrip('/')}"
         headers = self._get_headers()
         
         try:
@@ -132,12 +132,14 @@ class MatterMinerCoreClient:
 
     async def has_valid_token(self, email: str) -> Dict[str, Any]:
         """
-        Proactively checks if a user has a valid auth token on the remote system.
-        Calls GET /hasValidToken?email=...&tenantId=...
-        Returns the raw response; 404 triggers auth_required via self.request().
+        Proactively checks if a user has a valid grant token.
+        Calls GET /app/auth/hasGrantToken?email=...&tenantId=...
         """
-        params = {"email": email, "tenantId": self.tenant_id}
-        return await self.request("GET", "/hasValidToken", params=params)
+        # Note: We override the /app/core prefix for this specific legacy auth check
+        url = f"{self.base_url}/app/auth/hasGrantToken?tenantId={self.tenant_id}&email={email}"
+        headers = self._get_headers()
+        response = await self.client.get(url, headers=headers)
+        return response.json() if response.status_code == 200 else {"success": False}
 
     async def login(self, email: str, password: str) -> Dict[str, Any]:
         """
