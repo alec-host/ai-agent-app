@@ -42,6 +42,8 @@ class MatterMinerCoreClient:
         url = f"{self.base_url}/app/core/{endpoint.lstrip('/')}"
         headers = self._get_headers()
         
+        logger.info(f"[CORE-API] SUBMITTING {method} TO: {url}")
+        
         try:
             response = await self.client.request(
                 method=method,

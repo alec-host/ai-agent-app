@@ -34,14 +34,15 @@ async def run_draft_workflow(
     metadata_key, 
     workflow_id, 
     history,
-    intro_message=None
+    intro_message=None,
+    db_session=None
 ):
     """
     Unified engine for conversational drafting.
     Handles field-by-field questioning, optional skipping, and contextual auto-detection.
     """
-    # 1. Fetch Session
-    session = await services['calendar'].get_client_session(tenant_id)
+    # 1. Fetch Session (Use tunneled session if available to prevent redundant IO)
+    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -124,13 +125,23 @@ async def run_draft_workflow(
         session["metadata"] = metadata
     
     # 3. Check for Completion
-    # Use 'key in draft' to allow None/Empty values to count as 'Handled'
-    # GATING: Skip fields marked as 'system_only' for user prompts
+    # GATING: Distinguish between required and optional fields for auto-submission
     visible_schema = [f for f in schema if not f.get("system_only", False)]
     
-    missing = [f for f in visible_schema if f["key"] not in draft or not str(draft[f["key"]]).strip()]
+    # 3.1 Identify truly missing required fields
+    required_missing = [f for f in visible_schema if f.get("required", True) and (f["key"] not in draft or not str(draft[f["key"]]).strip())]
     
-    # Case A: Still Drafting
+    # 3.2 Optional fields that haven't been touched at all
+    optional_missing = [f for f in visible_schema if not f.get("required", True) and f["key"] not in draft]
+
+    # Case A: Still missing required info -> MUST ASK
+    if required_missing:
+        next_field = required_missing[0]
+        missing = required_missing + optional_missing
+    else:
+        # ALL REQUIRED ARE MET -> Trigger Submission Case
+        missing = []
+
     if missing:
         payload_args = {
             "tenant_id": tenant_id,
@@ -204,9 +215,10 @@ async def run_draft_workflow(
         
     return None, session, draft # Return None if complete; caller handles submission
 
-async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None):
+async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None, db_session=None):
     """
     Handles operations for the MatterMiner Core remote system.
+    Supports session tunneling (db_session) to minimize backend lookups.
     """
     if func_name == "authenticate_to_core":
         email = args.get("email")
@@ -241,27 +253,27 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
             await core_client.close()
 
     elif func_name == "create_contact":
-        return await handle_create_contact(args, services, tenant_id, history, user_email=user_email)
+        return await handle_create_contact(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
         
     elif func_name in ["create_client_record", "setup_client", "promote_contact_to_client"]:
-        return await handle_create_client(args, services, tenant_id, history, user_email=user_email)
+        return await handle_create_client(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "search_contact_by_email":
         return await handle_search_contact(args, services, tenant_id, user_email=user_email)
 
     elif func_name == "lookup_countries":
-        return await handle_lookup_countries(args, services, tenant_id, user_email=user_email)
+        return await handle_lookup_countries(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "create_standard_event":
         args["is_all_day"] = False
-        return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "create_all_day_event":
         args["is_all_day"] = True
-        return await handle_create_event(args, services, tenant_id, history, user_email=user_email)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "create_matter":
-        return await handle_create_matter(args, services, tenant_id, history, user_email=user_email)
+        return await handle_create_matter(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_client":
         return await handle_lookup_client(args, services, tenant_id, user_email=user_email)
@@ -359,9 +371,10 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
     finally:
         await core_client.close()
 
-async def handle_lookup_countries(args, services, tenant_id, user_email=None):
+async def handle_lookup_countries(args, services, tenant_id, user_email=None, db_session=None):
     """
     Handles searching for country information.
+    Supports session tunneling (db_session) to minimize backend lookups.
     """
     # 1. Initialize Client
     core_client = _get_core_client(tenant_id, user_email)
@@ -403,7 +416,8 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
 
             if linked_id:
                 try:
-                    session = await services['calendar'].get_client_session(tenant_id)
+                    # Tunneling: Reuse fetched session to prevent redundant backend IO
+                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
@@ -446,7 +460,7 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None):
     finally:
         await core_client.close()
 
-async def handle_create_event(args, services, tenant_id, history, user_email=None):
+async def handle_create_event(args, services, tenant_id, history, user_email=None, db_session=None):
     """
     Handles conversational drafting and final submission of an event to MatterMiner Core.
     """
@@ -455,10 +469,11 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     workflow_id = "all_day_event" if is_all_day else "standard_event"
     metadata_key = "event_draft"
     
-    # 1. Start Workflow Engine
+    # 1. Start Workflow Engine (Tunneling session to prevent redundant IO)
     partial_resp, session, draft = await run_draft_workflow(
         schema, args, services, tenant_id, metadata_key, workflow_id, history,
-        intro_message=f"I'll help you schedule that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the **{schema[0]['label']}** be?"
+        intro_message=f"I'll help you schedule that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the **{schema[0]['label']}** be?",
+        db_session=db_session
     )
     
     if partial_resp:
@@ -525,14 +540,15 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     finally:
         await core_client.close()
 
-async def handle_create_contact(args, services, tenant_id, history, user_email=None):
+async def handle_create_contact(args, services, tenant_id, history, user_email=None, db_session=None):
     """
     Handles conversational contact creation with drafting.
     """
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CONTACT_SCHEMA, args, services, tenant_id, "contact_draft", "contact", history,
-        intro_message="I'll help you create that contact. To start, what is their **First Name**?"
+        intro_message="I'll help you create that contact. To start, what is their **First Name**?",
+        db_session=db_session
     )
     
     if partial_resp:
@@ -632,14 +648,15 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     finally:
         await core_client.close()
 
-async def handle_create_client(args, services, tenant_id, history, user_email=None):
+async def handle_create_client(args, services, tenant_id, history, user_email=None, db_session=None):
     """
     Handles all logic related to client record creation and sequential conversation intake.
     """
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CLIENT_SCHEMA, args, services, tenant_id, "client_draft", "client", history,
-        intro_message="I'll help you register that new client. To start, what is their **Email Address**?"
+        intro_message="I'll help you register that new client. To start, what is their **Email Address**?",
+        db_session=db_session
     )
     
     # CASE A: Still gathering data
@@ -888,12 +905,12 @@ def get_workflow_recovery(metadata, db_data):
 
     return None
 
-async def handle_create_matter(args, services, tenant_id, history, user_email=None):
+async def handle_create_matter(args, services, tenant_id, history, user_email=None, db_session=None):
     """
     Handles conversational matter creation with lazy dynamic choice fetching.
     """
-    # 1. Fetch current session to calculate dynamic state
-    session = await services['calendar'].get_client_session(tenant_id)
+    # 1. Fetch current session to calculate dynamic state (Tunneling enabled)
+    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -950,7 +967,8 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     # 3. Hand over to unified engine
     partial_resp, session, draft = await run_draft_workflow(
         dynamic_schema, args, services, tenant_id, "matter_draft", "matter", history,
-        intro_message="I'll help you create a new matter. To begin, what should we call the **Matter Title**?"
+        intro_message="I'll help you create a new matter. To begin, what should we call the **Matter Title**?",
+        db_session=db_session
     )
     
     if partial_resp:

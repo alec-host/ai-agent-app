@@ -143,7 +143,8 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         
         elif func_name in core_funcs:
             # UNIFIED: Passing full context (history + email) for multi-turn drafting
-            result = await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
+            # PERFORMANCE: Tunneling db_session to prevent redundant backend lookups
+            result = await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
         elif func_name in rag_funcs:
             result = _redact_dict(await handle_rag_lookup(func_name, args, services, tenant_id))
