@@ -552,6 +552,16 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     )
     
     if partial_resp:
+        # PERFORMANCE: Sync the draft back to the database immediately to prevent 'Short-term Memory Loss'
+        sync_payload = format_sync_chat_payload(
+            tenant_id=tenant_id,
+            client_args=session,
+            contact_draft=draft,
+            metadata=session.get("metadata", {}),
+            history=[],
+            thread_id=services['calendar'].thread_id
+        )
+        await services['calendar'].sync_client_session(sync_payload)
         return partial_resp
         
     # Case B: Ready to Submit
@@ -661,6 +671,17 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     
     # CASE A: Still gathering data
     if partial_resp:
+        # PERFORMANCE: Sync the draft back to the database immediately to prevent 'Short-term Memory Loss'
+        sync_payload = format_sync_chat_payload(
+            tenant_id=tenant_id,
+            client_args=session,
+            client_draft=draft,
+            metadata=session.get("metadata", {}),
+            history=[],
+            thread_id=services['calendar'].thread_id
+        )
+        await services['calendar'].sync_client_session(sync_payload)
+        
         # EARLIER LOOKUP PATTERN: Intercept the intake as soon as 'client_email' is available.
         email = draft.get("client_email")
         if email and not draft.get("contact_id"):
@@ -972,6 +993,16 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     )
     
     if partial_resp:
+        # PERFORMANCE: Sync the draft back to the database immediately to prevent 'Short-term Memory Loss'
+        sync_payload = format_sync_chat_payload(
+            tenant_id=tenant_id,
+            client_args=session,
+            matter_draft=draft,
+            metadata=session.get("metadata", {}),
+            history=[],
+            thread_id=services['calendar'].thread_id
+        )
+        await services['calendar'].sync_client_session(sync_payload)
         return partial_resp
         
     metadata = session.get("metadata", {})

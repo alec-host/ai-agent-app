@@ -92,18 +92,28 @@ class MatterMinerCoreClient:
 
     async def create_contact(self, contact_data: Dict[str, Any]) -> Dict[str, Any]:
         """Creates a new contact record in MatterMiner Core."""
+        # Standardize key mapping: client_email -> email for Core API compatibility
+        processed_data = contact_data.copy()
+        if "client_email" in processed_data and "email" not in processed_data:
+            processed_data["email"] = processed_data.pop("client_email")
+
         payload = {
             "tenantId": self.tenant_id,
-            **contact_data
+            **processed_data
         }
         logger.info(f"[CONTACT-POST] Payload: {payload}")
         return await self.request("POST", "/contact", json_data=payload)
 
     async def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Registers a new client record in MatterMiner Core."""
+        # Standardize key mapping: client_email -> email for Core API compatibility
+        processed_data = client_data.copy()
+        if "client_email" in processed_data and "email" not in processed_data:
+            processed_data["email"] = processed_data.pop("client_email")
+
         payload = {
             "tenantId": self.tenant_id,
-            **client_data
+            **processed_data
         }
         logger.info(f"[CLIENT-POST] Payload: {payload}")
         return await self.request("POST", "/client", json_data=payload)
