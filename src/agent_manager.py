@@ -142,8 +142,21 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
                 if token: services['calendar'].set_auth_token(token, is_jwt=True)
         
         elif func_name in core_funcs:
-            # UNIFIED: Passing full context (history + email) for multi-turn drafting
-            # PERFORMANCE: Tunneling db_session to prevent redundant backend lookups
+            # --- GUARD 01: PRE-EXECUTION AUTH ENTROPY ---
+            # Enforce strict sign-in verification before allowing any Core API interaction.
+            # If user_email is missing or headers are invalid, halt and redirect to login.
+            if not user_email:
+                logger.warning(f"[{tenant_id}] BLOCKED: Tool '{func_name}' called by unauthenticated user.")
+                return {
+                    "status": "auth_required",
+                    "auth_type": "matterminer_core",
+                    "message": "Authentication required for MatterMiner Core.",
+                    "response_instruction": "Halt the current conversation and display the login card. Do not attempt to proceed with the tool call."
+                }
+
+            # --- STRATEGY: UNIFIED CORE OPERATIONS ---
+            # Passing full context (history + email) for isolated multi-turn drafting.
+            # Tunneling db_session to prevent latency-inducing redundant fetch cycles.
             result = await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
         elif func_name in rag_funcs:

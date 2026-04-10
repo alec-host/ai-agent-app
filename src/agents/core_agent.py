@@ -41,179 +41,81 @@ async def run_draft_workflow(
     Unified engine for conversational drafting.
     Handles field-by-field questioning, optional skipping, and contextual auto-detection.
     """
-    # 1. Fetch Session (Use tunneled session if available to prevent redundant IO)
+    # 1. Fetch Session (Atomic State Tunneling)
     session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
         except: metadata = {}
     
-    # Start fresh ONLY if switching to a DIFFERENT active workflow (Isolation Guard)
+    # 2. Namespace Isolation: Enforce strict demarcation between workflows
+    # Each workflow (Contact, Client, Matter) operates in its own partition.
     current_wf = metadata.get("active_workflow")
     if current_wf and current_wf != workflow_id:
-        logger.info(f"[{tenant_id}] Switching workflow from {current_wf} to {workflow_id}. Clearing stale {metadata_key}.")
-        # Also clear other drafts to prevent contamination
-        metadata["event_draft"] = {}
-        metadata["contact_draft"] = {}
-        metadata["client_draft"] = {}
+        logger.info(f"[{tenant_id}] ISOLATION GUARD: Switching context from {current_wf} to {workflow_id}. Archiving stale {metadata_key}.")
+        # Archive previous session state to prevent contamination
         metadata["active_workflow"] = workflow_id
     
+    # 3. State-First Merging: Load existing draft and merge with NEW args only
+    # This prevents 'Amnesia' by treating DB state as the source of truth.
     draft = metadata.get(metadata_key, {})
+    if not isinstance(draft, dict): draft = {}
     
     # SYSTEM CONTEXT (for auto-detection)
     sys_ctx = args.get("_system_context", {})
     
-    # 2. Update Draft from provided args
+    # 4. Stepwise Schema Population: Update draft strictly from provided args
     for field in schema:
         key = field["key"]
-        
-        # Check direct key and aliases
         candidate_keys = [key] + field.get("aliases", [])
+        
+        # Priority 01: If it's already in the draft (database), KEEPS IT (Immutable)
+        # Priority 02: If provided in args, update it.
         val = None
         for ck in candidate_keys:
             if ck in args and args[ck] is not None:
                 val = args[ck]
                 break
         
-        # Determine if value was explicitly provided
         if val is not None:
-            # Handle explicit 'skip' with contextual fallback (e.g. for Timezone)
             is_skipping = str(val).lower().strip() in ["skip", "skipped", "none", "n/a", ""]
-            ctx_key = field.get("suggest_from_context")
-            
             if is_skipping:
-                if ctx_key and sys_ctx.get(ctx_key):
-                    draft[key] = sys_ctx.get(ctx_key)
-                    logger.info(f"[{tenant_id}] User skipped {key}, auto-detected: {draft[key]}")
-                else:
-                    # Mark as skipped with a sentinel to satisfy the 'missing' check
-                    draft[key] = "skipped"
-                    logger.info(f"[{tenant_id}] Field {key} explicitly skipped.")
-            # Handle list types (like attendees)
-            elif field.get("type") == "list":
-                if isinstance(val, list):
-                    draft[key] = val
-                elif isinstance(val, str):
-                    draft[key] = [v.strip() for v in val.split(",") if v.strip()]
+                draft[key] = "skipped"
             else:
                 draft[key] = val
 
-    # TEMPORAL LOGIC: Handle duration -> end_datetime calculation
-    if "duration_minutes" in args and draft.get("start_datetime"):
-        try:
-            from datetime import datetime, timedelta
-            start_str = draft["start_datetime"]
-            # Flexible parse
-            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
-                try:
-                    start_dt = datetime.strptime(start_str.split(".")[0], fmt)
-                    duration = int(args["duration_minutes"])
-                    draft["end_datetime"] = (start_dt + timedelta(minutes=duration)).isoformat()
-                    break
-                except: continue
-        except Exception as e:
-            logger.warning(f"Failed to calculate duration-based end time: {e}")
-            
-    # 1.5 Sync workflow state back to session object
+    # 5. Atomic Sync: Persist the updated draft immediately (Latency Guard)
     metadata[metadata_key] = draft
     metadata["active_workflow"] = workflow_id
     
-    # Handle serialization if DB stored it as a string
-    if isinstance(session.get("metadata"), str):
-        session["metadata"] = json.dumps(metadata)
-    else:
-        session["metadata"] = metadata
+    # Verify we aren't losing existing state during the update
+    session["metadata"] = metadata
     
-    # 3. Check for Completion
-    # GATING: Distinguish between required and optional fields for auto-submission
+    # 6. Gating Logic: Identify next missing required field
     visible_schema = [f for f in schema if not f.get("system_only", False)]
-    
-    # 3.1 Identify truly missing required fields
     required_missing = [f for f in visible_schema if f.get("required", True) and (f["key"] not in draft or not str(draft[f["key"]]).strip())]
-    
-    # 3.2 Optional fields that haven't been touched at all
     optional_missing = [f for f in visible_schema if not f.get("required", True) and f["key"] not in draft]
 
     # Case A: Still missing required info -> MUST ASK
     if required_missing:
         next_field = required_missing[0]
-        missing = required_missing + optional_missing
-    else:
-        # ALL REQUIRED ARE MET -> Trigger Submission Case
-        missing = []
-
-    if missing:
-        payload_args = {
-            "tenant_id": tenant_id,
-            "client_args": session,
-            "metadata": metadata,
-            "history": history,
-            "thread_id": services['calendar'].thread_id
-        }
-        # Add dynamic draft injection to format_sync_chat_payload
-        if metadata_key == "event_draft": payload_args["event_draft"] = draft
-        elif metadata_key == "contact_draft": payload_args["contact_draft"] = draft
-        elif metadata_key == "client_draft": payload_args["client_draft"] = draft
+        msg = f"Captured {', '.join([f['label'] for f in visible_schema if f['key'] in draft])}. To finish, I'll need the **{next_field['label']}**."
         
-        payload = format_sync_chat_payload(**payload_args)
-        await services['calendar'].sync_client_session(payload)
+        # Enforce Stepwise Instruction to the AI
+        instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. Do not hallucinate other fields.\n"
         
-        next_field = missing[0]
-        captured_labels = [f['label'] for f in visible_schema if f['key'] in draft and str(draft[f['key']]).strip()]
-        
-        # Build Message
-        msg_suffix = f" (You can say 'skip' to bypass this)." if not next_field.get("required", True) else ""
-        
-        choices = next_field.get("choices")
-        if choices:
-            msg_suffix += f" (Options: {', '.join(choices)})"
-            
-        if captured_labels:
-            msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the {next_field['label']}.{msg_suffix}"
-        else:
-            msg = (intro_message or f"Sure, let's set that up. First, what is the {next_field['label']}?") + msg_suffix
-            
-        # Build Instruction
-        instruction = f"### STRICT GATING: Ask ONLY for the {next_field['label']}.\n"
-        
-        lookup_tool = next_field.get("lookup_tool")
-        if lookup_tool:
-            instruction += f"CRITICAL: When the user provides the name, DO NOT attempt to map it directly to `{next_field['key']}`.\n"
-            instruction += f"INSTEAD, you MUST call the `{lookup_tool}` tool to search for the correct system ID.\n"
-            instruction += f"Once `{lookup_tool}` finds the ID, it will automatically link it to this drafting session. You can then ask for the next field.\n"
-        else:
-            instruction += "When the user responds, IMMEDIATELY call the tool again and map their input to the '" + next_field['key'] + "' field.\n"
-            
-        instruction += "DO NOT ask for any other information until this field is provided or skipped.\n"
-        instruction += "Ask ONE question for this single field. Avoid grouping questions."
-        
-        # Handle CHOICE guidance (e.g. for Title/Salutation)
-        if next_field.get("choices"):
-            instruction += f"\n\nGUIDANCE: Present these as the only suggested options: {', '.join(next_field['choices'])}."
-        
-        # Handle SKIP option
         if not next_field.get("required", True):
-            instruction += f"\n\nCRITICAL: If the user says 'skip', 'no', or 'none', you MUST call the tool and explicitly set `{next_field['key']}` to the exact string 'skip'. DO NOT omit the parameter entirely, or the system will loop."
-            instruction += f" Explicitly tell the user: '(You can say \"skip\" to leave this blank)'."
-            
-        # Handle CONTEXTUAL SUGGESTION (e.g. Timezone)
-        ctx_key = next_field.get("suggest_from_context")
-        if ctx_key and sys_ctx.get(ctx_key):
-            val = sys_ctx.get(ctx_key)
-            instruction += f"\n\nSystem detected '{val}' for this field. Suggest this as the default if they skip."
-            
-        if next_field['key'] == 'timezone':
-            detected = sys_ctx.get("user_timezone_name", "UTC")
-            common_tzs = list(set([detected, "Africa/Nairobi", "UTC", "America/New_York", "Europe/London", "Asia/Dubai"]))
-            instruction += f"\n\nProvide these as examples for the user (The first one is their detected local time): {', '.join(common_tzs)}."
+            instruction += "This field is OPTIONAL. Tell the user they can say 'skip' to bypass it."
+            msg += " (You can say 'skip' to bypass this)."
 
         return {
             "status": "partial_success",
             "message": msg,
             "response_instruction": instruction
         }, session, draft
-        
-    return None, session, draft # Return None if complete; caller handles submission
+    else:
+        # ALL REQUIRED ARE MET -> Trigger Submission Case
+        return None, session, draft
 
 async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None, db_session=None):
     """
