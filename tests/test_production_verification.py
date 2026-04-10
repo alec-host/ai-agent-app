@@ -33,8 +33,15 @@ async def test_auto_lookup_and_linking():
             200, json={"status": "success", "contact_id": "real-cont-123"}
         ))
         
-        # client_email is provided
-        await handle_create_client({"client_email": "found@example.com"}, mock_services, tenant_id, history=[])
+        # --- HARDENED: Route through the actual Dispatcher ---
+        from src.agent_manager import execute_tool_call
+        class MockTool:
+            def __init__(self, name, args):
+                self.function = type('obj', (object,), {"name": name, "arguments": json.dumps(args)})
+
+        mock_tool = MockTool("create_client_record", {"client_email": "found@example.com"})
+        
+        await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[])
         
         # Verify sync had contact_id
         assert len(sync_recorded) > 0
@@ -70,7 +77,15 @@ async def test_country_direct_id_payload():
             200, json={"success": True, "country_id": 15, "message": "Retreived country id successfully"}
         ))
         
-        result = await handle_lookup_countries({"search": "Kenya"}, mock_services, tenant_id)
+        # --- HARDENED: Route through the actual Dispatcher ---
+        from src.agent_manager import execute_tool_call
+        class MockTool:
+            def __init__(self, name, args):
+                self.function = type('obj', (object,), {"name": name, "arguments": json.dumps(args)})
+
+        mock_tool = MockTool("lookup_countries", {"search": "Kenya"})
+        
+        result = await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[])
         
         assert result["status"] == "success"
         assert result["country_id"] == 15

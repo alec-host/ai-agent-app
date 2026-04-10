@@ -97,9 +97,13 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         return res
 
     calendar_funcs = ["schedule_event", "initialize_calendar_session", "check_calendar_connection", "list_upcoming_events"]
-    client_funcs = ["create_client_record", "setup_client"]
     rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
-    core_funcs = ["authenticate_to_core", "create_contact", "lookup_countries", "create_standard_event", "create_all_day_event", "lookup_client", "lookup_practice_area", "lookup_case_stage", "lookup_billing_type", "create_matter"]
+    core_funcs = [
+        "authenticate_to_core", "create_contact", "lookup_countries", 
+        "create_standard_event", "create_all_day_event", "lookup_client", 
+        "lookup_practice_area", "lookup_case_stage", "lookup_billing_type", 
+        "create_matter", "create_client_record", "setup_client", "promote_contact_to_client"
+    ]
     memory_funcs = ["recall_past_conversation"]
 
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
@@ -121,13 +125,12 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         
         # Define strict demarcation
         is_calendar_tool = func_name in calendar_funcs
-        is_client_tool = func_name in client_funcs
         
         # 3. ROUTE TO SPECIALIST WITH GATING
         result = None
         if is_calendar_tool:
             # GATING: If we are in ANY MatterMiner intake (Client, Contact, or MM-Event), block Google Calendar
-            mm_intakes = ["client", "contact", "standard_event", "all_day_event"]
+            mm_intakes = ["client", "contact", "standard_event", "all_day_event", "matter"]
             if active_workflow in mm_intakes and func_name in ["schedule_event", "initialize_calendar_session"]:
                  return {"status": "error", "message": f"Conflict: Active {active_workflow} intake. Finish or cancel current MatterMiner workflow before using Google Calendar."}
             
@@ -138,12 +141,9 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
                 token = result.pop("jwtToken", None) # STRENGHTENED: Remove from result to prevent history leakage
                 if token: services['calendar'].set_auth_token(token, is_jwt=True)
         
-        elif is_client_tool:
-            from .agents.client_creation_agent import handle_client_creation
-            result = await handle_client_creation(func_name, args, services, tenant_id)
-
         elif func_name in core_funcs:
-            result = await handle_core_ops(func_name, args, services, tenant_id)
+            # UNIFIED: Passing full context (history + email) for multi-turn drafting
+            result = await handle_core_ops(func_name, args, services, tenant_id, history, user_email=user_email)
 
         elif func_name in rag_funcs:
             result = _redact_dict(await handle_rag_lookup(func_name, args, services, tenant_id))
