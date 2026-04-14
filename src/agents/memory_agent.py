@@ -3,7 +3,7 @@ import asyncio
 from src.logger import logger
 from src.remote_services.pinecone_service import PineconeClient
 
-async def extract_and_save_facts(tenant_id, history, services, ai_client):
+async def extract_and_save_facts(tenant_id, history, services, ai_client, user_email=None):
     """
     Background worker to extract persistent facts from the chat history 
     and update the long-term 'Knowledge Vault' in the database.
@@ -55,7 +55,7 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client):
         if not calendar_service:
             return
 
-        db_session = await calendar_service.get_client_session(tenant_id)
+        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
         metadata = db_session.get("metadata", {})
         if isinstance(metadata, str):
             try:
@@ -125,7 +125,7 @@ async def index_facts_in_pinecone(tenant_id, facts, ai_client):
     except Exception as e:
         logger.error(f"[MEMORY-AGENT] Pinecone indexing failed: {e}", exc_info=True)
 
-async def summarize_and_save(tenant_id, history, services, ai_client):
+async def summarize_and_save(tenant_id, history, services, ai_client, user_email=None):
     """
     Tier 2: Incremental Summarization.
     Collapses long conversation history into a concise summary to preserve context
@@ -137,7 +137,7 @@ async def summarize_and_save(tenant_id, history, services, ai_client):
 
     try:
         calendar_service = services.get("calendar")
-        db_session = await calendar_service.get_client_session(tenant_id)
+        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
         metadata = db_session.get("metadata", {})
         if isinstance(metadata, str):
             try: metadata = json.loads(metadata)

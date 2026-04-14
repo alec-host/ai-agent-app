@@ -339,7 +339,7 @@ class GoogleCalendarClient:
             logger.error(f"[CONFLICT CHECK] Request failed: {e}")
             return False
             
-    async def get_client_session(self, tenant_id: str):
+    async def get_client_session(self, tenant_id: str, user_email: str = None):
         """Fetches partial intake data from the Node.js chatsessions table."""
         try:
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
@@ -399,16 +399,19 @@ class GoogleCalendarClient:
             logger.error(f"Error syncing session: {e}")
             return False
 
+
+
     async def clear_client_session(self, tenant_id: str):
         """Deletes the draft session once the intake is complete."""
         try:
-            params = {"tenantId": tenant_id}
-            if getattr(self, 'thread_id', None):
-                params["threadId"] = self.thread_id
+            query = f"/chat/session?tenantId={tenant_id}"
             
-            query = f"/chat/session?tenantId={params['tenantId']}"
-            if "threadId" in params:
-                query += f"&threadId={params['threadId']}"
+            thread_id = getattr(self, 'thread_id', None)
+            if thread_id:
+                query += f"&threadId={thread_id}"
+
+            if getattr(self, 'user_email', None):
+                query += f"&userEmail={quote(self.user_email)}"
                 
             response = await self.request("DELETE", query)
             

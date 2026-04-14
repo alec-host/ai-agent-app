@@ -15,7 +15,7 @@ def mock_services():
     # State mock to track metadata changes
     session_state = {"metadata": {}}
     
-    async def get_session(t):
+    async def get_session(t, user_email=None):
         return session_state
         
     async def sync_session(p):
@@ -42,7 +42,7 @@ async def test_pattern_search_contact_links_to_client(mock_services):
     services, state = mock_services
     endpoint = f"{BASE_URL}/search-contact"
     
-    respx.get(endpoint).mock(return_value=httpx.Response(200, json={
+    respx.get(url__regex=r".*/search-contact.*").mock(return_value=httpx.Response(200, json={
         "status": "success",
         "contact_id": "found-cont-999"
     }))
@@ -61,13 +61,13 @@ async def test_pattern_lookup_country_links_to_client(mock_services):
     endpoint = f"{BASE_URL}/countries"
     
     # Mock unique country match
-    respx.get(endpoint).mock(return_value=httpx.Response(200, json={
+    respx.get(url__regex=r".*/countries.*").mock(return_value=httpx.Response(200, json={
         "status": "success",
         "data": [{"id": 42, "name": "Wakanda"}]
     }))
     
     args = {"search": "Wakanda"}
-    await handle_lookup_countries(args, services, tenant_id="test")
+    await handle_lookup_countries(args, services, tenant_id="test", user_email="test@example.com")
     
     # Verify that country_id was linked
     client_draft = state["metadata"].get("client_draft", {})
@@ -80,7 +80,7 @@ async def test_pattern_lookup_country_multiple_matches_no_link(mock_services):
     endpoint = f"{BASE_URL}/countries"
     
     # Mock multiple country matches
-    respx.get(endpoint).mock(return_value=httpx.Response(200, json={
+    respx.get(url__regex=r".*/countries.*").mock(return_value=httpx.Response(200, json={
         "status": "success",
         "data": [
             {"id": 1, "name": "USA"},
@@ -89,7 +89,7 @@ async def test_pattern_lookup_country_multiple_matches_no_link(mock_services):
     }))
     
     args = {"search": "USA"}
-    await handle_lookup_countries(args, services, tenant_id="test")
+    await handle_lookup_countries(args, services, tenant_id="test", user_email="test@example.com")
     
     # Verify that NO country_id was linked because it wasn't unique
     client_draft = state["metadata"].get("client_draft", {})
@@ -102,7 +102,7 @@ async def test_pattern_promote_tool_uses_client_logic(mock_services):
     services, state = mock_services
     endpoint = f"{BASE_URL}/client"
     
-    respx.post(endpoint).mock(return_value=httpx.Response(200, json={"status": "success"}))
+    respx.post(url__regex=r".*/client.*").mock(return_value=httpx.Response(200, json={"status": "success"}))
     
     # Populate the "missing" fields in metadata so it hits the final save
     state["metadata"]["client_draft"] = {
@@ -119,7 +119,7 @@ async def test_pattern_promote_tool_uses_client_logic(mock_services):
     }
     
     # Call core_ops instead of handle_create_client directly to test routing
-    result = await handle_core_ops("promote_contact_to_client", args, services, tenant_id="test", history=[])
+    result = await handle_core_ops("promote_contact_to_client", args, services, tenant_id="test", history=[], user_email="test@example.com")
     
     assert result["status"] == "success"
-    assert "REGISTERED SUCCESSFULLY" in result["message"]
+    assert "Successfully registered client" in result["message"]

@@ -22,7 +22,7 @@ async def test_client_creation_api_key_rejection():
         ))
         
         # 2. Mock services with a full client draft
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {
                 "metadata": {
                     "active_workflow": "client",
@@ -41,17 +41,17 @@ async def test_client_creation_api_key_rejection():
         async def mock_sync_session(p):
             return True
 
-        mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'sync_client_session': mock_sync_session,
-                'access_token': None,
-                'thread_id': "test-thread-client"
-            })
-        }
+        from unittest.mock import AsyncMock
+        mock_calendar = AsyncMock()
+        mock_calendar.get_client_session = mock_get_session
+        mock_calendar.sync_client_session = mock_sync_session
+        mock_calendar.clear_client_session = AsyncMock(return_value=True)
+        mock_calendar.access_token = None
+        mock_calendar.thread_id = "test-thread-client"
+        mock_services = {'calendar': mock_calendar}
         
         args = {} # All fields already in draft/session
-        result = await handle_create_client(args, mock_services, tenant_id, history=[])
+        result = await handle_create_client(args, mock_services, tenant_id, history=[], user_email="test@example.com")
         
         # 3. Assertions — api_key_error, not auth_required
         assert result["status"] == "api_key_error"
@@ -75,7 +75,7 @@ async def test_client_creation_404_is_data_error():
             json={"success": False, "message": "Not found"}
         ))
         
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {
                 "metadata": {
                     "active_workflow": "client",
@@ -94,16 +94,16 @@ async def test_client_creation_404_is_data_error():
         async def mock_sync_session(p):
             return True
 
-        mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'sync_client_session': mock_sync_session,
-                'access_token': None,
-                'thread_id': "test-thread-client-404"
-            })
-        }
+        from unittest.mock import AsyncMock
+        mock_calendar = AsyncMock()
+        mock_calendar.get_client_session = mock_get_session
+        mock_calendar.sync_client_session = mock_sync_session
+        mock_calendar.clear_client_session = AsyncMock(return_value=True)
+        mock_calendar.access_token = None
+        mock_calendar.thread_id = "test-thread-client-404"
+        mock_services = {'calendar': mock_calendar}
         
-        result = await handle_create_client({}, mock_services, tenant_id, history=[])
+        result = await handle_create_client({}, mock_services, tenant_id, history=[], user_email="test@example.com")
         
         # 404 should be a normal error, NOT api_key_error or auth_required
         assert result["status"] == "error", f"404 should be a normal error, got: {result['status']}"
@@ -123,7 +123,7 @@ async def test_client_creation_unexpected_error():
             json={"success": False, "message": "Database error"}
         ))
         
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {
                 "metadata": {
                     "active_workflow": "client",
@@ -142,16 +142,16 @@ async def test_client_creation_unexpected_error():
         async def mock_sync_session(p):
             return True
 
-        mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'sync_client_session': mock_sync_session,
-                'access_token': None,
-                'thread_id': "test-thread-error"
-            })
-        }
+        from unittest.mock import AsyncMock
+        mock_calendar = AsyncMock()
+        mock_calendar.get_client_session = mock_get_session
+        mock_calendar.sync_client_session = mock_sync_session
+        mock_calendar.clear_client_session = AsyncMock(return_value=True)
+        mock_calendar.access_token = None
+        mock_calendar.thread_id = "test-thread-error"
+        mock_services = {'calendar': mock_calendar}
         
-        result = await handle_create_client({}, mock_services, tenant_id, history=[])
+        result = await handle_create_client({}, mock_services, tenant_id, history=[], user_email="test@example.com")
         
         assert result["status"] == "error"
         assert "Database error" in result["message"] or "Failed to create client" in result["message"]

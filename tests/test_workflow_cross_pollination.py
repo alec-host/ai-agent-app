@@ -27,7 +27,7 @@ async def test_client_to_contact_cross_pollination():
         # We need a mutable reference for sync results
         sync_recorded = []
         
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {
                 "metadata": {
                     "active_workflow": "client",
@@ -44,13 +44,18 @@ async def test_client_to_contact_cross_pollination():
             sync_recorded.append(p)
             return True
 
+        async def mock_clear_session(t):
+            return True
+
+        mock_calendar = AsyncMock()
+        mock_calendar.get_client_session = mock_get_session
+        mock_calendar.sync_client_session = mock_sync_session
+        mock_calendar.clear_client_session = AsyncMock(return_value=True)
+        mock_calendar.access_token = "test-token"
+        mock_calendar.thread_id = "test-thread-cross"
+
         mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'sync_client_session': mock_sync_session,
-                'access_token': "test-token",
-                'thread_id': "test-thread-cross"
-            })
+            'calendar': mock_calendar
         }
         
         # 3. Test handle_create_client
@@ -66,12 +71,12 @@ async def test_client_to_contact_cross_pollination():
         # but since it uses MatterMinerCoreClient internally and that uses self.request, 
         # respx.mock should capture it if we mock the URL correctly.
         
-        result = await handle_create_client(args, mock_services, tenant_id, history=[])
+        result = await handle_create_client(args, mock_services, tenant_id, history=[], user_email=user_email)
         
         # 4. Assertions
         assert result["status"] == "partial_success"
         assert result["next_target"] == "contact_id"
-        assert "MUST create a new contact" in result["response_instruction"]
+        assert "contact record is required" in result["response_instruction"]
         
         # Verify sync_payload contains the contact_draft
         assert len(sync_recorded) > 0

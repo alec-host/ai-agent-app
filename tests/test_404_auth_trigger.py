@@ -22,7 +22,7 @@ async def test_404_is_data_error_not_auth_countries():
             json={"success": False, "message": "Not found"}
         ))
 
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {"metadata": {}}
 
         mock_services = {
@@ -34,7 +34,7 @@ async def test_404_is_data_error_not_auth_countries():
         }
 
         args = {"search": "test"}
-        result = await handle_lookup_countries(args, mock_services, tenant_id)
+        result = await handle_lookup_countries(args, mock_services, tenant_id, user_email="test@example.com")
 
         # 404 should now be treated as a normal error, not auth_required
         assert result["status"] == "error" or result["status"] == "success", \
@@ -54,7 +54,7 @@ async def test_401_triggers_api_key_error_countries():
             json={"success": False, "message": "Unauthorized"}
         ))
 
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {"metadata": {}}
 
         mock_services = {
@@ -66,7 +66,7 @@ async def test_401_triggers_api_key_error_countries():
         }
 
         args = {"search": "Kenya"}
-        result = await handle_lookup_countries(args, mock_services, tenant_id)
+        result = await handle_lookup_countries(args, mock_services, tenant_id, user_email="test@example.com")
 
         assert result["status"] == "api_key_error", \
             f"401 should trigger api_key_error, got: {result['status']}"
@@ -84,7 +84,7 @@ async def test_403_triggers_api_key_error_contact():
             json={"success": False, "message": "Forbidden"}
         ))
 
-        async def mock_get_session(t):
+        async def mock_get_session(t, user_email=None):
             return {
                 "metadata": {
                     "active_workflow": "contact",
@@ -114,7 +114,7 @@ async def test_403_triggers_api_key_error_contact():
         }
 
         args = {}  # All fields already in draft
-        result = await handle_create_contact(args, mock_services, tenant_id, history=[])
+        result = await handle_create_contact(args, mock_services, tenant_id, history=[], user_email="test@example.com")
 
         assert result["status"] == "api_key_error", \
             f"403 should trigger api_key_error, got: {result['status']}"

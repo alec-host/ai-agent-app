@@ -21,7 +21,7 @@ async def test_rehydration_multi_block_injection():
     }
     mock_services["calendar"].get_client_session.return_value = mock_db_session
 
-    result = await get_rehydration_context("tenant_123", mock_services)
+    result = await get_rehydration_context("tenant_123", mock_services, user_email="test@example.com")
     
     assert result is not None
     assert "### USER KNOWLEDGE (GLOBAL FACTS) ###" in result["injection"]
@@ -50,7 +50,7 @@ async def test_fact_extraction_and_mysql_sync():
         {"role": "assistant", "content": "Got it. I'll remember that."}
     ]
 
-    await extract_and_save_facts("tenant_123", history, mock_services, mock_ai_client)
+    await extract_and_save_facts("tenant_123", history, mock_services, mock_ai_client, user_email="test@example.com")
 
     # Check if sync_client_session was called with the new fact
     called_args = mock_calendar_service.sync_client_session.call_args[0][0]
@@ -149,7 +149,7 @@ async def test_automated_state_purging():
     with patch("src.agent_manager.handle_core_ops", new_callable=AsyncMock) as mock_core:
         mock_core.return_value = mock_result
         
-        await execute_tool_call(mock_tool, mock_services, "user", "tenant_123", [], ai_client=AsyncMock())
+        await execute_tool_call(mock_tool, mock_services, "user", "tenant_123", [], ai_client=AsyncMock(), user_email="test@example.com")
 
         # Verify SYNC was called to PURGE
         # It should be called once in the dispatcher 'finally' block

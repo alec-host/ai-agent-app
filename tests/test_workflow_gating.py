@@ -24,7 +24,8 @@ async def test_workflow_gating_production_logic():
     headers = {
         "X-Tenant-ID": tenant_id,
         "X-User-Timezone": "UTC",
-        "User-Role": "Associate"
+        "User-Role": "Associate",
+        "X-User-Email": "test@example.com"
     }
 
     # 1. Mock DB: Return an active 'calendar' workflow
@@ -36,7 +37,7 @@ async def test_workflow_gating_production_logic():
         }
     }
     # Both rehydration and loop get calls
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session", params={"tenantId": tenant_id}).mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json=active_session)
     )
     respx.get(url__regex=r".*/auth/accessToken.*").mock(
@@ -104,7 +105,8 @@ async def test_field_priority_and_single_word_mapping():
     headers = {
         "X-Tenant-ID": tenant_id,
         "X-User-Timezone": "UTC",
-        "User-Role": "Associate"
+        "User-Role": "Associate",
+        "X-User-Email": "test@example.com"
     }
 
     # Mock DB: Vault has Peter
@@ -116,7 +118,7 @@ async def test_field_priority_and_single_word_mapping():
             "chat_history": []
         }
     }
-    respx.get(f"{settings.NODE_SERVICE_URL}/chat/session", params={"tenantId": tenant_id}).mock(
+    respx.get(url__regex=r".*/chat/session.*").mock(
         return_value=Response(200, json=vault_peter)
     )
     respx.get(url__regex=r".*/auth/accessToken.*").mock(

@@ -213,7 +213,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         request.app.state.http_client, 
         correlation_id=corr_id, 
         thread_id=req.thread_id or "default",
-        access_token=auth.get("token")
+        access_token=auth.get("token"),
+        user_email=user_email
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     
@@ -464,8 +465,8 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
                 final_payload["suggested_actions"] = get_starter_chips(metadata if 'metadata' in locals() else {})
             
             # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
-            asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
-            asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
+            asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client, user_email=user_email))
+            asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client, user_email=user_email))
             
             # [PROTOCOL-SC] Final context save for linear (non-tool) response
             await redis_memory.append_messages([{"role": "user", "content": req.prompt}, {"role": "assistant", "content": assistant_msg.content}])
@@ -837,8 +838,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
 
             if terminal_success_msg:
                 # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
-                asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
-                asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
+                asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client, user_email=user_email))
+                asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client, user_email=user_email))
                 
                 final_text = f"\n\n{terminal_success_msg}"
                 
@@ -852,8 +853,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 return
 
         # --- BACKGROUND: MEMORY OPERATIONS (FACTS & SUMMARY) ---
-        asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
-        asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
+        asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client, user_email=user_email))
+        asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client, user_email=user_email))
         
         if full_content:
             # [PROTOCOL-SC] Atomic Save of entire turn sequence
@@ -874,7 +875,8 @@ async def trigger_sync(request: Request, auth: dict = Depends(verify_tenant_acce
         auth["tenant_id"], 
         request.app.state.http_client, 
         correlation_id=request.state.correlation_id,
-        access_token=auth.get("token")
+        access_token=auth.get("token"),
+        user_email=auth["user_email"]
     )
     result = await calendar.sync_all_events()
     return standardize_response({"response": result})

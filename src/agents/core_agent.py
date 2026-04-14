@@ -197,7 +197,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
                 # --- PATTERN: LINKING DISCOVERED DATA ---
                 # Attempt to pre-fill client_draft for future client registration
                 try:
-                    session = await services['calendar'].get_client_session(tenant_id)
+                    session = await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
@@ -293,7 +293,7 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None, db
             if linked_id:
                 try:
                     # Tunneling: Reuse fetched session to prevent redundant backend IO
-                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
+                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
@@ -600,10 +600,18 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                 else:
                     # BLOCKING FALLBACK: If contact isn't found, the workflow MUST stop.
                     # This enforces independence between creation workflows.
-                    # Clear vault and chat session as required.
+                    
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
+                    # --- CROSS-POLLINATION: Save the names into a new contact_draft ---
+                    # Use existing rehydrated vault_draft or current args
+                    metadata["contact_draft"] = {
+                        "first_name": args.get("first_name") or draft.get("first_name"),
+                        "last_name": args.get("last_name") or draft.get("last_name"),
+                        "client_email": email
+                    }
+                    metadata["_must_create_contact"] = True
                     metadata["client_draft"] = {}
                     metadata["active_workflow"] = None
                     
@@ -614,14 +622,14 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                         metadata=metadata,
                         history=[],
                         thread_id=services['calendar'].thread_id,
-                        active_workflow="cleared",
-                        session_lifecycle="completed"
+                        active_workflow="cleared"
                     )
                     await services['calendar'].sync_client_session(sync_payload)
                     await services['calendar'].clear_client_session(tenant_id)
                     
                     return {
-                        "status": "success",
+                        "status": "partial_success",
+                        "next_target": "contact_id",
                         "_exit_loop": True,
                         "message": f"I couldn't find a contact for the email address '{email}'. The client registration has been canceled and your session was cleared.",
                         "response_instruction": (

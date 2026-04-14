@@ -13,20 +13,19 @@ async def test_auto_lookup_and_linking():
     tenant_id = "test-auto-link"
     sync_recorded = []
     
-    async def mock_get_session(t):
+    async def mock_get_session(t, user_email=None):
         return {"metadata": {"active_workflow": "client", "client_draft": {"client_email": "found@example.com"}}}
     async def mock_sync_session(p):
         sync_recorded.append(p)
         return True
 
-    mock_services = {
-        'calendar': type('obj', (object,), {
-            'get_client_session': mock_get_session, 
-            'sync_client_session': mock_sync_session,
-            'thread_id': "t1",
-            'access_token': "s1"
-        })
-    }
+    from unittest.mock import AsyncMock
+    mock_calendar = AsyncMock()
+    mock_calendar.get_client_session = mock_get_session
+    mock_calendar.sync_client_session = mock_sync_session
+    mock_calendar.thread_id = "t1"
+    mock_calendar.access_token = "s1"
+    mock_services = {'calendar': mock_calendar}
 
     with respx.mock:
         respx.get(url__regex=r".*/search-contact.*").mock(return_value=Response(
@@ -41,7 +40,7 @@ async def test_auto_lookup_and_linking():
 
         mock_tool = MockTool("create_client_record", {"client_email": "found@example.com"})
         
-        await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[])
+        await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[], user_email="test@example.com")
         
         # Verify sync had contact_id
         assert len(sync_recorded) > 0
@@ -56,20 +55,19 @@ async def test_country_direct_id_payload():
     tenant_id = "test-country-pay"
     sync_recorded = []
     
-    async def mock_get_session(t):
+    async def mock_get_session(t, user_email=None):
         return {"metadata": {"active_workflow": "client", "client_draft": {}}}
     async def mock_sync_session(p):
         sync_recorded.append(p)
         return True
 
-    mock_services = {
-        'calendar': type('obj', (object,), {
-            'get_client_session': mock_get_session, 
-            'sync_client_session': mock_sync_session,
-            'thread_id': "t2",
-            'access_token': "s2"
-        })
-    }
+    from unittest.mock import AsyncMock
+    mock_calendar = AsyncMock()
+    mock_calendar.get_client_session = mock_get_session
+    mock_calendar.sync_client_session = mock_sync_session
+    mock_calendar.thread_id = "t2"
+    mock_calendar.access_token = "s2"
+    mock_services = {'calendar': mock_calendar}
 
     with respx.mock:
         # Mock payload: { "success": true, "country_id": 15, "message": "Retreived country id successfully" }
@@ -85,7 +83,7 @@ async def test_country_direct_id_payload():
 
         mock_tool = MockTool("lookup_countries", {"search": "Kenya"})
         
-        result = await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[])
+        result = await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[], user_email="test@example.com")
         
         assert result["status"] == "success"
         assert result["country_id"] == 15

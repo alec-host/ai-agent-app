@@ -8,7 +8,7 @@ async def test_rehydration_aggregator_calendar():
     tenant_id = "test-rehydration"
     
     # Mock services
-    async def mock_get_session(t):
+    async def mock_get_session(t, user_email=None):
         return {
             "metadata": {
                 "active_workflow": "calendar",
@@ -19,13 +19,12 @@ async def test_rehydration_aggregator_calendar():
             }
         }
     
-    mock_services = {
-        'calendar': type('obj', (object,), {
-            'get_client_session': mock_get_session
-        })
-    }
+    from unittest.mock import AsyncMock
+    mock_calendar = AsyncMock()
+    mock_calendar.get_client_session = mock_get_session
+    mock_services = {'calendar': mock_calendar}
     
-    result = await get_rehydration_context(tenant_id, mock_services)
+    result = await get_rehydration_context(tenant_id, mock_services, user_email="test@example.com")
     
     # Assertions
     assert result is not None
@@ -39,7 +38,7 @@ async def test_rehydration_aggregator_client():
     """Verify that client rehydration still works after CORE SYSTEM STATUS removal."""
     tenant_id = "test-rehydration-client"
     
-    async def mock_get_session(t):
+    async def mock_get_session(t, user_email=None):
         return {
             "metadata": {
                 "active_workflow": "client",
@@ -50,13 +49,12 @@ async def test_rehydration_aggregator_client():
             }
         }
     
-    mock_services = {
-        'calendar': type('obj', (object,), {
-            'get_client_session': mock_get_session
-        })
-    }
+    from unittest.mock import AsyncMock
+    mock_calendar = AsyncMock()
+    mock_calendar.get_client_session = mock_get_session
+    mock_services = {'calendar': mock_calendar}
     
-    result = await get_rehydration_context(tenant_id, mock_services)
+    result = await get_rehydration_context(tenant_id, mock_services, user_email="test@example.com")
     
     assert result is not None
     assert "### RECOVERY MODE: CLIENT INTAKE DETECTED ###" in result["injection"]
