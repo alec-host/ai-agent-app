@@ -342,12 +342,15 @@ class GoogleCalendarClient:
     async def get_client_session(self, tenant_id: str, user_email: str = None):
         """Fetches partial intake data from the Node.js chatsessions table."""
         try:
+            # Identity Resolution: Prioritize method argument, fallback to instance state
+            effective_email = user_email or self.user_email
+            
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
             query = f"/chat/session?tenantId={self.tenant_id}"
             if self.thread_id:
                 query += f"&threadId={self.thread_id}"
-            if self.user_email:
-                query += f"&userEmail={quote(self.user_email)}"
+            if effective_email:
+                query += f"&userEmail={quote(effective_email)}"
             resp = await self.request("GET", query)
             
             # HARDEN: If request returns an error object, return {} so agents start fresh
@@ -383,10 +386,13 @@ class GoogleCalendarClient:
     async def sync_client_session(self, payload: dict):
         """Updates the Node.js chatsessions table with latest client_number,client_type,first_name,last_name,email, and history."""
         try:
+            # Identity Resolution
+            effective_email = self.user_email
+            
             # ENSURE THREAD ID: Guarantee the payload has the threadId to prevent Node.js 500
             payload["threadId"] = self.thread_id
-            if self.user_email:
-                payload["userEmail"] = self.user_email
+            if effective_email:
+                payload["userEmail"] = effective_email
             
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
             response = await self.request("POST", "/chat/session", json_data=payload)
@@ -410,7 +416,7 @@ class GoogleCalendarClient:
             if thread_id:
                 query += f"&threadId={thread_id}"
 
-            if getattr(self, 'user_email', None):
+            if self.user_email:
                 query += f"&userEmail={quote(self.user_email)}"
                 
             response = await self.request("DELETE", query)

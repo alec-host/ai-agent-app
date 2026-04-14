@@ -439,7 +439,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        asyncio.create_task(services['calendar'].sync_client_session(sync_payload))
         return partial_resp
         
     # Case B: Ready to Submit
@@ -559,7 +559,9 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        asyncio.create_task(services['calendar'].sync_client_session(sync_payload))
+        
+        # EARLIER LOOKUP PATTERN...
         
         # EARLIER LOOKUP PATTERN: Intercept the intake as soon as 'client_email' is available.
         email = draft.get("client_email")
@@ -890,7 +892,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        asyncio.create_task(services['calendar'].sync_client_session(sync_payload))
         return partial_resp
         
     metadata = session.get("metadata", {})

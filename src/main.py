@@ -121,6 +121,7 @@ async def verify_tenant_access(
         token = authorization[7:]
     
     # SEC-05: Cryptographic JWT Verification
+    jwt_user_email = None
     if settings.JWT_ENABLED:
         if not token:
             logger.warning(f"[AUTH-GUARD] Missing Authorization token for tenant {x_tenant_id}")
@@ -140,8 +141,9 @@ async def verify_tenant_access(
             if token_tenant_id and str(token_tenant_id) != str(x_tenant_id):
                 logger.error(f"[AUTH-GUARD] Tenant Mismatch: Header={x_tenant_id}, Token={token_tenant_id}")
                 raise HTTPException(status_code=403, detail="Tenant ID mismatch in token.")
-                
-            logger.info(f"[AUTH-GUARD] JWT Verified for tenant {x_tenant_id} (User: {payload.get('email', 'unknown')})")
+            
+            jwt_user_email = payload.get("email")
+            logger.info(f"[AUTH-GUARD] JWT Verified for tenant {x_tenant_id} (User: {jwt_user_email or 'unknown'})")
             
         except jwt.ExpiredSignatureError:
             logger.warning(f"[AUTH-GUARD] Expired token for tenant {x_tenant_id}")
@@ -161,7 +163,7 @@ async def verify_tenant_access(
         "role": user_role.lower(), 
         "timezone": x_user_timezone,
         "token": token,
-        "user_email": x_user_email
+        "user_email": x_user_email or jwt_user_email
     }
 
 # ---0. Track token usage ---
@@ -569,7 +571,8 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         request.app.state.http_client, 
         correlation_id=corr_id, 
         thread_id=req.thread_id or "default",
-        access_token=auth.get("token")
+        access_token=auth.get("token"),
+        user_email=user_email
     )
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     ai_client = request.app.state.ai_client
@@ -797,7 +800,12 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 tool_name = tool_call_data['function']['name']
                 yield f"data: {json.dumps({'action': f'Executing {tool_name}...'})}\n\n"
                 
-                result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email, ai_client=ai_client)
+                try:
+                    result = await execute_tool_call(MockTool(tool_call_data), services, user_role, tenant_id, messages, user_email=user_email, ai_client=ai_client)
+                except Exception as tool_err:
+                    logger.error(f"[STREAM-TOOL-ERROR] {tool_name} failed: {tool_err}", exc_info=True)
+                    result = {"status": "error", "message": "The internal tool dispatcher encountered a failure."}
+
                 from src.utils import compact_tool_result
                 tool_msg = {"role": "tool", "tool_call_id": tool_call_data["id"], "name": tool_name, "content": json.dumps(result)}
                 messages.append(tool_msg)
