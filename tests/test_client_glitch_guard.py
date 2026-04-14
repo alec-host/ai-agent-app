@@ -90,7 +90,6 @@ async def test_client_save_failure_retains_session(monkeypatch):
     # Mock MatterMinerCoreClient.create_client to return an error dict
     mock_core_client = MagicMock()
     mock_core_client.create_client = AsyncMock(return_value={"status": "error", "message": "Not Found"})
-    mock_core_client.set_auth_token = MagicMock()
     mock_core_client.close = AsyncMock()
     
     monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
@@ -131,7 +130,6 @@ async def test_client_save_success_clears_session(monkeypatch):
     # Mock MatterMinerCoreClient.create_client to return success
     mock_core_client = MagicMock()
     mock_core_client.create_client = AsyncMock(return_value={"status": "success"})
-    mock_core_client.set_auth_token = MagicMock()
     mock_core_client.close = AsyncMock()
     
     monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
@@ -155,13 +153,12 @@ async def test_save_new_client_endpoint_resolution():
     from src.remote_services.matterminer_core import MatterMinerCoreClient
     
     client = MatterMinerCoreClient(
-        base_url="https://dev.matterminer.com/api",
+        base_url="https://dev.matterminer.com",
         tenant_id="12345678"
     )
-    client.set_auth_token("test_token")
     
-    # Mock the Remote Core endpoint
-    route = respx.post("https://dev.matterminer.com/api/client").mock(
+    # Mock the Remote Core endpoint (Standardized routing Host/app/core/...)
+    route = respx.post("https://dev.matterminer.com/app/core/client").mock(
         return_value=httpx.Response(201, json={"status": "success"})
     )
     
@@ -193,9 +190,14 @@ async def test_client_creation_stringified_metadata():
     # AI provides a new field
     args = {"client_email": "string@test.com"}
     
-    await handle_core_ops("create_client_record", args, services, "12345678", [])
+    with respx.mock:
+        # Mock the mandatory early contact lookup
+        respx.get("https://dev.matterminer.com/app/core/search-contact").mock(
+            return_value=httpx.Response(200, json={"status": "success", "contact_id": "123"})
+        )
+        result = await handle_core_ops("create_client_record", args, services, "12345678", [])
     
-    # Verify sync call args
+    # 2. Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
     # Existing fields should have been recovered from the stringified metadata
     assert sync_payload["metadata"]["client_draft"]["first_name"] == "String"

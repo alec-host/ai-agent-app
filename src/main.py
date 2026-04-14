@@ -254,54 +254,17 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
     is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
 
-    core_keywords = [
-        "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "client", "investigate",
-        "matter", "firm", "internal", "deadline", "filing"
-    ]
-    is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
-    is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
-
-    # Informational bypass: Don't trigger auth for brand inquiry or general info
-    safe_keywords = ["what is", "how do i", "who is", "help", "info", "about"]
-    is_safe_inquiry = any(kw in user_prompt_raw for kw in safe_keywords)
-    
     # Only trigger Google Pre-flight if it is EXPLICITLY external (Google Calendar)
     # MatterMiner Core events (e.g. "schedule a strategy meeting") do NOT require Google OAuth
-    if is_calendar_intent and is_explicit_google and not is_login_attempt:
+    if is_calendar_intent and is_explicit_google:
         # Replaces the inline OAuth handshake with a call to the specialized Calendar Agent
         auth_response = await perform_calendar_auth_check(calendar_service, tenant_id, req.history)
         if auth_response:
             return standardize_response(auth_response, cleaned_history)
 
-    if is_core_intent and not is_login_attempt and not is_safe_inquiry:
-        logger.info(f"[CHAT] [{tenant_id}] Core intent detected. Checking token validity.")
-        if not user_email:
-            logger.warning(f"[CHAT] [{tenant_id}] No X-User-Email header. Surface login card.")
-            return standardize_response({
-                "role": "assistant",
-                "content": "Authentication Required",
-                "message": "Please login to MatterMiner Core to proceed.",
-                "status": "auth_required",
-                "auth_type": "matterminer_core",
-                "history": cleaned_history
-            })
-        from .remote_services.matterminer_core import MatterMinerCoreClient
-        core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
-        try:
-            status = await core_client.has_valid_token(user_email)
-            if status.get("status") == "auth_required" or status.get("code") == 404:
-                 return standardize_response({
-                    "role": "assistant",
-                    "content": "Authentication Required",
-                    "message": "Your MatterMiner session has expired. Please login again.",
-                    "status": "auth_required",
-                    "auth_type": "matterminer_core",
-                    "history": cleaned_history
-                 })
-            logger.info(f"[CHAT] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
-        finally:
-            await core_client.close()
+    # Phase 2 (Auth Migration): Core pre-flight login gate REMOVED.
+    # MatterMiner Core now authenticates via static API key (CORE_API_KEY) at the transport layer.
+    # No has_valid_token() check or login card surfacing needed.
 
 	# DROP-IN PRE-FLIGHT WALLET CHECK
     # wallet_check = await wallet_service.check_balance(auth_headers=calendar_service.headers)
@@ -645,23 +608,11 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     ]
     is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
 
-    core_keywords = [
-        "register", "onboard", "new client", "create client", "setup client",
-        "contact", "country", "countries", "client", "investigate",
-        "matter", "firm", "internal", "deadline", "filing"
-    ]
-    is_core_intent = any(kw in user_prompt_raw for kw in core_keywords)
-    is_login_attempt = any(kw in user_prompt_raw for kw in ["login", "log in", "password"])
-
     is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
     is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "deadline", "filing"])
 
-    # Informational bypass: Don't trigger auth for brand inquiry or general info
-    safe_keywords = ["what is", "how do i", "who is", "help", "info", "about"]
-    is_safe_inquiry = any(kw in user_prompt_raw for kw in safe_keywords)
-
     # 2. Pre-LLM Auth Guard – only for explicit Google Calendar requests
-    if is_calendar_intent and is_explicit_google and not is_login_attempt:
+    if is_calendar_intent and is_explicit_google:
         # Replaces the old inline gate with the specialist agent's auth check
         auth_response = await perform_calendar_auth_check(calendar_service, tenant_id, req.history)
         if auth_response:
@@ -669,25 +620,9 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                  yield f"data: {json.dumps(auth_response)}\n\n"
              return StreamingResponse(_auth_stream_gen(), media_type="text/event-stream")
 
-    if is_core_intent and not is_login_attempt and not is_safe_inquiry:
-        logger.info(f"[STREAM] [{tenant_id}] Core intent detected. Checking token validity.")
-        if not user_email:
-            logger.warning(f"[STREAM] [{tenant_id}] No X-User-Email header. Surface login card.")
-            async def _no_email_gen():
-                yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Please login to MatterMiner Core to proceed.'}))}\n\n"
-            return StreamingResponse(_no_email_gen(), media_type="text/event-stream")
-        from .remote_services.matterminer_core import MatterMinerCoreClient
-        core_client = MatterMinerCoreClient(base_url=settings.NODE_REMOTE_SERVICE_URL, tenant_id=tenant_id)
-        try:
-            status = await core_client.has_valid_token(user_email)
-            if status.get("status") == "auth_required" or status.get("code") == 404:
-                 logger.warning(f"[STREAM] [{tenant_id}] Token invalid or missing for {user_email}. Surface login card.")
-                 async def _no_core_gen():
-                     yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'matterminer_core', 'message': 'Your MatterMiner session has expired. Please login again.'}))}\n\n"
-                 return StreamingResponse(_no_core_gen(), media_type="text/event-stream")
-            logger.info(f"[STREAM] [{tenant_id}] Core token valid for {user_email}. Proceeding.")
-        finally:
-            await core_client.close()
+    # Phase 2 (Auth Migration): Core pre-flight login gate REMOVED.
+    # MatterMiner Core now authenticates via static API key (CORE_API_KEY) at the transport layer.
+    # No has_valid_token() check or login card surfacing needed.
 
     # Standard check for CLEAR
     if user_prompt_raw in ["clear", "reset", "/clear"]:

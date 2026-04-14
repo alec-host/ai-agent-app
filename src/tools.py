@@ -256,21 +256,8 @@ TOOLS = [
            }
        }
     },
-    {
-       "type": "function",
-       "function": {
-           "name": "authenticate_to_core",
-           "description": "CRITICAL: Use this IMMEDIATELY when a user provides their email and password to log in. This is the only authorized way to secure the MatterMiner session using credentials from the login card.",
-           "parameters": {
-               "type": "object",
-               "properties": {
-                   "email": {"type": "string", "description": "The user's login email address."},
-                   "password": {"type": "string", "description": "The user's secret password."}
-               },
-               "required": ["email", "password"]
-           }
-       }
-    },
+    # Phase 3 (Auth Migration): authenticate_to_core tool REMOVED.
+    # MatterMiner Core now authenticates via static API key. No user credentials needed.
     {
        "type": "function",
        "function": {

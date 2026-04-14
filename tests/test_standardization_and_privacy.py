@@ -69,17 +69,24 @@ async def test_security_token_masking():
             "role": "assistant",
             "content": None,
             "tool_calls": [{
-                "id": "1",
+                "id": "call_std_1",
                 "function": {
-                    "name": "login",
-                    "arguments": '{"username": "admin", "password": "secret-password"}'
+                    "name": "lookup_countries",
+                    "arguments": '{"search": "US", "password": "secret-password"}'
                 }
             }]
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_std_1",
+            "content": '{"success": true}'
         }
     ]
     sanitized = sanitize_history(history)
-    args = json.loads(sanitized[0]["tool_calls"][0]["function"]["arguments"])
-    assert args["password"] == "********"
+    # The assistant message is at index 0
+    args_str = sanitized[0]["tool_calls"][0]["function"]["arguments"]
+    assert "********" in args_str
+    assert "secret-password" not in args_str
 
 @pytest.mark.asyncio
 async def test_dispatcher_redaction():

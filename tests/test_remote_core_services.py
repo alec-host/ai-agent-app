@@ -4,22 +4,10 @@ import httpx
 import json
 from src.remote_services.matterminer_core import MatterMinerCoreClient
 from src.agents.core_agent import handle_core_ops, handle_create_contact, handle_lookup_countries
+from src.config import settings
 from unittest.mock import AsyncMock, MagicMock
 
-# Mock Data from User Specs
-LOGIN_RESPONSE = {
-    "data": {
-        "token": "mock_core_token",
-        "user": {
-            "id": 4,
-            "full_name": "Dev User",
-            "email": "dev@matterminer.com",
-            "tenant_id": "12345678"
-        }
-    },
-    "status": "success",
-    "message": "Login successful"
-}
+# Phase 6 (Auth Migration): LOGIN_RESPONSE removed — login() method no longer exists.
 
 COUNTRY_RESPONSE = {
     "status": "success",
@@ -34,34 +22,131 @@ CONTACT_SUCCESS_RESPONSE = {
     "message": "Contact created successfully"
 }
 
+# ============================================================
+# Phase 6 NEW: API Key Header Verification
+# ============================================================
+
 @pytest.mark.asyncio
 @respx.mock
-async def test_core_client_login():
-    # Setup mock
-    respx.post(url__regex=r".*/login.*").mock(
-        return_value=httpx.Response(200, json=LOGIN_RESPONSE)
+async def test_api_key_header_injected():
+    """Every Core request must include Authorization: Bearer {CORE_API_KEY}."""
+    respx.get(url__regex=r".*/countries.*").mock(
+        return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
-    
+
     client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
-    resp = await client.login("dev@matterminer.com", "password")
-    
+    resp = await client.get_countries(search="Kenya")
+
     assert resp["status"] == "success"
-    assert client.access_token == "mock_core_token"
-    assert client.user_profile["full_name"] == "Dev User"
+
+    # Verify the outbound request contained the API key
+    assert len(respx.calls) == 1
+    sent_headers = dict(respx.calls[0].request.headers)
+    assert "authorization" in sent_headers
+    assert sent_headers["authorization"] == f"Bearer {settings.CORE_API_KEY}"
     await client.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_api_key_header_with_user_email():
+    """API key header + user email should both be present."""
+    respx.get(url__regex=r".*/countries.*").mock(
+        return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
+    )
+
+    client = MatterMinerCoreClient(
+        base_url="https://dev.matterminer.com/api",
+        tenant_id="12345678",
+        user_email="dev@matterminer.com"
+    )
+    resp = await client.get_countries(search="Uganda")
+
+    sent_headers = dict(respx.calls[0].request.headers)
+    assert sent_headers["authorization"] == f"Bearer {settings.CORE_API_KEY}"
+    assert sent_headers["x-user-email"] == "dev@matterminer.com"
+    assert sent_headers["x-tenant-id"] == "12345678"
+    await client.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_login_method_removed():
+    """MatterMinerCoreClient must no longer have a login() method."""
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
+    assert not hasattr(client, 'login'), "login() method should have been removed in Phase 1"
+    assert not hasattr(client, 'has_valid_token'), "has_valid_token() should have been removed"
+    assert not hasattr(client, 'set_auth_token'), "set_auth_token() should have been removed"
+    assert not hasattr(client, 'access_token'), "access_token attribute should have been removed"
+    await client.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_401_returns_api_key_error():
+    """Core 401 → api_key_error status, not auth_required."""
+    respx.get(url__regex=r".*/countries.*").mock(
+        return_value=httpx.Response(401, json={"message": "Unauthorized"})
+    )
+
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
+    resp = await client.get_countries(search="test")
+
+    assert resp["status"] == "api_key_error"
+    assert resp["code"] == 401
+    assert "administrator" in resp["message"].lower()
+    await client.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_403_returns_api_key_error():
+    """Core 403 → api_key_error status, not auth_required."""
+    respx.post(url__regex=r".*/contact.*").mock(
+        return_value=httpx.Response(403, json={"message": "Forbidden"})
+    )
+
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
+    resp = await client.create_contact({"first_name": "Test"})
+
+    assert resp["status"] == "api_key_error"
+    assert resp["code"] == 403
+    await client.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_404_is_data_error():
+    """Core 404 → normal error status, NOT api_key_error or auth_required."""
+    respx.get(url__regex=r".*/countries.*").mock(
+        return_value=httpx.Response(404, json={"message": "Not found"})
+    )
+
+    client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
+    resp = await client.get_countries(search="nonexistent")
+
+    assert resp["status"] == "error"
+    assert resp.get("status") != "api_key_error"
+    assert resp.get("status") != "auth_required"
+    await client.close()
+
+
+# ============================================================
+# Existing Tests (Updated for Phase 6)
+# ============================================================
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_core_client_get_countries():
-    # Setup mock
+    """Countries endpoint works with static API key — no manual auth needed."""
     respx.get(url__regex=r".*/countries.*").mock(
         return_value=httpx.Response(200, json=COUNTRY_RESPONSE)
     )
-    
+
     client = MatterMinerCoreClient(base_url="https://dev.matterminer.com/api", tenant_id="12345678")
-    client.set_auth_token("test_token")
+    # Phase 6: No set_auth_token() call needed — API key is automatic
     resp = await client.get_countries(search="Kenya")
-    
+
     assert resp["status"] == "success"
     assert len(resp["data"]) == 2
     assert resp["data"][0]["name"] == "Kenya"

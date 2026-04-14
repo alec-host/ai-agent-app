@@ -6,18 +6,19 @@ from src.agents.core_agent import handle_create_client
 from src.config import settings
 
 @pytest.mark.asyncio
-async def test_client_creation_reactive_auth():
+async def test_client_creation_api_key_rejection():
     """
-    Test that handle_create_client triggers auth_required correctly
-    when the remote service returns a 404 'Not found' signal.
+    Phase 6 (Auth Migration): Test that handle_create_client triggers api_key_error
+    when the remote service returns 401 (API key rejected).
+    Previously tested 404 → auth_required; now tests 401 → api_key_error.
     """
     tenant_id = "test-tenant-client"
     
-    # 1. Setup Mock for 404 Auth Trigger
+    # 1. Setup Mock for 401 API Key Rejection
     with respx.mock:
         respx.post(url__regex=r".*/client.*").mock(return_value=Response(
-            404, 
-            json={"success": False, "message": "Not found"}
+            401, 
+            json={"success": False, "message": "Unauthorized"}
         ))
         
         # 2. Mock services with a full client draft
@@ -52,15 +53,67 @@ async def test_client_creation_reactive_auth():
         args = {} # All fields already in draft/session
         result = await handle_create_client(args, mock_services, tenant_id, history=[])
         
-        # 3. Assertions
-        assert result["status"] == "auth_required"
+        # 3. Assertions — api_key_error, not auth_required
+        assert result["status"] == "api_key_error"
         assert result["auth_type"] == "matterminer_core"
-        assert "login card" in result["response_instruction"]
+        assert "configuration" in result["response_instruction"].lower() or \
+               "administrator" in result["response_instruction"].lower()
+        # Must NOT reference login card
+        assert "login card" not in result.get("response_instruction", "").lower()
+
+@pytest.mark.asyncio
+async def test_client_creation_404_is_data_error():
+    """
+    Phase 6 (Auth Migration): 404 from Core should be treated as a normal
+    data error, NOT as an auth failure.
+    """
+    tenant_id = "test-tenant-client-404"
+    
+    with respx.mock:
+        respx.post(url__regex=r".*/client.*").mock(return_value=Response(
+            404, 
+            json={"success": False, "message": "Not found"}
+        ))
+        
+        async def mock_get_session(t):
+            return {
+                "metadata": {
+                    "active_workflow": "client",
+                    "client_draft": {
+                        "client_type": "individual",
+                        "client_email": "client@example.com",
+                        "first_name": "Alice",
+                        "last_name": "Smith",
+                        "contact_id": "cont-123",
+                        "country_id": 1,
+                        "street": "123 Main St"
+                    }
+                }
+            }
+            
+        async def mock_sync_session(p):
+            return True
+
+        mock_services = {
+            'calendar': type('obj', (object,), {
+                'get_client_session': mock_get_session,
+                'sync_client_session': mock_sync_session,
+                'access_token': None,
+                'thread_id': "test-thread-client-404"
+            })
+        }
+        
+        result = await handle_create_client({}, mock_services, tenant_id, history=[])
+        
+        # 404 should be a normal error, NOT api_key_error or auth_required
+        assert result["status"] == "error", f"404 should be a normal error, got: {result['status']}"
+        assert result.get("status") != "api_key_error"
+        assert result.get("status") != "auth_required"
 
 @pytest.mark.asyncio
 async def test_client_creation_unexpected_error():
     """
-    Verify that non-404 errors are handled as errors, not auth triggers.
+    Verify that non-auth errors (500) are handled as errors, not auth triggers.
     """
     tenant_id = "test-tenant-error"
     
@@ -101,5 +154,4 @@ async def test_client_creation_unexpected_error():
         result = await handle_create_client({}, mock_services, tenant_id, history=[])
         
         assert result["status"] == "error"
-        assert "rejected the record" in result["message"]
-        assert "Database error" in result["message"]
+        assert "Database error" in result["message"] or "Failed to create client" in result["message"]

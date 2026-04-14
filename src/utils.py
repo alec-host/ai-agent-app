@@ -51,11 +51,27 @@ def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n:
                 if target in content:
                     content = content.replace(target, "********")
                     import re
+                    # Robust JSON-key-value masking (masks "key": "value" after key was turned into asterisks)
+                    content = re.sub(r'("\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', content)
                     content = re.sub(r'(\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', content)
             
             msg_dict["content"] = content
-            if not is_recent and len(content) > max_content_length:
+            if not is_recent and content and len(content) > max_content_length:
                 msg_dict["content"] = content[:max_content_length] + f" ... [Truncated]"
+
+        # --- TOOL CALL ARGUMENT MASKING (Phase 6: Hardening) ---
+        if msg_dict.get("tool_calls"):
+            for tc in msg_dict["tool_calls"]:
+                args_str = tc.get("function", {}).get("arguments")
+                if args_str and isinstance(args_str, str):
+                    mask_targets = ["password", "jwtToken", "accessToken", "remote_access_token", "X-Tenant-ID", "Authorization", "X-User-Email"]
+                    for target in mask_targets:
+                        if target in args_str:
+                            args_str = args_str.replace(target, "********")
+                            import re
+                            args_str = re.sub(r'("\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', args_str)
+                            args_str = re.sub(r'(\*\*\*\*\*\*\*\*"\s*:\s*")([^"]+)"', r'\1********"', args_str)
+                    tc["function"]["arguments"] = args_str
         
         sanitized.append(msg_dict)
 

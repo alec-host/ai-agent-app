@@ -9,7 +9,8 @@ logger = logging.getLogger("legal-agentic-ai")
 class MatterMinerCoreClient:
     """
     Client for interacting with the MatterMiner Core remote system.
-    Authentication is handled by the backend; this client passes tenant context.
+    Authentication is handled via a static API key (CORE_API_KEY) injected into
+    every outbound request header. No interactive login required.
     """
     def __init__(self, base_url: str, tenant_id: str, user_email: Optional[str] = None, correlation_id: Optional[str] = None):
         # Strip ALL known path segments to ensure a clean Host-Only base (Architectural Guard)
@@ -17,8 +18,6 @@ class MatterMinerCoreClient:
         self.tenant_id = tenant_id
         self.user_email = user_email
         self.correlation_id = correlation_id
-        self.access_token = None
-        self.user_profile = None
         
         # Internal async client
         self.client = httpx.AsyncClient(
@@ -27,18 +26,13 @@ class MatterMinerCoreClient:
         )
 
 
-    def set_auth_token(self, token: str):
-        self.access_token = token
-
-    def is_authenticated(self) -> bool:
-        return self.access_token is not None
 
     async def request(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Reusable method for calling remote operations.
         Passes tenant information via headers (SEC-05).
         """
-        # Architectural Requirement: Prepend standard routing path
+        # Architectural Requirement: Prepend standard routing path (/app/core/...)
         url = f"{self.base_url}/app/core/{endpoint.lstrip('/')}"
         headers = self._get_headers()
         
@@ -53,19 +47,19 @@ class MatterMinerCoreClient:
                 headers=headers
             )
             
-            # --- REACTIVE AUTH DETECTION ---
-            # If the service returns 404 with a "Not found" message, it signals session expiration.
-            if response.status_code == 404:
-                try:
-                    data = response.json()
-                    msg = str(data.get("message", "")).lower()
-                    success = data.get("success")
-                    # Catch "success": false/None and "Not found" (case-insensitive)
-                    if msg == "not found":
-                        logger.warning(f"[CORE-API] 404 Session Missing detected for {endpoint}. Triggering login workflow.")
-                        return {"status": "auth_required", "code": 404, "message": "Authentication required."}
-                except:
-                    pass
+            # --- API KEY AUTH DETECTION (Phase 1: Auth Migration) ---
+            # 401/403 indicate the API key is invalid or lacks permissions.
+            # 404 is treated as a normal "data not found" response (no longer conflated with auth).
+            if response.status_code in [401, 403]:
+                logger.error(
+                    f"[CORE-API] API Key rejected for {endpoint}. "
+                    f"Status: {response.status_code}. Check CORE_API_KEY configuration."
+                )
+                return {
+                    "status": "api_key_error",
+                    "code": response.status_code,
+                    "message": "MatterMiner Core rejected the API key. Please contact your administrator."
+                }
 
             # Scalable result handling
             if response.status_code in [200, 201]:
@@ -142,34 +136,6 @@ class MatterMinerCoreClient:
         }
         return await self.request("GET", "/countries", params=params)
 
-    async def has_valid_token(self, email: str) -> Dict[str, Any]:
-        """
-        Proactively checks if a user has a valid grant token.
-        Calls GET /app/auth/hasGrantToken?email=...&tenantId=...
-        """
-        # Note: We override the /app/core prefix for this specific legacy auth check
-        url = f"{self.base_url}/app/auth/hasGrantToken?tenantId={self.tenant_id}&email={email}"
-        headers = self._get_headers()
-        response = await self.client.get(url, headers=headers)
-        return response.json() if response.status_code == 200 else {"success": False}
-
-    async def login(self, email: str, password: str) -> Dict[str, Any]:
-        """
-        Authenticates a user with the remote system.
-        POST /login { email, password, tenantId }
-        """
-        payload = {
-            "email": email,
-            "password": password,
-            "tenantId": self.tenant_id
-        }
-        resp = await self.request("POST", "/login", json_data=payload)
-        if resp.get("status") == "success" or resp.get("success") is True:
-            data = resp.get("data", {})
-            if "token" in data:
-                self.set_auth_token(data["token"])
-            self.user_profile = data.get("user")
-        return resp
 
     async def create_matter(self, matter_data: Dict[str, Any]) -> Dict[str, Any]:
         """Creates a new matter record in MatterMiner Core."""
@@ -226,11 +192,12 @@ class MatterMinerCoreClient:
         return await self.request("GET", "/billing-types", params=params)
 
     def _get_headers(self) -> Dict[str, str]:
-        """Constructs headers with necessary context."""
+        """Constructs headers with necessary context and static API key authorization."""
         headers = {
             "Content-Type": "application/json",
             "X-Tenant-ID": self.tenant_id,
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "Authorization": f"Bearer {settings.CORE_API_KEY}"  # Static API key auth (Phase 1: Auth Migration)
         }
         
         if self.user_email:
@@ -238,9 +205,6 @@ class MatterMinerCoreClient:
             
         if self.correlation_id:
             headers["X-Correlation-ID"] = self.correlation_id
-            
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
             
         return headers
 

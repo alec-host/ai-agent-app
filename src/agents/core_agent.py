@@ -11,9 +11,11 @@ from ..dynamic_schema.matter_schema import MATTER_SCHEMA
 from ..dynamic_schema.event_schema import STANDARD_EVENT_SCHEMA, ALL_DAY_EVENT_SCHEMA, EVENT_SCHEMA
 from ..config import settings
 
-def _get_auth_required_response(message, response_instruction, history=None):
+def _get_api_key_error_response(message, response_instruction, history=None):
+    """Phase 4 (Auth Migration): Returns a standardized API key error response.
+    Used when the Core API rejects the static API key (401/403)."""
     return standardize_response({
-        "status": "auth_required",
+        "status": "api_key_error",
         "auth_type": "matterminer_core",
         "message": message,
         "response_instruction": response_instruction
@@ -121,40 +123,11 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
     """
     Handles operations for the MatterMiner Core remote system.
     Supports session tunneling (db_session) to minimize backend lookups.
+    
+    Phase 3 (Auth Migration): authenticate_to_core handler REMOVED.
+    Core auth is now handled via static API key at the transport layer.
     """
-    if func_name == "authenticate_to_core":
-        email = args.get("email")
-        password = args.get("password")
-        
-        if not email or not password:
-            return {"status": "error", "message": "Email and password are required for login."}
-            
-        core_client = _get_core_client(tenant_id, user_email)
-        try:
-            result = await core_client.login(email, password)
-            
-            # Robust success check: JSON boolean, string "true", or status wrapper
-            is_success = result.get("success") is True or str(result.get("success")).lower() == "true"
-            # If client.request caught a non-200 code, it adds status="error"
-            if is_success and result.get("status") != "error":
-                logger.info(f"[CORE-AUTH] Login successful for {email}")
-                return {
-                    "status": "success",
-                    "message": f"Successfully authenticated as {email}. You can now proceed with your request.",
-                    "data": result
-                }
-            else:
-                msg = result.get("message", "Invalid credentials")
-                logger.warning(f"[CORE-AUTH] Login failed for {email}: {msg}")
-                return {
-                    "status": "error",
-                    "code": result.get("code", 401),
-                    "message": f"Authentication failed: {result.get('message', 'Invalid credentials')}"
-                }
-        finally:
-            await core_client.close()
-
-    elif func_name == "create_contact":
+    if func_name == "create_contact":
         return await handle_create_contact(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
         
     elif func_name in ["create_client_record", "setup_client", "promote_contact_to_client"]:
@@ -348,10 +321,10 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None, db
                 "raw_data": countries_data,
                 "response_instruction": "Display the result to the user. Since the country is identified, its ID has been automatically linked. You can move to the next field."
             }
-        elif resp.get("status") == "auth_required":
-            return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "To search for countries, you need to be logged into MatterMiner. Display the login card."
+        elif resp.get("status") == "api_key_error":
+            return _get_api_key_error_response(
+                "MatterMiner Core rejected the API key. Please contact your administrator.",
+                "Inform the user there is a system configuration issue and they should contact their administrator. Do not ask for credentials."
             )
         else:
             return {
@@ -428,10 +401,10 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
                 "data": resp,
                 "response_instruction": "Confirm success, output the markdown table summary, remind the user it can be copied easily, and ask if they need anything else."
             }
-        elif resp.get("status") == "auth_required" or resp.get("code") == 404:
-            return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "Display the login card. All event details are preserved in the vault."
+        elif resp.get("status") == "api_key_error":
+            return _get_api_key_error_response(
+                "MatterMiner Core rejected the API key. Please contact your administrator.",
+                "Inform the user there is a system configuration issue. All event details are preserved in the vault. Do not ask for credentials."
             )
         else:
             return {
@@ -536,8 +509,8 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
                 "message": msg,
                 "response_instruction": "Confirm the contact has been saved. If the user's goal was client registration, you now have the contact_id and can proceed with that workflow."
             }
-        elif resp.get("status") == "auth_required":
-            # Save progress so user can resume after login
+        elif resp.get("status") == "api_key_error":
+            # Save progress so it can be resumed after admin fixes the API key
             payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
                 client_args=session,
@@ -547,9 +520,9 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
                 thread_id=services['calendar'].thread_id
             )
             await services['calendar'].sync_client_session(payload)
-            return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "Display the login card. I have all the details ready to save once you are logged in."
+            return _get_api_key_error_response(
+                "MatterMiner Core rejected the API key. Please contact your administrator.",
+                "Inform the user there is a system configuration issue. All contact details are preserved and will be saved once the issue is resolved. Do not ask for credentials."
             )
         else:
             return {
@@ -716,10 +689,10 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                 "data": resp,
                 "response_instruction": "Confirm success and ask if they would like to create a matter for this client."
             }
-        elif resp.get("status") == "auth_required":
-            return _get_auth_required_response(
-                "Authentication required for MatterMiner Core.",
-                "Display login card. Progress is saved in the vault."
+        elif resp.get("status") == "api_key_error":
+            return _get_api_key_error_response(
+                "MatterMiner Core rejected the API key. Please contact your administrator.",
+                "Inform the user there is a system configuration issue. Progress is saved in the vault. Do not ask for credentials."
             )
         else:
             return {
@@ -951,10 +924,10 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
                 "data": resp,
                 "response_instruction": "Confirm the matter creation success, display the markdown table, and ask if any further steps are needed."
             }
-        elif resp.get("status") == "auth_required":
+        elif resp.get("status") == "api_key_error":
             payload = format_sync_chat_payload(tenant_id=tenant_id, client_args=session, matter_draft=draft, metadata=metadata, history=[], thread_id=services['calendar'].thread_id)
             await services['calendar'].sync_client_session(payload)
-            return _get_auth_required_response("Authentication required.", "Display login card.")
+            return _get_api_key_error_response("MatterMiner Core rejected the API key. Please contact your administrator.", "Inform the user there is a system configuration issue. Matter draft is preserved. Do not ask for credentials.")
         else:
             return {"status": "error", "message": resp.get("message", "Failed to create matter."), "response_instruction": "Inform user about the error."}
     finally:

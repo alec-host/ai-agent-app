@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "127.0.0.1"
     REDIS_PORT: int = 6379
 
+    CORE_API_KEY: str 
+
     # CORS — Allowed Origins (SEC-02)
     CORS_ALLOWED_ORIGINS: list = [
         "https://app.matterminer.com",

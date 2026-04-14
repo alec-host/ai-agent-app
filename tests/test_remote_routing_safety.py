@@ -41,7 +41,7 @@ async def test_matterminer_core_routing_safety():
     assert client.base_url == "https://dev.matterminer.com"
     
     with respx.mock:
-        respx.get("https://dev.matterminer.com/app/core/app/search-contact").mock(return_value=httpx.Response(200, json={"id": 1}))
+        respx.get("https://dev.matterminer.com/app/core/search-contact").mock(return_value=httpx.Response(200, json={"id": 1}))
         resp = await client.search_contact_by_email("test@test.com")
         assert resp["id"] == 1
 
