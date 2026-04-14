@@ -15,17 +15,20 @@ from src.utils import retry_with_backoff
 class GoogleCalendarClient:
     """Async client to communicate with the existing Node.js Microservice for Google Calendar."""
 
-    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None, access_token: str = None):
+    def __init__(self, tenant_id: str, http_client: httpx.AsyncClient, correlation_id: str, thread_id: str = None, access_token: str = None, user_email: str = None):
         self.tenant_id = tenant_id
         self.correlation_id = correlation_id
         self.thread_id = thread_id or "default"
         self.access_token = access_token # The token passed from frontend
+        self.user_email = user_email
         # Strip any legacy paths for Host-Only base
         self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "")
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
         }
+        if user_email:
+            self.headers["X-User-Email"] = user_email
         self._jwt_synced = False
         if access_token:
             self.set_auth_token(access_token) # This sets the login token, but it's not the calendar JWT
@@ -343,6 +346,8 @@ class GoogleCalendarClient:
             query = f"/chat/session?tenantId={self.tenant_id}"
             if self.thread_id:
                 query += f"&threadId={self.thread_id}"
+            if self.user_email:
+                query += f"&userEmail={quote(self.user_email)}"
             resp = await self.request("GET", query)
             
             # HARDEN: If request returns an error object, return {} so agents start fresh
@@ -380,6 +385,8 @@ class GoogleCalendarClient:
         try:
             # ENSURE THREAD ID: Guarantee the payload has the threadId to prevent Node.js 500
             payload["threadId"] = self.thread_id
+            if self.user_email:
+                payload["userEmail"] = self.user_email
             
             # Use self.request to ensure Auth Headers and Auth-Healing are applied
             response = await self.request("POST", "/chat/session", json_data=payload)

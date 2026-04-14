@@ -293,3 +293,45 @@ def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_tur
                 reasoning_chains_found += 1
             
     return list(reversed(compressed))
+
+def deep_merge_drafts(vault_draft: dict, new_args: dict) -> dict:
+    """
+    [PHASE B: HARDENED MERGING] 
+    Additive Merge Logic: Prevents overwriting valid data with null/empty/hallucinated 
+    values from the LLM turn. Only promotes meaningful non-empty strings.
+    Ensures 'repeating questions' are eliminated.
+    """
+    updated_draft = (vault_draft or {}).copy()
+    if not isinstance(updated_draft, dict): updated_draft = {}
+    
+    for key, value in (new_args or {}).items():
+        # Architectural Guard: Only update if the value is non-empty and non-hallucinated
+        # We explicitly ignore keys that are meant to be 'internal' or 'metadata' if they leak into args
+        if key.startswith("_"): continue
+        
+        is_meaningful = value and str(value).strip().lower() not in ["none", "", "null", "undefined", "n/a", "skipped"]
+        
+        # [PHASE E: SMART VALIDATION]
+        # Prevents malformed data from polluting the Vault
+        if is_meaningful:
+            import re
+            # Email Validation
+            if "email" in key.lower():
+                if not re.match(r"[^@]+@[^@]+\.[^@]+", str(value)):
+                    logger.warning(f"Validation Reject: '{value}' is not a valid email for {key}.")
+                    continue
+            # Phone Validation
+            if "phone" in key.lower() or "mobile" in key.lower():
+                if not re.match(r"^\+?[\d\s\-()]{7,}$", str(value)):
+                    logger.warning(f"Validation Reject: '{value}' is not a valid phone for {key}.")
+                    continue
+
+        # SPECIAL CASE: Explicit 'skip' command from user
+        if str(value).strip().lower() in ["skip", "skipped"]:
+             updated_draft[key] = "skipped"
+             continue
+
+        if is_meaningful:
+            updated_draft[key] = value
+            
+    return updated_draft

@@ -8,7 +8,7 @@ from .agents.calendar_agent import handle_calendar
 from .agents.rag_agent import handle_rag_lookup
 from .agents.core_agent import handle_core_ops, get_workflow_recovery as core_recovery
 
-async def get_rehydration_context(tenant_id, services):
+async def get_rehydration_context(tenant_id, services, user_email=None):
     """
     Dispatcher-level rehydration aggregator.
     Calls each agent's hook to see if they have a recovery context.
@@ -18,8 +18,21 @@ async def get_rehydration_context(tenant_id, services):
         if not calendar_service:
             return None
 
-        db_session = await calendar_service.get_client_session(tenant_id)
+        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
         raw_metadata = db_session.get("metadata", {})
+        
+        # [PHASE A: ISOLATION CHECK]
+        # Skip rehydration if the session belongs to a different user
+        if isinstance(raw_metadata, str):
+            try: meta_check = json.loads(raw_metadata)
+            except: meta_check = {}
+        else:
+            meta_check = raw_metadata or {}
+            
+        owner = meta_check.get("owner_email")
+        if owner and user_email and owner != user_email:
+             logger.info(f"[{tenant_id}] Rehydration skipped: Session owned by {owner}, request by {user_email}")
+             return None
         
         if isinstance(raw_metadata, str):
             try:

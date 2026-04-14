@@ -1,7 +1,7 @@
 import copy
 import json
 from ..logger import logger
-from ..utils import format_sync_chat_payload, standardize_response
+from ..utils import format_sync_chat_payload, standardize_response, deep_merge_drafts
 from ..remote_services.matterminer_core import MatterMinerCoreClient
 from ..config import settings
 
@@ -37,58 +37,59 @@ async def run_draft_workflow(
     workflow_id, 
     history,
     intro_message=None,
-    db_session=None
+    db_session=None,
+    user_email=None
 ):
     """
     Unified engine for conversational drafting.
     Handles field-by-field questioning, optional skipping, and contextual auto-detection.
     """
     # 1. Fetch Session (Atomic State Tunneling)
-    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
+    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
         except: metadata = {}
     
+    # [PHASE A: MULTI-USER ISOLATION]
+    # Verify the owner of this session to prevent tenant-wide overlap.
+    owner = metadata.get("owner_email")
+    if owner and user_email and owner != user_email:
+        logger.warning(f"[{tenant_id}] ISOLATION BREACH ATTEMPT: User {user_email} tried to access session of {owner}. Resetting local reference.")
+        # If identity mismatch, we treat it as a fresh session for the new user
+        metadata = {"owner_email": user_email}
+        session["metadata"] = metadata
+    elif not owner and user_email:
+        metadata["owner_email"] = user_email
+    
     # 2. Namespace Isolation: Enforce strict demarcation between workflows
-    # Each workflow (Contact, Client, Matter) operates in its own partition.
     current_wf = metadata.get("active_workflow")
     if current_wf and current_wf != workflow_id:
         logger.info(f"[{tenant_id}] ISOLATION GUARD: Switching context from {current_wf} to {workflow_id}. Archiving stale {metadata_key}.")
-        # Archive previous session state to prevent contamination
         metadata["active_workflow"] = workflow_id
     
     # 3. State-First Merging: Load existing draft and merge with NEW args only
-    # This prevents 'Amnesia' by treating DB state as the source of truth.
-    draft = metadata.get(metadata_key, {})
-    if not isinstance(draft, dict): draft = {}
-    
-    # SYSTEM CONTEXT (for auto-detection)
-    sys_ctx = args.get("_system_context", {})
-    
-    # 4. Stepwise Schema Population: Update draft strictly from provided args
+    # [PHASE B: HARDENED ADDITIVE MERGE]
+    # Uses deep_merge_drafts to prevent 'Amnesia' and repetitive questioning.
+    vault_draft = metadata.get(metadata_key, {})
+    if not isinstance(vault_draft, dict): vault_draft = {}
+
+    # Alias Resolution: Pre-process args to map aliases to primary keys
+    resolved_args = {}
     for field in schema:
         key = field["key"]
-        candidate_keys = [key] + field.get("aliases", [])
-        
-        # Priority 01: If it's already in the draft (database), KEEPS IT (Immutable)
-        # Priority 02: If provided in args, update it.
-        val = None
-        for ck in candidate_keys:
+        for ck in [key] + field.get("aliases", []):
             if ck in args and args[ck] is not None:
-                val = args[ck]
+                resolved_args[key] = args[ck]
                 break
-        
-        if val is not None:
-            is_skipping = str(val).lower().strip() in ["skip", "skipped", "none", "n/a", ""]
-            if is_skipping:
-                draft[key] = "skipped"
-            else:
-                draft[key] = val
+    
+    # Apply Hardened Merge
+    draft = deep_merge_drafts(vault_draft, resolved_args)
 
     # 5. Atomic Sync: Persist the updated draft immediately (Latency Guard)
     metadata[metadata_key] = draft
     metadata["active_workflow"] = workflow_id
+    metadata["session_lifecycle"] = "active" # Tracks continuation status
     
     # Verify we aren't losing existing state during the update
     session["metadata"] = metadata
@@ -348,7 +349,8 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
     partial_resp, session, draft = await run_draft_workflow(
         schema, args, services, tenant_id, metadata_key, workflow_id, history,
         intro_message=f"I'll help you schedule that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the **{schema[0]['label']}** be?",
-        db_session=db_session
+        db_session=db_session,
+        user_email=user_email
     )
     
     if partial_resp:
@@ -423,7 +425,8 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     partial_resp, session, draft = await run_draft_workflow(
         CONTACT_SCHEMA, args, services, tenant_id, "contact_draft", "contact", history,
         intro_message="I'll help you create that contact. To start, what is their **First Name**?",
-        db_session=db_session
+        db_session=db_session,
+        user_email=user_email
     )
     
     if partial_resp:
@@ -541,7 +544,8 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     partial_resp, session, draft = await run_draft_workflow(
         CLIENT_SCHEMA, args, services, tenant_id, "client_draft", "client", history,
         intro_message="I'll help you register that new client. To start, what is their **Email Address**?",
-        db_session=db_session
+        db_session=db_session,
+        user_email=user_email
     )
     
     # CASE A: Still gathering data
@@ -806,7 +810,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     Handles conversational matter creation with lazy dynamic choice fetching.
     """
     # 1. Fetch current session to calculate dynamic state (Tunneling enabled)
-    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id)
+    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -864,7 +868,8 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     partial_resp, session, draft = await run_draft_workflow(
         dynamic_schema, args, services, tenant_id, "matter_draft", "matter", history,
         intro_message="I'll help you create a new matter. To begin, what should we call the **Matter Title**?",
-        db_session=db_session
+        db_session=db_session,
+        user_email=user_email
     )
     
     if partial_resp:
@@ -938,7 +943,7 @@ async def handle_lookup_client(args, services, tenant_id, user_email=None):
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.lookup_clients(term)
-        return await _process_lookup_response(resp, "client_id", "matter_draft", tenant_id, services, term)
+        return await _process_lookup_response(resp, "client_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
 
@@ -948,7 +953,7 @@ async def handle_lookup_practice_area(args, services, tenant_id, user_email=None
     try:
         # Use is_search=1 as per user spec for retrieving specific ID
         resp = await core_client.lookup_practice_areas(term, is_search=1)
-        return await _process_lookup_response(resp, "practice_area_id", "matter_draft", tenant_id, services, term)
+        return await _process_lookup_response(resp, "practice_area_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
 
@@ -958,7 +963,7 @@ async def handle_lookup_case_stage(args, services, tenant_id, user_email=None):
     try:
         # User specified that case_stage_id is retrieved from /billing-info?is_search=1
         resp = await core_client.lookup_billing_info(term)
-        return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term)
+        return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
 
@@ -967,11 +972,11 @@ async def handle_lookup_billing_type(args, services, tenant_id, user_email=None)
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.lookup_billing_types(term)
-        return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term)
+        return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
 
-async def _process_lookup_response(resp, link_key, draft_key, tenant_id, services, term):
+async def _process_lookup_response(resp, link_key, draft_key, tenant_id, services, term, user_email=None):
     is_success = resp.get("status") == "success" or resp.get("success") is True
     if is_success:
         data = resp.get("data", [])
@@ -990,7 +995,7 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
         if linked_id is not None:
             # --- PATTERN: LINKING DISCOVERED DATA ---
             try:
-                session = await services['calendar'].get_client_session(tenant_id)
+                session = await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                 metadata = session.get("metadata", {})
                 if isinstance(metadata, str): metadata = json.loads(metadata)
                 
