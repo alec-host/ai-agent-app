@@ -314,33 +314,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         if active_workflow == "cleared" or lifecycle == "completed":
             active_workflow = None
         if i == 0 and active_workflow == "calendar" and is_calendar_intent:
-             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
-             # MANDATORY: Sync JWT before grant-check
-             token_status = await services['calendar']._sync_access_token()
-             if token_status["status"] == "auth_required":
-                  logger.warning(f"[{tenant_id}] Turn {i}: Session expired/missing during loop. Returning auth_required.")
-                  return {
-                      "role": "assistant",
-                      "content": "Calendar Access Required",
-                      "message": "Google Calendar connection is required to schedule events.",
-                      "status": "auth_required",
-                      "auth_type": "google_calendar",
-                      "auth_url": token_status["auth_url"],
-                      "history": cleaned_history
-                  }
-
-             grant = await services['calendar'].check_grant_token()
-             if not grant["granted"]:
-                  logger.warning(f"[{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
-                  return {
-                      "role": "assistant",
-                      "content": "Calendar Access Required",
-                      "message": "Google Calendar connection is required to schedule events.",
-                      "status": "auth_required",
-                      "auth_type": "google_calendar",
-                      "auth_url": grant["auth_url"],
-                      "history": cleaned_history
-                  }
+             logger.info(f"[{tenant_id}] Turn {i}: Active calendar workflow + intent. Relying on downstream Token Auth.")
         
         # Segment 1: Client Fields
         client_vault = {k: v for k, v in {
@@ -494,16 +468,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             
             if isinstance(result, dict):
                 # Detect Terminal Success (Gives us direct control over the final output)
-                if result.get("status") == "auth_required":
-                    last_action = "Google session expired. Presenting Auth link."
-                    return standardize_response({
-                        "role": "assistant",
-                        "content": result.get("message", "Authorization required."),
-                        "status": "auth_required",
-                        "auth_type": result.get("auth_type"),
-                        "auth_url": result.get("auth_url"),
-                        "history": messages[1:]
-                    })
+
                 
                 # --- OPTIMIZATION: SHORT-CIRCUIT LOOP ON DATA COLLECTION ---
                 # Save the instruction but proceed so that OTHER tool calls in the same turn get a response message
@@ -659,19 +624,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 if active_workflow == "cleared" or lifecycle == "completed":
                     active_workflow = None
                 if i == 0 and active_workflow == "google_calendar" and is_calendar_intent:
-                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow + intent. Ensuring Auth Handshake.")
-                     # MANDATORY: Sync JWT before grant-check
-                     token_status = await services['calendar']._sync_access_token()
-                     if token_status["status"] == "auth_required":
-                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Session expired during loop. Surface auth card.")
-                          yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': token_status['auth_url']}, messages[1:]))}\n\n"
-                          return
- 
-                     grant = await services['calendar'].check_grant_token()
-                     if not grant["granted"]:
-                          logger.warning(f"[STREAM] [{tenant_id}] Turn {i}: Grant check failed. Surface auth card.")
-                          yield f"data: {json.dumps(standardize_response({'status': 'auth_required', 'auth_type': 'google_calendar', 'message': 'Google Calendar connection is required to schedule events.', 'auth_url': grant['auth_url']}, messages[1:]))}\n\n"
-                          return
+                     logger.info(f"[STREAM] [{tenant_id}] Turn {i}: Active calendar workflow + intent. Relying on downstream Token Auth.")
             except Exception as e:
                 logger.warning(f"[STREAM] Backend session fetch failed (non-fatal): {e}")
                 db_session = {}
@@ -814,12 +767,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 turn_deltas.append({**tool_msg, "content": compact_tool_result(result)})
                 
                 if isinstance(result, dict):
-                    # Proactively yield auth link to stream if needed
-                    if result.get("status") == "auth_required":
-                        yield f"data: {json.dumps(standardize_response(result, messages[1:]))}\n\n"
-                        # TERMINATE THE ENTIRE GENERATOR IMMEDIATELY
-                        logger.warning("[STREAM-AUTH] Killing generator due to auth_required.")
-                        return 
+
                     
                     # --- OPTIMIZATION: QUEUE SHORT-CIRCUIT FOR DATA COLLECTION ---
                     if result.get("status") == "partial_success":

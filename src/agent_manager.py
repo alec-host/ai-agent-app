@@ -162,10 +162,9 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
             if not user_email:
                 logger.warning(f"[{tenant_id}] BLOCKED: Tool '{func_name}' called by unauthenticated user.")
                 return {
-                    "status": "auth_required",
-                    "auth_type": "matterminer_core",
-                    "message": "Authentication required for MatterMiner Core.",
-                    "response_instruction": "Halt the current conversation and display the login card. Do not attempt to proceed with the tool call."
+                    "status": "error",
+                    "message": "Authentication required for MatterMiner Core. Please provide a valid token or log in.",
+                    "response_instruction": "Tell the user that Authentication is required to use MatterMiner Core features."
                 }
 
             # --- STRATEGY: UNIFIED CORE OPERATIONS ---

@@ -13,8 +13,12 @@ class MatterMinerCoreClient:
     every outbound request header. No interactive login required.
     """
     def __init__(self, base_url: str, tenant_id: str, user_email: Optional[str] = None, correlation_id: Optional[str] = None):
-        # Strip ALL known path segments to ensure a clean Host-Only base (Architectural Guard)
-        self.base_url = base_url.rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "").replace("/core", "")
+        # Flexible Base URL: Honor the .env path but ensure clean joining (Architectural Guard)
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/")
+        # Determine the root prefix (/app or /api) from settings, fallback to /app
+        self.root_prefix = "/api" if "/api" in self.base_url.lower() else "/app"
+        # Strip the prefix from base_url to prevent double-prefixing in request()
+        self.base_url = self.base_url.replace("/api", "").replace("/app", "").replace("/calendar", "").replace("/core", "")
         self.tenant_id = tenant_id
         self.user_email = user_email
         self.correlation_id = correlation_id
@@ -32,8 +36,8 @@ class MatterMinerCoreClient:
         Reusable method for calling remote operations.
         Passes tenant information via headers (SEC-05).
         """
-        # Architectural Requirement: Prepend standard routing path (/app/core/...)
-        url = f"{self.base_url}/app/core/{endpoint.lstrip('/')}"
+        # Routing Logic: Prepends the resolved root prefix and core segment
+        url = f"{self.base_url}{self.root_prefix}/core/{endpoint.lstrip('/')}"
         headers = self._get_headers()
         
         logger.info(f"[CORE-API] SUBMITTING {method} TO: {url}")

@@ -90,8 +90,7 @@ async def test_contact_rehydration_logic():
             }
         }
     }
-    # Mock token check
-    mock_cal_service._sync_access_token.return_value = {"status": "auth_required"}
+
     
     services = {"calendar": mock_cal_service}
     

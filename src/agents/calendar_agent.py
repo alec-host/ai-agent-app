@@ -5,40 +5,12 @@ from src.utils import format_sync_chat_payload
 
 async def perform_calendar_auth_check(calendar_service, tenant_id, history):
     """
-    Extracted logic from main.py to handle proactive OAuth checks 
-    before the reasoning loop begins.
+    Delegated token validation to the backend. 
+    The Auth Handshake is now handled silently via the Authorization header.
     """
-    logger.info(f"[{tenant_id}] Calendar intent detected. Performing Auth Handshake.")
-
-    # STEP 1: Sync JWT
-    token_status = await calendar_service._sync_access_token()
-    if token_status["status"] == "auth_required":
-        logger.warning(f"[{tenant_id}] Step 1: No session found. Returning auth_required.")
-        return {
-            "role": "assistant",
-            "content": "Calendar Access Required",
-            "message": "Google Calendar connection is required to schedule events.",
-            "status": "auth_required",
-            "auth_type": "google_calendar",
-            "auth_url": token_status["auth_url"],
-            "history": history
-        }
-
-    # STEP 2: Grant Check
-    grant = await calendar_service.check_grant_token()
-    if not grant["granted"]:
-        logger.warning(f"[{tenant_id}] Step 2: hasGrantToken returned not granted. Re-auth required.")
-        return {
-            "role": "assistant",
-            "content": "Calendar Access Required",
-            "message": "Google Calendar connection is required to schedule events.",
-            "status": "auth_required",
-            "auth_type": "google_calendar",
-            "auth_url": grant["auth_url"],
-            "history": history
-        }
-    
-    return None # Handshake successful
+    logger.info(f"[{tenant_id}] Calendar intent detected. Relying on downstream Token Auth.")
+    # Always succeed here; letting the backend's 401/403 trigger the auth card if needed.
+    return None 
 
 async def handle_calendar(func_name, args, calendar_service, user_role, history=None):
     """
@@ -52,17 +24,8 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     sys_context = args.get("_system_context", {})
     ref_time = sys_context.get("current_time")
 
-    # 0. PRE-FLIGHT GRANT CHECK
-    if func_name in ["schedule_event", "get_all_events", "delete_event", "update_event", "initialize_calendar_session"]:
-        grant = await calendar_service.check_grant_token()
-        if not grant["granted"]:
-            return {
-                "status": "auth_required",
-                "auth_type": "google_calendar",
-                "auth_url": grant["auth_url"],
-                "message": "Calendar Access Required",
-                "response_instruction": "HANDSHAKE FAILED. Present only the auth link and STOP EVERYTHING. DO NOT ask for title/time."
-            }
+    # 0. DELEGATED: PRE-FLIGHT GRANT CHECK
+    # Removed proactive check_grant_token. Backend 401/403 handles this.
     
     # 1. FETCH CURRENT SESSION (For Drafting Persistence)
     db_data = {}
@@ -242,12 +205,11 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 result = await calendar_service.request("POST", "/events", current_draft)
                 
                 # A: Auth Recovery Scenario
-                if isinstance(result, dict) and result.get("status") == "auth_required":
+                if isinstance(result, dict) and result.get("status") == "error" and result.get("code") in [401, 403]:
                     return {
-                        "status": "auth_required",
-                        "auth_url": result.get("auth_url"),
-                        "message": "Calendar Access Required",
-                        "response_instruction": "Session expired or missing. Provide auth link immediately. Draft is safe in vault."
+                        "status": "error",
+                        "message": result.get("message", "Calendar authentication failed. Service unavailable."),
+                        "response_instruction": "Inform user that calendar access is disabled. Draft is safe in vault."
                     }
 
                 # B: Success Scenario
@@ -320,10 +282,9 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 "_continue_chaining": True
             }
         return {
-            "status": "auth_required",
-            "auth_url": f"{calendar_service.base_url}/app/auth/google?tenant_id={tenant_id}",
-            "message": "Calendar Access Required",
-            "response_instruction": "Verification failed. Please authorize Google Calendar to continue."
+            "status": "error",
+            "message": "Calendar authentication failed. Service unavailable.",
+            "response_instruction": "Inform user that calendar access is disabled."
         }
 
     # --- 5. RETRIEVAL & DELETION ---

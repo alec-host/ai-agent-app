@@ -21,8 +21,12 @@ class GoogleCalendarClient:
         self.thread_id = thread_id or "default"
         self.access_token = access_token # The token passed from frontend
         self.user_email = user_email
-        # Strip any legacy paths for Host-Only base
-        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "")
+        # Flexible Base URL: Honor the .env path but ensure clean joining (Architectural Guard)
+        self.base_url = settings.NODE_REMOTE_SERVICE_URL.rstrip("/")
+        # Determine the root prefix (/app or /api) from settings, fallback to /app
+        self.root_prefix = "/api" if "/api" in self.base_url.lower() else "/app"
+        # Strip the prefix from base_url to prevent double-prefixing in request()
+        self.base_url = self.base_url.replace("/api", "").replace("/app", "").replace("/calendar", "").replace("/core", "")
         self.headers = {
             "X-Tenant-ID": tenant_id,
             "X-Correlation-ID": correlation_id
@@ -44,152 +48,7 @@ class GoogleCalendarClient:
     def is_authenticated(self) -> bool:
         return "Authorization" in self.headers
 
-    async def _sync_access_token(self) -> dict:
-        """
-        Step 1 — JWT Provisioner.
-        Calls GET /auth/accessToken?tenant_id=... and syncs the returned JWT
-        into self.headers via set_auth_token().
 
-        Returns:
-          { "status": "ready" }                                     -> JWT synced, proceed to grant check
-          { "status": "auth_required", "auth_url": "..." }          -> No session, must OAuth
-        """
-        try:
-            url = f"{self.base_url}/app/auth/accessToken?tenant_id={self.tenant_id}"
-            
-            # Pass BOTH camelCase and snake_case for maximum compatibility
-            if self.access_token:
-                url += f"&accessToken={self.access_token}&access_token={self.access_token}"
-                
-            handshake_headers = self.headers.copy()
-            if self.access_token:
-                handshake_headers["Authorization"] = f"Bearer {self.access_token}"
-            else:
-                if "Authorization" in handshake_headers:
-                    del handshake_headers["Authorization"]
-
-            resp = await self.client.get(url, headers=handshake_headers, timeout=10)
-            if resp.status_code != 200:
-                logger.error(f"[ACCESS-TOKEN] Provisioner failed ({resp.status_code}) for {self.tenant_id}: {resp.text}")
-                return {
-                    "status": "auth_required",
-                    "auth_type": "google_calendar",
-                    "auth_url": f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}"
-                }
-            data = resp.json()
-            if data.get("status") == "ready" and data.get("jwtToken"):
-                self.set_auth_token(data["jwtToken"], is_jwt=True)
-                logger.info(f"[ACCESS-TOKEN] JWT synced for tenant {self.tenant_id}")
-                return {"status": "ready"}
-            
-            logger.warning(f"[ACCESS-TOKEN] Provisioner returned non-ready status: {data.get('status')}")
-            return {
-                "status": "auth_required",
-                "auth_type": "google_calendar",
-                "auth_url": data.get("auth_url") or f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}"
-            }
-        except Exception as e:
-            logger.error(f"[ACCESS-TOKEN] Failed for {self.tenant_id}: {e}")
-            return {
-                "status": "auth_required",
-                "auth_type": "google_calendar",
-                "auth_url": f"{settings.NODE_REMOTE_SERVICE_URL}/api/auth/google?tenant_id={self.tenant_id}"
-            }
-
-    async def silent_refresh(self) -> bool:
-        """
-        Attempt to refresh the Google OAuth token silently using the Node.js backend.
-        Requires active Bearer JWT in headers.
-        """
-        try:
-            url = f"{self.base_url}/app/auth/googleRefreshToken"
-            payload = {
-                "tenant_id": self.tenant_id,
-                "accessToken": self.access_token,
-                "access_token": self.access_token
-            }
-            
-            refresh_headers = self.headers.copy()
-            if self.access_token:
-                # Use the login token for auth-management endpoints
-                refresh_headers["Authorization"] = f"Bearer {self.access_token}"
-
-            resp = await self.client.post(url, json=payload, headers=refresh_headers, timeout=10)
-            data = resp.json()
-            if data.get("success"):
-                logger.info(f"[SILENT-REFRESH] Successfully refreshed Google token for {self.tenant_id}")
-                return True
-            logger.warning(f"[SILENT-REFRESH] Refresh failed for {self.tenant_id}: {data.get('message')}")
-            return False
-        except Exception as e:
-            logger.error(f"[SILENT-REFRESH] Request crashed: {e}")
-            return False
-
-    async def check_grant_token(self) -> dict:
-        """
-        Step 2 — Calendar Grant Validity Gate.
-        Calls GET /auth/hasGrantToken?tenant_id=... WITH the JWT already in self.headers.
-        If invalid, attempts a SILENT REFRESH before failing.
-
-        Returns:
-          { "granted": True }                                           -> Calendar access confirmed
-          { "granted": False, "auth_url": "...", "reason": "..." }     -> Must re-auth
-        """
-        try:
-            # Step 0: Ensure we have a JWT before even trying. 
-            # This handles cases where the "Intent Gate" was skipped.
-            if not getattr(self, "_jwt_synced", False):
-                logger.info(f"[GRANT-CHECK] JWT not synced yet for {self.tenant_id}. Syncing first...")
-                await self._sync_access_token()
-
-            url = f"{self.base_url}/app/auth/hasGrantToken?tenant_id={self.tenant_id}"
-            # Try with current JWT headers first
-            resp = await self.client.get(url, headers=self.headers, timeout=10)
-            
-            # If 401/403, immediately try to REFRESH the JWT via Provisioner
-            if resp.status_code in [401, 403]:
-                logger.warning(f"[GRANT-CHECK] 401 on hasGrantToken for {self.tenant_id}. Attempting JWT Sync refresh...")
-                sync_resp = await self._sync_access_token()
-                
-                if sync_resp.get("status") == "ready":
-                    logger.info(f"[GRANT-CHECK] JWT Refreshed. Retrying hasGrantToken...")
-                    resp = await self.client.get(url, headers=self.headers, timeout=10)
-                elif self.access_token:
-                    logger.info(f"[GRANT-CHECK] JWT Sync failed. Retrying with Login Token fallback header...")
-                    alt_headers = self.headers.copy()
-                    alt_headers["Authorization"] = f"Bearer {self.access_token}"
-                    resp = await self.client.get(url, headers=alt_headers, timeout=10)
-
-            data = resp.json()
-
-            # 1. SUCCESS: Grant is valid
-            if data.get("success") and data.get("valid"):
-                return {"granted": True}
-
-            # 2. RECOVERY: Try Silent Refresh
-            logger.info(f"[GRANT-CHECK] Grant invalid for {self.tenant_id}. Attempting recovery...")
-            if await self.silent_refresh():
-                # Re-verify after successful refresh
-                resp = await self.client.get(url, headers=self.headers, timeout=10)
-                data = resp.json()
-                if data.get("success") and data.get("valid"):
-                    logger.info(f"[GRANT-CHECK] Recovery successful for {self.tenant_id}")
-                    return {"granted": True}
-
-            # 3. FAILURE: Must re-authorize
-            return {
-                "granted": False,
-                "auth_type": "google_calendar",
-                "auth_url": f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}",
-                "reason": data.get("message", "Google Calendar access required.")
-            }
-        except Exception as e:
-            logger.error(f"[GRANT-CHECK] check_grant_token failed for {self.tenant_id}: {e}")
-            return {
-                "granted": False,
-                "auth_url": f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}",
-                "reason": "Auth service unreachable."
-            }
 
     async def get_workflow_protocol(self, query: str, tenant_id: str) -> str:
         """
@@ -258,7 +117,7 @@ class GoogleCalendarClient:
             return None            
             
     async def request(self, method: str, path: str, json_data: dict = None, _retry_on_auth: bool = True):
-        url = f"{self.base_url}/app{path}"
+        url = f"{self.base_url}{self.root_prefix}{path}"
         if json_data and isinstance(json_data, dict):
             for field in ["startTime", "endTime"]:
                 val = json_data.get(field)
@@ -268,38 +127,18 @@ class GoogleCalendarClient:
         try:
             response = await self._do_request(method, url, json_data)
             
-            # --- SILENT AUTH HEALING / TOKEN CHECK ---
+            # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
             # Broaden: Treat 401/403 and some 400s as points where we should check/refresh session
             resp_body = response.text
             is_potential_auth_issue = response.status_code in [401, 403] or (response.status_code == 400 and ("token" in resp_body.lower() or "unauthorized" in resp_body.lower() or "google" in resp_body.lower()))
             
-            if is_potential_auth_issue and _retry_on_auth:
-                logger.info(f"[AUTH-HEAL] Potential auth issue ({response.status_code}) for {path}. Verifying session...")
-                
-                # Re-sync JWT using the hardened provisioner logic
-                auth_data = await self._sync_access_token()
-                
-                if auth_data.get("status") == "ready":
-                    logger.info(f"[AUTH-HEAL] Session successfully synced for {self.tenant_id}. Retrying {path}...")
-                    return await self.request(method, path, json_data, _retry_on_auth=False)
-                
-                # If sync confirms auth is required
-                if auth_data.get("status") == "auth_required":
-                     logger.warning(f"[AUTH-HEAL] Internal status confirms auth required for {self.tenant_id}.")
-                     return {
-                        "status": "auth_required",
-                        "auth_url": auth_data.get("auth_url") or f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}",
-                        "message": "Calendar Access Required",
-                        "code": 401
-                     }
 
             # --- AUTH RECOVERY INTERCEPTION (CRITICAL GATE) ---
             if is_potential_auth_issue:
                 logger.warning(f"[AUTH-GUARD] Authentication block for {path}. Redirecting to OAuth.")
                 return {
-                    "status": "auth_required",
-                    "auth_url": f"{self.base_url}/app/auth/google?tenant_id={self.tenant_id}",
-                    "message": "Calendar Access Required",
+                    "status": "error",
+                    "message": "Calendar authentication failed. Service unavailable.",
                     "code": response.status_code
                 }
 

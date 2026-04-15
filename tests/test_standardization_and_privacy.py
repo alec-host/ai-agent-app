@@ -111,8 +111,7 @@ async def test_dispatcher_redaction():
         async def get_client_session(self, t): return {"status": "success", "data": {"metadata": {}}}
         def is_authenticated(self): return True
         def set_auth_token(self, t, is_jwt=False): None
-        async def _sync_access_token(self): return {"status": "ready"}
-        async def check_grant_token(self): return {"granted": True}
+
 
     mock_calendar = MockCalendar()
     
