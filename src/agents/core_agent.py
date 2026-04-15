@@ -106,7 +106,7 @@ async def run_draft_workflow(
         msg = f"Captured {', '.join([f['label'] for f in visible_schema if f['key'] in draft])}. To finish, I'll need the **{next_field['label']}**."
         
         # Enforce Stepwise Instruction to the AI
-        instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. Do not hallucinate other fields.\n"
+        instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. When the user provides this information, you MUST call the relevant tool to update the draft. Do not hallucinate other fields.\n"
         
         if next_field.get("choices"):
             instruction += f"ALLOWED CHOICES: {', '.join(next_field['choices'])}\n"

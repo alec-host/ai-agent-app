@@ -200,7 +200,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_contact",
-           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Aligned with natural conversational flow (Title -> First Name -> Last Name). Call this IMMEDIATELY when the user wants to create a contact, even if you have NO information yet, so the gating system can guide you strictly one step at a time.",
+           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Aligned with natural conversational flow (Title -> First Name -> Last Name). Call this IMMEDIATELY when the user wants to create a contact, even if you have NO information yet, so the gating system can guide you strictly one step at a time. CRITICAL: You MUST call this tool EVERY TIME the user provides a newly requested field (e.g., Last Name) to update the draft. Do NOT just reply with text.",
            "parameters": {
                "type": "object",
                "properties": {
