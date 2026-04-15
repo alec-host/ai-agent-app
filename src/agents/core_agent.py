@@ -97,7 +97,7 @@ async def run_draft_workflow(
     
     # 6. Gating Logic: Identify next missing required field
     visible_schema = [f for f in schema if not f.get("system_only", False)]
-    required_missing = [f for f in visible_schema if f.get("required", True) and (f["key"] not in draft or not str(draft[f["key"]]).strip())]
+    required_missing = [f for f in visible_schema if f.get("required", True) and (f["key"] not in draft or not str(draft[f["key"]]).strip() or str(draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
     optional_missing = [f for f in visible_schema if not f.get("required", True) and f["key"] not in draft]
 
     # Case A: Still missing required info -> MUST ASK
