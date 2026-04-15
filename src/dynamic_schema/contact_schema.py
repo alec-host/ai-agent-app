@@ -1,13 +1,14 @@
 # src/dynamic_schema/contact_schema.py
 
 # A dynamic schema for contact creation.
+# Re-ordered to align with natural conversational flow (Title -> Names -> Details).
 CONTACT_SCHEMA = [
-    {"key": "first_name", "label": "First Name", "required": True, "aliases": ["firstName", "given_name", "givenName"]},
-    {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName", "surname", "family_name", "familyName"]},
-    {"key": "client_email", "label": "Email Address", "required": True, "aliases": ["EmailAddress", "client_email", "email", "contact_email"]},
-    {"key": "contact_type", "label": "Contact Type", "required": True, "choices": ["primary", "secondary"]},
     {"key": "title", "label": "Title", "required": True, "aliases": ["honorific", "salutation"], "choices": ["Mr.", "Ms.", "Mrs.", "Dr.", "Prof."]},
+    {"key": "first_name", "label": "First Name", "required": True, "aliases": ["firstName", "given_name", "givenName"]},
     {"key": "middle_name", "label": "Middle Name", "required": False, "aliases": ["middleName"]},
+    {"key": "last_name", "label": "Last Name", "required": True, "aliases": ["lastName", "surname", "family_name", "familyName"]},
+    {"key": "contact_type", "label": "Contact Type", "required": True, "choices": ["primary", "secondary"]},
+    {"key": "client_email", "label": "Email Address", "required": True, "aliases": ["EmailAddress", "client_email", "email", "contact_email"]},
     {"key": "country_code", "label": "Country Code", "required": True, "aliases": ["countryCode", "country_id", "countryId", "dialling_code"]},
     {"key": "phone_number", "label": "Phone Number", "required": True, "aliases": ["phoneNumber", "mobile", "tel", "cell"]},
     {"key": "model_type", "label": "Model Type", "required": False, "default": "App\\Models\\Prospect", "system_only": True},

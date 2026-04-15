@@ -69,10 +69,10 @@ async def test_sequential_field_asking():
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
     
-    # First turn: Captured nothing
+    # First turn: Now expects Title first
     result = await handle_create_contact({"first_name": "John"}, services, "tenant_123", [])
-    assert "Last Name" in result["response_instruction"]
-    assert "Email Address" not in result["response_instruction"] # Should only ask for the first missing one
+    assert "Title" in result["response_instruction"]
+    assert "Last Name" not in result["response_instruction"]
 
 @pytest.mark.asyncio
 async def test_contact_rehydration_logic():
@@ -91,17 +91,16 @@ async def test_contact_rehydration_logic():
         }
     }
 
-    
     services = {"calendar": mock_cal_service}
-    
     rehydration = await get_rehydration_context("tenant_123", services)
     
     assert rehydration is not None
     assert "PENDING CONTACT RECORD" in rehydration["injection"]
+    assert "Title" in rehydration["injection"]
     assert "RECOVERY MODE: CONTACT INTAKE DETECTED" in rehydration["injection"]
     assert "John" in rehydration["injection"]
     assert "Doe" in rehydration["injection"]
-    assert "ask for the Email" in rehydration["injection"]
+    assert "ask for the Title" in rehydration["injection"]
 
 @pytest.mark.asyncio
 async def test_vault_visibility_in_main_injection():

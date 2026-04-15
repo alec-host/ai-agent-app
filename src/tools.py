@@ -107,16 +107,15 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "update_event",
-            "description": "Modify an existing event (change time, title, or description).",
+            "name": "delete_event",
+            "description": "Removes a specific calendar event using its unique ID.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "event_id": {"type": "string", "description": "The UUID of the event to modify"},
-                    "summary": {"type": "string", "description": "New title for the event"},
-                    "startTime": {"type": "string", "description": "New ISO 8601 start time"},
-                    "endTime": {"type": "string", "description": "New ISO 8601 end time"},
-                    "description": {"type": "string", "description": "Updated notes"}
+                    "event_id": {
+                        "type": "string",
+                        "description": "The unique UUID of the calendar event."
+                    }
                 },
                 "required": ["event_id"]
             }
@@ -125,18 +124,12 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "delete_event",
-            "description": "Permanently remove an event. Requires admin role and explicit user confirmation.",
+            "name": "clear_calendar_session",
+            "description": "Forcefully destroys the current user session and disconnects Google Calendar.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "event_id": {"type": "string", "description": "The UUID of the event to delete"},
-                    "confirmed": {
-                        "type": "boolean", 
-                        "description": "Must be true if the user explicitly said 'Yes' or 'Confirmed'."
-                    }
-                },
-                "required": ["event_id", "confirmed"]
+                "properties": {},
+                "required": []
             }
         }
     },
@@ -144,7 +137,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "lookup_firm_protocol",
-            "description": "Searches firm guidelines for matter intake, practice area mapping, and summarization rules.",
+            "description": "Consult the official firm rulebook for guidance on specific operational steps (e.g., 'How do I add a new client?').",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -175,10 +168,10 @@ TOOLS = [
           "parameters": {
              "type": "object",
              "properties": {
+                 "client_email": {"type": "string", "description": "The primary client's email address."},
                  "first_name": {"type": "string", "description": "The client's legal first name. NEVER use an alphanumeric ID here."},
                  "last_name": {"type": "string", "description": "The client's legal last name. NEVER use an alphanumeric ID here."},
-                 "client_email": {"type": "string", "description": "The primary client's email address."},
-                  "client_type": {"type": "string", "enum": ["individual", "company"], "description": "The category of the client."},
+                 "client_type": {"type": "string", "enum": ["individual", "company"], "description": "The category of the client."},
                  "contact_id": {"type": "string", "description": "Relational link: The UUID of the contact record obtained via lookup or creation."},
                  "country_id": {"type": "integer", "description": "Relational link: The ID of the country obtained via lookup_countries."},
                  "street": {"type": "string", "description": "The client's physical street address."}
@@ -207,16 +200,16 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_contact",
-           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Call this IMMEDIATELY when the user wants to create a contact, even if you have NO information yet (pass empty object), so the gating system can guide you strictly one step at a time.",
+           "description": "Saves or DRAFTS a contact record in the MatterMiner Core system. Aligned with natural conversational flow (Title -> First Name -> Last Name). Call this IMMEDIATELY when the user wants to create a contact, even if you have NO information yet, so the gating system can guide you strictly one step at a time.",
            "parameters": {
                "type": "object",
                "properties": {
-                    "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact. MUST NOT BE GUESSED."},
                     "title": {"type": "string", "description": "Honorific title (Mr, Dr, etc). MUST NOT BE GUESSED."},
                     "first_name": {"type": "string", "description": "Legal FIRST name. NEVER guess or split from email. ONLY populate if explicitly stated."},
                     "middle_name": {"type": "string", "description": "Legal MIDDLE name (if any)."},
                     "last_name": {"type": "string", "description": "Legal LAST name. NEVER guess or split from email. ONLY populate if explicitly stated."},
-                    "email": {"type": "string", "description": "Valid email address."},
+                    "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact. MUST NOT BE GUESSED."},
+                    "client_email": {"type": "string", "description": "Valid email address."},
                     "country_code": {"type": "string", "description": "NUMERIC dialling code ONLY (e.g. +1, +254). NEVER put a country name here."},
                     "phone_number": {"type": "string", "description": "Local phone number WITHOUT the country code."},
                     "model_type": {"type": "string", "description": "INTERNAL - DO NOT SET."},
@@ -256,8 +249,6 @@ TOOLS = [
            }
        }
     },
-    # Phase 3 (Auth Migration): authenticate_to_core tool REMOVED.
-    # MatterMiner Core now authenticates via static API key. No user credentials needed.
     {
        "type": "function",
        "function": {

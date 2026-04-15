@@ -166,7 +166,7 @@ async def test_agent_handle_create_contact_drafting():
     
     # Assertions
     assert result["status"] == "partial_success"
-    assert "Email Address" in result["response_instruction"]
+    assert "Title" in result["response_instruction"]
     
     # Verify sync was called with the draft
     sync_call_args = mock_cal_service.sync_client_session.call_args[0][0]
@@ -184,10 +184,10 @@ async def test_agent_handle_create_contact_drafting_with_partial_data():
     mock_cal_service.thread_id = "test_thread"
     services = {"calendar": mock_cal_service}
     
-    # Provide only first_name — many fields still missing
+    # Provide only first_name — Title is now the first missing field
     result = await handle_create_contact({"first_name": "Jane"}, services, "12345678", [])
     assert result["status"] == "partial_success"
-    assert "Last Name" in result["response_instruction"]
+    assert "Title" in result["response_instruction"]
 
 @pytest.mark.asyncio
 @respx.mock

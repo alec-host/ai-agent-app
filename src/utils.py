@@ -294,25 +294,34 @@ def compress_reasoning_history(history: List[Dict[str, Any]], keep_reasoning_tur
             
     return list(reversed(compressed))
 
-def deep_merge_drafts(vault_draft: dict, new_args: dict) -> dict:
+def deep_merge_drafts(vault_draft: dict, new_args: dict, schema: list = None) -> dict:
     """
     [PHASE B: HARDENED MERGING] 
     Additive Merge Logic: Prevents overwriting valid data with null/empty/hallucinated 
     values from the LLM turn. Only promotes meaningful non-empty strings.
     Ensures 'repeating questions' are eliminated.
+    
+    Includes Choice Validation (Enums) to prevent 'Slot Sliding'.
     """
     updated_draft = (vault_draft or {}).copy()
     if not isinstance(updated_draft, dict): updated_draft = {}
     
     for key, value in (new_args or {}).items():
-        # Architectural Guard: Only update if the value is non-empty and non-hallucinated
-        # We explicitly ignore keys that are meant to be 'internal' or 'metadata' if they leak into args
         if key.startswith("_"): continue
         
         is_meaningful = value and str(value).strip().lower() not in ["none", "", "null", "undefined", "n/a", "skipped"]
         
-        # [PHASE E: SMART VALIDATION]
-        # Prevents malformed data from polluting the Vault
+        # [PHASE E: SMART VALIDATION & CHOICE PROTECTION]
+        if is_meaningful and schema:
+            # Find the field definition to check for allowed choices
+            field_def = next((f for f in schema if f['key'] == key), None)
+            if field_def and "choices" in field_def:
+                # If a list of choices exists, ensure the value is a valid match (case-insensitive)
+                choices = [str(c).lower() for c in field_def["choices"]]
+                if str(value).lower() not in choices:
+                    logger.warning(f"[SLOT-GUARD] Choice Reject: '{value}' is not valid for {key}. Allowed: {field_def['choices']}. Dropping to prevent slot corruption.")
+                    continue
+
         if is_meaningful:
             import re
             # Email Validation

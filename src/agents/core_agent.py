@@ -84,8 +84,8 @@ async def run_draft_workflow(
                 resolved_args[key] = args[ck]
                 break
     
-    # Apply Hardened Merge
-    draft = deep_merge_drafts(vault_draft, resolved_args)
+    # Apply Hardened Merge with Schema-aware Choice Validation
+    draft = deep_merge_drafts(vault_draft, resolved_args, schema=schema)
 
     # 5. Atomic Sync: Persist the updated draft immediately (Latency Guard)
     metadata[metadata_key] = draft
@@ -107,6 +107,10 @@ async def run_draft_workflow(
         
         # Enforce Stepwise Instruction to the AI
         instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. Do not hallucinate other fields.\n"
+        
+        if next_field.get("choices"):
+            instruction += f"ALLOWED CHOICES: {', '.join(next_field['choices'])}\n"
+            msg += f" (Options: {', '.join(next_field['choices'])})"
         
         if not next_field.get("required", True):
             instruction += "This field is OPTIONAL. Tell the user they can say 'skip' to bypass it."
