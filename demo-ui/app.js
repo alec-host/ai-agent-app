@@ -54,13 +54,22 @@ document.addEventListener('DOMContentLoaded', () => {
         themeToggle: document.getElementById('themeToggle')
     };
 
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
     // --- SESSION IDENTITY STATE ---
     const sessionSettings = {
         tenantId: safeStorage.get('tenantId', null),
         userRole: safeStorage.get('userRole', 'Associate'),
         userEmail: safeStorage.get('userEmail', ''),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        threadId: safeStorage.get('threadId', generateUUID())
     };
+    safeStorage.set('threadId', sessionSettings.threadId);
 
     let history = [];
 
@@ -170,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'X-User-Timezone': sessionSettings.timezone,
                     'User-Role': sessionSettings.userRole
                 },
-                body: JSON.stringify({ prompt: text, history })
+                body: JSON.stringify({ prompt: text, history, thread_id: sessionSettings.threadId })
             });
             console.log(`[DEBUG] Sending request with headers:`, {
                 'X-Tenant-ID': sessionSettings.tenantId,
@@ -364,6 +373,8 @@ document.addEventListener('DOMContentLoaded', () => {
         nodes.chatViewport.appendChild(nodes.welcomeScreen);
         history = [];
         nodes.chatInput.value = '';
+        sessionSettings.threadId = generateUUID();
+        safeStorage.set('threadId', sessionSettings.threadId);
     });
 
     nodes.starterChips.forEach(chip => {
