@@ -103,7 +103,11 @@ async def run_draft_workflow(
     # Case A: Still missing required info -> MUST ASK
     if required_missing:
         next_field = required_missing[0]
-        msg = f"Captured {', '.join([f['label'] for f in visible_schema if f['key'] in draft])}. To finish, I'll need the **{next_field['label']}**."
+        captured_labels = [f['label'] for f in visible_schema if f['key'] in draft]
+        if captured_labels:
+            msg = f"Captured {', '.join(captured_labels)}. To finish, I'll need the **{next_field['label']}**."
+        else:
+            msg = intro_message if intro_message else f"To start, I'll need the **{next_field['label']}**."
         
         # Enforce Stepwise Instruction to the AI
         instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. When the user provides this information, you MUST call the relevant tool to update the draft. Do not hallucinate other fields.\n"
