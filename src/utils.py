@@ -317,10 +317,17 @@ def deep_merge_drafts(vault_draft: dict, new_args: dict, schema: list = None) ->
             field_def = next((f for f in schema if f['key'] == key), None)
             if field_def and "choices" in field_def:
                 # If a list of choices exists, ensure the value is a valid match (case-insensitive)
-                choices = [str(c).lower() for c in field_def["choices"]]
-                if str(value).lower() not in choices:
+                # Apply punctuation stripping to allow for fuzzy matching (e.g. 'Mr' -> 'Mr.')
+                raw_val = str(value).lower().replace(".", "").strip()
+                choices = field_def["choices"]
+                cleaned_choices = [str(c).lower().replace(".", "").strip() for c in choices]
+                
+                if raw_val not in cleaned_choices:
                     logger.warning(f"[SLOT-GUARD] Choice Reject: '{value}' is not valid for {key}. Allowed: {field_def['choices']}. Dropping to prevent slot corruption.")
                     continue
+                else:
+                    # Auto-correct to formal choice value
+                    value = choices[cleaned_choices.index(raw_val)]
 
         if is_meaningful:
             import re
