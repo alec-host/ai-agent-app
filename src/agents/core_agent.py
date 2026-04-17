@@ -137,7 +137,7 @@ async def run_draft_workflow(
             msg = intro_message if intro_message else f"To start, I'll need the **{next_field['label']}**."
         
         # Enforce Stepwise Instruction to the AI
-        instruction = f"The user is in the {workflow_id} workflow. You MUST ask for the {next_field['label']} next. When the user provides this information, you MUST call the relevant tool to update the draft. Do not hallucinate other fields.\n"
+        instruction = f"The user is in the {workflow_id} workflow. The user cannot see my internal responses. You MUST speak directly to the user and explicitly ask for the {next_field['label']} next. Do not remain silent. When the user provides this information, you MUST call the relevant tool to update the draft. Do not hallucinate other fields.\n"
         
         if next_field.get("choices"):
             instruction += f"ALLOWED CHOICES: {', '.join(next_field['choices'])}\n"
