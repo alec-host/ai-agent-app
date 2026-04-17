@@ -192,20 +192,26 @@ document.addEventListener('DOMContentLoaded', () => {
             let aiMessageDiv = null;
             let aiContentDiv = null;
 
+            let streamBuffer = "";
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
+                streamBuffer += decoder.decode(value, { stream: true });
+                const streamLines = streamBuffer.split('\n');
+                streamBuffer = streamLines.pop(); // Keep partial line in buffer
 
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
+                for (const line of streamLines) {
+                    const trimmed = line.trim();
+                    if (!trimmed || !trimmed.startsWith('data: ')) continue;
 
                     let data;
                     try {
-                        data = JSON.parse(line.slice(6));
-                    } catch (e) { continue; }
+                        data = JSON.parse(trimmed.slice(6));
+                    } catch (e) { 
+                        console.error("[SSE-PARSE-ERROR] Fragmented JSON or invalid data:", line);
+                        continue; 
+                    }
 
                     const currentLoader = document.getElementById(loadingId);
                     if (currentLoader) currentLoader.remove();
