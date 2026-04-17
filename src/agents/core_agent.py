@@ -433,7 +433,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CONTACT_SCHEMA, args, services, tenant_id, "contact_draft", "contact", history,
-        intro_message="I'll help you create that contact. To start, what is their **First Name**?",
+        intro_message=f"I'll help you create that contact. To start, what is the **{CONTACT_SCHEMA[0]['label']}**?",
         db_session=db_session,
         user_email=user_email
     )
@@ -552,7 +552,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
     # 1. Start Workflow Engine
     partial_resp, session, draft = await run_draft_workflow(
         CLIENT_SCHEMA, args, services, tenant_id, "client_draft", "client", history,
-        intro_message="I'll help you register that new client. To start, what is their **Email Address**?",
+        intro_message=f"I'll help you register that new client. To start, what is their **{CLIENT_SCHEMA[0]['label']}**?",
         db_session=db_session,
         user_email=user_email
     )
@@ -886,7 +886,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     # 3. Hand over to unified engine
     partial_resp, session, draft = await run_draft_workflow(
         dynamic_schema, args, services, tenant_id, "matter_draft", "matter", history,
-        intro_message="I'll help you create a new matter. To begin, what should we call the **Matter Title**?",
+        intro_message=f"I'll help you create a new matter. To begin, what should we call the **{dynamic_schema[0]['label']}**?",
         db_session=db_session,
         user_email=user_email
     )
