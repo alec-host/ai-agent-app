@@ -102,10 +102,18 @@ async def run_draft_workflow(
             is_new_field = k not in vault_draft and k != expected_key
             if is_new_field:
                 val_str = str(v).lower().strip()
+                
+                # [PHASE G: NORMALIZATION RESILIENCE]
+                # Exempt Date/Time fields from exact text matching because LLMs normalize them to ISO.
+                # Also exempt 'timezone' as it is often inferred.
+                is_normalized_type = any(x in k.lower() for x in ["date", "time", "timezone"])
+                
                 # If hallucinated value is not in text anywhere
-                if val_str and val_str not in latest_user_text:
+                if val_str and val_str not in latest_user_text and not is_normalized_type:
                     logger.warning(f"[{tenant_id}] HALLUCINATION PURGE: '{k}'='{v}' was not requested and is not in user text.")
                     keys_to_remove.append(k)
+                elif is_normalized_type:
+                    logger.info(f"[{tenant_id}] NORMALIZATION EXEMPTION: Preserving '{k}'='{v}' despite no direct text match.")
         
         for k in keys_to_remove:
             del resolved_args[k]
