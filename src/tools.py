@@ -284,7 +284,9 @@ TOOLS = [
                    "title": {"type": "string", "description": "The title of the deadline or event."},
                    "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-25T00:00:00)."},
                    "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-25T23:59:59)."},
-                   "description": {"type": "string", "description": "Details about the deadline."}
+                   "description": {"type": "string", "description": "Details about the deadline."},
+                   "location": {"type": "string", "description": "Where the event/deadline takes place."},
+                   "attendees": {"type": "array", "items": {"type": "string"}, "description": "List of emails to invite."}
                },
                "required": ["title", "start_datetime", "end_datetime"]
            }

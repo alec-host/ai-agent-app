@@ -108,8 +108,13 @@ async def run_draft_workflow(
                 # Also exempt 'timezone' as it is often inferred.
                 is_normalized_type = any(x in k.lower() for x in ["date", "time", "timezone"])
                 
+                # Identify if the value (stripped of punctuation) exists in the user text
+                import string
+                clean_val = val_str.translate(str.maketrans('', '', string.punctuation)).strip()
+                clean_user = latest_user_text.translate(str.maketrans('', '', string.punctuation)).strip()
+                
                 # If hallucinated value is not in text anywhere
-                if val_str and val_str not in latest_user_text and not is_normalized_type:
+                if clean_val and clean_val not in clean_user and not is_normalized_type:
                     logger.warning(f"[{tenant_id}] HALLUCINATION PURGE: '{k}'='{v}' was not requested and is not in user text.")
                     keys_to_remove.append(k)
                 elif is_normalized_type:
