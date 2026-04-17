@@ -99,27 +99,47 @@ async def run_draft_workflow(
 
         keys_to_remove = []
         for k, v in resolved_args.items():
-            is_new_field = k not in vault_draft and k != expected_key
-            if is_new_field:
-                val_str = str(v).lower().strip()
+            val_str = str(v).lower().strip()
+            # [PHASE G: HUMAN-CENTRIC TOLERANCE]
+            # Distinguish between 'Hard' fields (Identity/Choices) and 'Flexible' fields (Description/Text).
+            is_normalized_type = any(x in k.lower() for x in ["date", "time", "timezone"])
+            field_def = next((f for f in schema if f['key'] == k), {})
+            is_choice_field = "choices" in field_def
+            is_relational = "_id" in k or k == "contact_id"
+            is_descriptive = any(x in k.lower() for x in ["desc", "loc", "note", "summary", "body", "street"]) or (k == "name" or k == "title")
+            is_flexible = is_descriptive and not is_choice_field and not is_relational
+            
+            # Identify if the value (stripped of punctuation) exists in the user text
+            import string
+            clean_val = val_str.translate(str.maketrans('', '', string.punctuation)).strip()
+            clean_user = latest_user_text.translate(str.maketrans('', '', string.punctuation)).strip()
+            
+            # [PHASE G: COMPREHENSIVE PURGE]
+            # A field should be purged if ALL of the following are true:
+            # 1. It is NOT in the user text (fuzzy match)
+            # 2. It is NOT a 'Flexible' descriptive field (summary, notes, etc.)
+            # 3. It is NOT a 'Normalized' type (dates, times, timezone)
+            # 4. It is NOT already in the vault_draft (we only purge NEW inventions)
+            
+            should_purge = False
+            is_in_text = clean_val and clean_val in clean_user
+            is_in_vault = k in vault_draft
+            
+            if not is_in_text and not is_flexible and not is_normalized_type and not is_in_vault:
+                # SPECIAL EXCEPTION: If it is the expected_key, we allow a bypass UNLESS it's a Choice/Relational field.
+                # This allows 'Today' -> 'ISO Date' but prevents 'Hello' -> 'Mr.'
+                is_expected = (k == expected_key)
+                if is_expected and not is_choice_field and not is_relational:
+                    logger.info(f"[{tenant_id}] EXPECTED BYPASS: Preserving expected field '{k}'='{v}' despite no direct text match.")
+                else:
+                    logger.warning(f"[{tenant_id}] HALLUCINATION PURGE: '{k}'='{v}' (CRITICAL/UNEXPECTED) not in text.")
+                    should_purge = True
                 
-                # [PHASE G: NORMALIZATION RESILIENCE]
-                # Exempt Date/Time fields from exact text matching because LLMs normalize them to ISO.
-                # Also exempt 'timezone' as it is often inferred.
-                is_normalized_type = any(x in k.lower() for x in ["date", "time", "timezone"])
-                
-                # Identify if the value (stripped of punctuation) exists in the user text
-                import string
-                clean_val = val_str.translate(str.maketrans('', '', string.punctuation)).strip()
-                clean_user = latest_user_text.translate(str.maketrans('', '', string.punctuation)).strip()
-                
-                # If hallucinated value is not in text anywhere
-                if clean_val and clean_val not in clean_user and not is_normalized_type:
-                    logger.warning(f"[{tenant_id}] HALLUCINATION PURGE: '{k}'='{v}' was not requested and is not in user text.")
-                    keys_to_remove.append(k)
-                elif is_normalized_type:
-                    logger.info(f"[{tenant_id}] NORMALIZATION EXEMPTION: Preserving '{k}'='{v}' despite no direct text match.")
-        
+            if should_purge:
+                keys_to_remove.append(k)
+            elif is_flexible or is_normalized_type:
+                logger.info(f"[{tenant_id}] TOLERANCE GRACE: Preserving '{k}'='{v}' (Flexible/Normalized).")
+       
         for k in keys_to_remove:
             del resolved_args[k]
     # ----------------------------------
