@@ -210,7 +210,7 @@ TOOLS = [
                     "last_name": {"type": "string", "description": "Legal LAST name. NEVER guess or split from email. ONLY populate if explicitly stated."},
                     "contact_type": {"type": "string", "enum": ["primary", "secondary"], "description": "Type of contact. MUST NOT BE GUESSED."},
                     "client_email": {"type": "string", "description": "Valid email address."},
-                    "country_code": {"type": "string", "description": "NUMERIC dialling code ONLY (e.g. +1, +254). NEVER put a country name here."},
+                    "country_code": {"type": "string", "description": "NUMERIC dialling code ONLY (e.g. valid dialling code). NEVER put a country name here."},
                     "phone_number": {"type": "string", "description": "Local phone number WITHOUT the country code."},
                     "model_type": {"type": "string", "description": "INTERNAL - DO NOT SET."},
                     "model_id": {"type": "integer", "description": "INTERNAL - DO NOT SET."},

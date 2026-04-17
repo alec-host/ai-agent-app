@@ -83,6 +83,33 @@ async def run_draft_workflow(
             if ck in args and args[ck] is not None:
                 resolved_args[key] = args[ck]
                 break
+
+    # --- ANTI-HALLUCINATION PURGE ---
+    # Identify the next missing required field before merging
+    visible_schema = [f for f in schema if not f.get("system_only", False)]
+    missing_before = [f for f in visible_schema if f.get("required", True) and (f["key"] not in vault_draft or not str(vault_draft[f["key"]]).strip() or str(vault_draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
+    if missing_before:
+        expected_key = missing_before[0]["key"]
+        
+        # We allow updates to already-filled keys AND the strictly expected key.
+        # Any other novel key is a hallucination.
+        # Check against user's raw text to allow legitimate multi-field answers.
+        latest_user_msg = (history[-1]["content"] if history and isinstance(history[-1], dict) and history[-1].get("role") == "user" else "")
+        latest_user_text = latest_user_msg.lower() if isinstance(latest_user_msg, str) else ""
+
+        keys_to_remove = []
+        for k, v in resolved_args.items():
+            is_new_field = k not in vault_draft and k != expected_key
+            if is_new_field:
+                val_str = str(v).lower().strip()
+                # If hallucinated value is not in text anywhere
+                if val_str and val_str not in latest_user_text:
+                    logger.warning(f"[{tenant_id}] HALLUCINATION PURGE: '{k}'='{v}' was not requested and is not in user text.")
+                    keys_to_remove.append(k)
+        
+        for k in keys_to_remove:
+            del resolved_args[k]
+    # ----------------------------------
     
     # Apply Hardened Merge with Schema-aware Choice Validation
     draft = deep_merge_drafts(vault_draft, resolved_args, schema=schema)
