@@ -798,7 +798,27 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client, user_email=user_email))
                 
                 final_text = f"\n\n{terminal_success_msg}"
+                yield f"data: {json.dumps({'content': final_text})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"
                 
+                # [PROTOCOL-SC] Atomic Save
+                await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": final_text}])
+                await redis_memory.close()
+                return
+
+            # --- [WORLD CLASS] GLOBAL COMMUNICATION AUDITOR (FALLBACK) ---
+            # If the tool call provided a response instruction but no textual content was streamed,
+            # we force a yield of the instruction to prevent the "Empty Bubble" hang.
+            if pending_throttle_msg and not full_content:
+                logger.warning(f"[AUDITOR] [{tenant_id}] Detected SILENT TURN after tool call. Yielding fallback message.")
+                # The auditor uses the enrichment already provided by run_draft_workflow via the tool result
+                yield f"data: {json.dumps(standardize_response({
+                    'content': pending_throttle_msg, 
+                    'vault_data': await services['calendar'].get_client_session(tenant_id)
+                }))}\n\n"
+
+        # --- FINAL FALLBACK: If loop ends without completion ---
+        yield f"data: {json.dumps({'done': True, 'history': messages[1:]})}\n\n"                
                 # [PROTOCOL-SC] Atomic Save of entire turn sequence
                 await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": f"{full_content or ''}{final_text}"}])
                 await redis_memory.close()

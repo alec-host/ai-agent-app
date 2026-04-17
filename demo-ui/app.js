@@ -51,11 +51,84 @@ document.addEventListener('DOMContentLoaded', () => {
         emailInput: document.getElementById('emailInput'),
         timezoneInput: document.getElementById('timezoneInput'),
         saveBtn: document.getElementById('saveSettingsBtn'),
-        themeToggle: document.getElementById('themeToggle')
+        themeToggle: document.getElementById('themeToggle'),
+        // Intelligence Extensions
+        draftSidebar: document.getElementById('draftSidebar'),
+        progressList: document.getElementById('progressList'),
+        activeWorkflowBadge: document.getElementById('activeWorkflowBadge'),
+        suggestedChipsBar: document.getElementById('suggestedChipsBar')
+    };
+
+    const friendlyActionLabels = {
+        'create_contact': 'Updating contact draft...',
+        'create_client_record': 'Updating client record...',
+        'create_matter': 'Drafting legal matter...',
+        'create_standard_event': 'Syncing calendar entry...',
+        'create_all_day_event': 'Setting deadline in calendar...',
+        'lookup_countries': 'Resolving country code...',
+        'lookup_client': 'Validating client identity...',
+        'lookup_practice_area': 'Categorizing practice area...',
+        'lookup_case_stage': 'Determining case status...',
+        'lookup_billing_type': 'Aligning billing protocol...',
+        'search_contact_by_email': 'Searching database...'
+    };
+
+    function updateDraftSidebar(progressMeta, workflowId) {
+        if (!nodes.draftSidebar || !nodes.progressList) return;
+
+        if (!progressMeta || progressMeta.length === 0) {
+            nodes.activeWorkflowBadge.textContent = 'No active workflow';
+            nodes.activeWorkflowBadge.style.opacity = '0.5';
+            nodes.progressList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <p>Start a workflow to see progress here</p>
+                </div>
+            `;
+            return;
+        }
+
+        nodes.activeWorkflowBadge.textContent = workflowId ? workflowId.replace(/_/g, ' ') : 'In Progress';
+        nodes.activeWorkflowBadge.style.opacity = '1';
+
+        nodes.progressList.innerHTML = progressMeta.map(field => `
+            <div class="progress-item ${field.status}">
+                <div class="progress-icon">
+                    <i class="fas ${field.status === 'captured' ? 'fa-check' : (field.status === 'pending' ? 'fa-pen-to-square' : 'fa-circle-dot')}"></i>
+                </div>
+                <div class="progress-info">
+                    <div class="progress-label">${field.label}</div>
+                    <div class="progress-value">${field.value || (field.status === 'pending' ? '<i>waiting...</i>' : '—')}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderSuggestedChips(chips) {
+        if (!nodes.suggestedChipsBar) return;
+        
+        nodes.suggestedChipsBar.innerHTML = '';
+        if (!chips || chips.length === 0) return;
+
+        chips.forEach(chip => {
+            const btn = document.createElement('button');
+            btn.className = 'action-chip';
+            btn.textContent = chip.label;
+            btn.addEventListener('click', () => sendMessage(chip.prompt));
+            nodes.suggestedChipsBar.appendChild(btn);
+        });
+    }
+
+    window.app = {
+        clearCurrentWorkflow: () => {
+             sendMessage("/clear");
+             updateDraftSidebar([], null);
+             renderSuggestedChips([]);
+        }
     };
 
     function generateUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
             const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
         });
@@ -208,16 +281,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     let data;
                     try {
                         data = JSON.parse(trimmed.slice(6));
-                    } catch (e) { 
+                    } catch (e) {
                         console.error("[SSE-PARSE-ERROR] Fragmented JSON or invalid data:", line);
-                        continue; 
+                        continue;
                     }
 
                     const currentLoader = document.getElementById(loadingId);
                     if (currentLoader) currentLoader.remove();
 
-                    // Initialize AI message container on first chunk
-                    if (!aiMessageDiv) {
+                    // [INTELLIGENCE]: Handle Action Labels (Tool execution)
+                    if (data.action) {
+                        const toolName = data.action.replace('Executing ', '').replace('...', '');
+                        const friendly = friendlyActionLabels[toolName] || data.action;
+                        
+                        // We show a temporary status bubble or update the thinking label
+                        let actionLabel = document.getElementById(`action-${loadingId}`);
+                        if (!actionLabel) {
+                            actionLabel = document.createElement('div');
+                            actionLabel.id = `action-${loadingId}`;
+                            actionLabel.className = 'action-status';
+                            thread.appendChild(actionLabel);
+                        }
+                        actionLabel.innerHTML = `<i class="fas fa-cog fa-spin"></i> ${friendly}`;
+                        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
+                    }
+
+                    // [INTELLIGENCE]: Handle Progress Meta & Chips
+                    if (data.progress_meta) {
+                        updateDraftSidebar(data.progress_meta, data.workflow_id);
+                    }
+                    if (data.suggested_chips) {
+                        renderSuggestedChips(data.suggested_chips);
+                    }
+                    if (data.vault_data) {
+                        // Sync UI with latest vault if needed (e.g. name changed)
+                        updateDraftSidebar(data.vault_data.progress_meta || [], data.vault_data.workflow_id);
+                    }
+
+                    // Initialize AI message container on first content chunk
+                    if (data.content && !aiMessageDiv) {
+                        // Clear any temporary action labels when content starts
+                        const actionLabel = document.getElementById(`action-${loadingId}`);
+                        if (actionLabel) actionLabel.remove();
+
                         aiMessageDiv = document.createElement('div');
                         aiMessageDiv.className = 'message ai';
                         aiMessageDiv.innerHTML = `
@@ -228,27 +334,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         aiContentDiv = document.getElementById(`stream-content-${loadingId}`);
                     }
 
-                    if (data.action) {
-                        // Display background action progress
-                        const actionEl = document.createElement('div');
-                        actionEl.className = 'agent-action-note';
-                        actionEl.style = 'font-style: italic; color: var(--text-secondary); font-size: 0.8rem; margin: 4px 0;';
-                        actionEl.innerHTML = `<i class="fas fa-cog fa-spin"></i> ${data.action}`;
-                        aiContentDiv.appendChild(actionEl);
-                        nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
-                    }
-
-                    if (data.content) {
+                    if (data.content && aiContentDiv) {
                         accumulatedContent += data.content;
-                        // Use marked if available, otherwise raw
+                        // Use a markdown parser or simple formatter
                         aiContentDiv.innerHTML = typeof marked !== 'undefined' ? marked.parse(accumulatedContent) : accumulatedContent;
                         nodes.chatViewport.scrollTo({ top: nodes.chatViewport.scrollHeight, behavior: 'smooth' });
                     }
 
                     if (data.status === 'auth_required') {
-                        const isMatterMiner = data.auth_type === 'matterminer_core' || 
-                                              (data.message && data.message.includes('MatterMiner'));
-                        
+                        const isMatterMiner = data.auth_type === 'matterminer_core' ||
+                            (data.message && data.message.includes('MatterMiner'));
+
                         if (isMatterMiner) {
                             aiContentDiv.innerHTML += `
                                 <div class="auth-required-box core-login-box" style="background: rgba(16, 185, 129, 0.1); padding: 20px; border-radius: 12px; border: 1px dashed #10b981; margin-top: 10px;">
@@ -352,11 +448,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // We simulate a message to the agent that triggers the login tool
             // The agent already has the tool authenticate_to_core(email, password)
             const prompt = `Please log me in with email ${email} and password ${password}`;
-            
+
             // Disable the form to show progress
             e.target.disabled = true;
             e.target.textContent = 'Logging in...';
-            
+
             // Auto-update identity so subsequent requests have the header
             sessionSettings.userEmail = email;
             safeStorage.set('userEmail', email);

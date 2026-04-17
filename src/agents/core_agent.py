@@ -147,10 +147,37 @@ async def run_draft_workflow(
             instruction += "This field is OPTIONAL. Tell the user they can say 'skip' to bypass it."
             msg += " (You can say 'skip' to bypass this)."
 
+        # [UI-ENRICHMENT]: Calculate Progress for the Sidebar & Dynamic Chips
+        progress_meta = []
+        for f in visible_schema:
+            status = "incomplete"
+            val = draft.get(f['key'])
+            if f['key'] in draft:
+                status = "captured"
+            elif f['key'] == next_field['key']:
+                status = "pending"
+            
+            progress_meta.append({
+                "key": f['key'],
+                "label": f['label'],
+                "status": status,
+                "value": val if val and str(val).lower() != "none" else None,
+                "required": f.get("required", True)
+            })
+
+        suggested_chips = []
+        if next_field.get("choices"):
+             suggested_chips = [{"label": c, "prompt": c} for c in next_field["choices"]]
+        if not next_field.get("required", True) or next_field['key'] != visible_schema[0]['key']:
+             suggested_chips.append({"label": "Skip Step", "prompt": "skip"})
+
         return {
             "status": "partial_success",
             "message": msg,
-            "response_instruction": instruction
+            "response_instruction": instruction,
+            "progress_meta": progress_meta,
+            "suggested_chips": suggested_chips,
+            "workflow_id": workflow_id
         }, session, draft
     else:
         # ALL REQUIRED ARE MET -> Trigger Submission Case
