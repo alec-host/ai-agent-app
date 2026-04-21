@@ -348,6 +348,18 @@ def deep_merge_drafts(vault_draft: dict, new_args: dict, schema: list = None) ->
              continue
 
         if is_meaningful:
-            updated_draft[key] = value
+            # Safe Array Merging: If dealing with list objects, combine constructively
+            if isinstance(value, list):
+                existing = updated_draft.get(key, [])
+                if isinstance(existing, list):
+                    # Combine without duplicates
+                    for item in value:
+                        if item not in existing:
+                            existing.append(item)
+                    updated_draft[key] = existing
+                else:
+                    updated_draft[key] = value
+            else:
+                updated_draft[key] = value
             
     return updated_draft

@@ -114,7 +114,8 @@ async def run_draft_workflow(
             is_choice_field = "choices" in field_def
             is_relational = "_id" in k or k == "contact_id"
             is_descriptive = any(x in k.lower() for x in ["desc", "loc", "note", "summary", "body", "street"]) or (k == "name" or k == "title")
-            is_flexible = is_descriptive and not is_choice_field and not is_relational
+            is_complex_data = isinstance(v, (list, dict))
+            is_flexible = is_complex_data or (is_descriptive and not is_choice_field and not is_relational)
             
             # Identify if the value (stripped of punctuation) exists in the user text
             import string
