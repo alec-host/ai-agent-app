@@ -94,7 +94,14 @@ async def run_draft_workflow(
         # We allow updates to already-filled keys AND the strictly expected key.
         # Any other novel key is a hallucination.
         # Check against user's raw text to allow legitimate multi-field answers.
-        latest_user_msg = (history[-1]["content"] if history and isinstance(history[-1], dict) and history[-1].get("role") == "user" else "")
+        # Iterate backwards to securely locate the actual user input (preventing tool-call indexing bugs)
+        latest_user_msg = ""
+        if history:
+            for msg in reversed(history):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    latest_user_msg = msg.get("content", "")
+                    break
+                    
         latest_user_text = latest_user_msg.lower() if isinstance(latest_user_msg, str) else ""
 
         keys_to_remove = []
