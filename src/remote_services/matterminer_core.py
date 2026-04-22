@@ -153,7 +153,7 @@ class MatterMinerCoreClient:
     async def lookup_clients(self, search: str = "") -> Dict[str, Any]:
         """Retrieves a list of clients based on search terms."""
         params = {"search": search, "tenantId": self.tenant_id}
-        return await self.request("GET", "/clients", params=params)
+        return await self.request("GET", "/client", params=params)
 
     async def lookup_practice_areas(self, search: str = "", is_search: int = 0) -> Dict[str, Any]:
         """Retrieves configured practice areas."""
