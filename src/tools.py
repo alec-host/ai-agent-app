@@ -352,7 +352,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "create_matter",
-           "description": "Creates a new matter. Call this ONLY after all required fields and IDs have been successfully gathered and confirmed.",
+           "description": "Saves or DRAFTS a matter record in the MatterMiner Core system. Call this IMMEDIATELY when the user wants to create a matter, even if you have NO information yet, so the gating system can guide you strictly one step at a time. CRITICAL: You MUST call this tool EVERY TIME the user provides a newly requested field (e.g., Matter Title) to update the draft. Do NOT just reply with text.",
            "parameters": {
                "type": "object",
                "properties": {
