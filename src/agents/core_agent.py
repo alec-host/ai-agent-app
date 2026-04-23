@@ -1075,8 +1075,7 @@ async def handle_lookup_case_stage(args, services, tenant_id, user_email=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
-        # User specified that case_stage_id is retrieved from /billing-info?is_search=1
-        resp = await core_client.lookup_billing_info(term)
+        resp = await core_client.lookup_case_stages(term)
         return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
@@ -1085,7 +1084,7 @@ async def handle_lookup_billing_type(args, services, tenant_id, user_email=None)
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
-        resp = await core_client.lookup_billing_types(term)
+        resp = await core_client.lookup_billing_info(term)
         return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term, user_email=user_email)
     finally:
         await core_client.close()
