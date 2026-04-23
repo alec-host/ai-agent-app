@@ -296,7 +296,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "lookup_client",
-           "description": "Searches for a client in the system to retrieve the client_id. Required before creating a matter.",
+           "description": "Searches for a client in the system to retrieve the client_id. ONLY invoke this tool if the current workflow specifically requests it, or if the user explicitly provides a search term for it. Do NOT invoke proactively.",
            "parameters": {
                "type": "object",
                "properties": {
@@ -310,7 +310,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "lookup_practice_area",
-           "description": "Searches for a practice area to retrieve the practice_area_id. Required before creating a matter.",
+           "description": "Searches for a practice area to retrieve the practice_area_id. ONLY invoke this tool if the current workflow specifically requests it, or if the user explicitly provides a search term for it. Do NOT invoke proactively.",
            "parameters": {
                "type": "object",
                "properties": {
@@ -324,7 +324,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "lookup_case_stage",
-           "description": "Searches for a case stage to retrieve the case_stage_id. Required before creating a matter.",
+           "description": "Searches for a case stage to retrieve the case_stage_id. ONLY invoke this tool if the current workflow specifically requests it, or if the user explicitly provides a search term for it. Do NOT invoke proactively.",
            "parameters": {
                "type": "object",
                "properties": {
@@ -338,7 +338,7 @@ TOOLS = [
        "type": "function",
        "function": {
            "name": "lookup_billing_type",
-           "description": "Searches for a billing type to retrieve the billing_type_id. Required before creating a matter.",
+           "description": "Searches for a billing type to retrieve the billing_type_id. ONLY invoke this tool if the current workflow specifically requests it, or if the user explicitly provides a search term for it. Do NOT invoke proactively.",
            "parameters": {
                "type": "object",
                "properties": {
