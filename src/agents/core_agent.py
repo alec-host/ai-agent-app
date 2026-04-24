@@ -239,7 +239,7 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
         return await handle_create_client(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "search_contact_by_email":
-        return await handle_search_contact(args, services, tenant_id, user_email=user_email)
+        return await handle_search_contact(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_countries":
         return await handle_lookup_countries(args, services, tenant_id, user_email=user_email, db_session=db_session)
@@ -256,20 +256,20 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
         return await handle_create_matter(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_client":
-        return await handle_lookup_client(args, services, tenant_id, user_email=user_email)
+        return await handle_lookup_client(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_practice_area":
-        return await handle_lookup_practice_area(args, services, tenant_id, user_email=user_email)
+        return await handle_lookup_practice_area(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_case_stage":
-        return await handle_lookup_case_stage(args, services, tenant_id, user_email=user_email)
+        return await handle_lookup_case_stage(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_billing_type":
-        return await handle_lookup_billing_type(args, services, tenant_id, user_email=user_email)
+        return await handle_lookup_billing_type(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     return {"status": "error", "message": f"Core operation '{func_name}' not implemented."}
 
-async def handle_search_contact(args, services, tenant_id, user_email=None):
+async def handle_search_contact(args, services, tenant_id, user_email=None, db_session=None):
     """
     Searches for a contact by email via the backend.
     """
@@ -301,13 +301,15 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
                 # --- PATTERN: LINKING DISCOVERED DATA ---
                 # Attempt to pre-fill client_draft for future client registration
                 try:
-                    session = await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
                     client_draft = metadata.get("client_draft", {})
                     client_draft["contact_id"] = contact_id
                     metadata["client_draft"] = client_draft
+                    if db_session is not None:
+                        db_session["metadata"] = metadata
                     
                     sync_payload = format_sync_chat_payload(
                         tenant_id=tenant_id,
@@ -325,7 +327,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
                     "status": "success",
                     "message": f"Contact found! ID is {contact_id}.",
                     "data": prune_payload(resp, ["contact_id", "first_name", "last_name", "email", "phone"]),
-                    "response_instruction": f"The contact has been discovered (ID: {contact_id}) and linked to the current draft. You can now proceed to create a client record for them if that was the user's intent, or ask what else they need."
+                    "response_instruction": f"The contact has been discovered (ID: {contact_id}) and linked to the current draft. You MUST immediately invoke the primary progression tool (e.g., create_client_record) to unlock options for the next required field. Do NOT ask the user any questions yet."
                 }
             else:
                 # 200 OK but no contact_id present (empty result)
@@ -1052,44 +1054,44 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     finally:
         await core_client.close()
 
-async def handle_lookup_client(args, services, tenant_id, user_email=None):
+async def handle_lookup_client(args, services, tenant_id, user_email=None, db_session=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.lookup_clients(term)
-        return await _process_lookup_response(resp, "client_id", "matter_draft", tenant_id, services, term, user_email=user_email)
+        return await _process_lookup_response(resp, "client_id", "matter_draft", tenant_id, services, term, user_email=user_email, db_session=db_session)
     finally:
         await core_client.close()
 
-async def handle_lookup_practice_area(args, services, tenant_id, user_email=None):
+async def handle_lookup_practice_area(args, services, tenant_id, user_email=None, db_session=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
         # Use is_search=1 as per user spec for retrieving specific ID
         resp = await core_client.lookup_practice_areas(term, is_search=1)
-        return await _process_lookup_response(resp, "practice_area_id", "matter_draft", tenant_id, services, term, user_email=user_email)
+        return await _process_lookup_response(resp, "practice_area_id", "matter_draft", tenant_id, services, term, user_email=user_email, db_session=db_session)
     finally:
         await core_client.close()
 
-async def handle_lookup_case_stage(args, services, tenant_id, user_email=None):
+async def handle_lookup_case_stage(args, services, tenant_id, user_email=None, db_session=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.lookup_case_stages(term)
-        return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term, user_email=user_email)
+        return await _process_lookup_response(resp, "case_stage_id", "matter_draft", tenant_id, services, term, user_email=user_email, db_session=db_session)
     finally:
         await core_client.close()
 
-async def handle_lookup_billing_type(args, services, tenant_id, user_email=None):
+async def handle_lookup_billing_type(args, services, tenant_id, user_email=None, db_session=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
     try:
         resp = await core_client.lookup_billing_info(term)
-        return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term, user_email=user_email)
+        return await _process_lookup_response(resp, "billing_type_id", "matter_draft", tenant_id, services, term, user_email=user_email, db_session=db_session)
     finally:
         await core_client.close()
 
-async def _process_lookup_response(resp, link_key, draft_key, tenant_id, services, term, user_email=None):
+async def _process_lookup_response(resp, link_key, draft_key, tenant_id, services, term, user_email=None, db_session=None):
     is_success = resp.get("status") == "success" or resp.get("success") is True
     if is_success:
         data = resp.get("data", [])
@@ -1108,13 +1110,15 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
         if linked_id is not None:
             # --- PATTERN: LINKING DISCOVERED DATA ---
             try:
-                session = await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+                session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                 metadata = session.get("metadata", {})
                 if isinstance(metadata, str): metadata = json.loads(metadata)
                 
                 draft = metadata.get(draft_key, {})
                 draft[link_key] = linked_id
                 metadata[draft_key] = draft
+                if db_session is not None:
+                    db_session["metadata"] = metadata
                 
                 payload_args = {
                     "tenant_id": tenant_id,
@@ -1133,7 +1137,7 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
             return {
                 "status": "success",
                 "message": f"Successfully resolved '{term}' to ID: {linked_id}.",
-                "response_instruction": f"The ID {linked_id} has been automatically resolved and linked for {link_key}. Do not ask the user for it again. Ask for the next field."
+                "response_instruction": f"The ID {linked_id} has been automatically resolved and linked for {link_key}. Do not ask the user any questions yet. You MUST immediately invoke the primary progression tool (e.g., create_matter, create_client_record) to unlock the options for the next required field."
             }
             
         elif data and isinstance(data, list) and len(data) > 1:
