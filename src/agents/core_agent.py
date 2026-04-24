@@ -308,6 +308,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None, db_s
                     client_draft = metadata.get("client_draft", {})
                     client_draft["contact_id"] = contact_id
                     metadata["client_draft"] = client_draft
+                    metadata["active_workflow"] = "client_registration"
                     if db_session is not None:
                         db_session["metadata"] = metadata
                     
@@ -1117,6 +1118,18 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
                 draft = metadata.get(draft_key, {})
                 draft[link_key] = linked_id
                 metadata[draft_key] = draft
+                
+                # Context-Wipe Fix: Lock the active workflow to the draft key
+                workflow_map = {
+                    "matter_draft": "matter",
+                    "contact_draft": "contact",
+                    "client_draft": "client_registration",
+                    "event_draft": "google_calendar"
+                }
+                wk_id = workflow_map.get(draft_key)
+                if wk_id:
+                    metadata["active_workflow"] = wk_id
+                
                 if db_session is not None:
                     db_session["metadata"] = metadata
                 
@@ -1127,6 +1140,8 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
                     "history": [],
                     "thread_id": services['calendar'].thread_id
                 }
+                if wk_id:
+                    payload_args["active_workflow"] = wk_id
                 payload_args[draft_key] = draft
                 sync_payload = format_sync_chat_payload(**payload_args)
                 await services['calendar'].sync_client_session(sync_payload)
