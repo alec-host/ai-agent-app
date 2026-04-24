@@ -181,11 +181,11 @@ class MatterMinerCoreClient:
         }
         return await self.request("GET", "/case-stage", params=params)
 
-    async def lookup_billing_info(self, search: str = "") -> Dict[str, Any]:
+    async def lookup_billing_info(self, search: str = "", is_search: int = 1) -> Dict[str, Any]:
         """Retrieves billing info and case stage ID via search."""
         params = {
             "search": search,
-            "is_search": 1,
+            "is_search": is_search,
             "tenantId": self.tenant_id
         }
         return await self.request("GET", "/billing-info", params=params)

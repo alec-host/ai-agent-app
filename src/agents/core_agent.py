@@ -960,6 +960,8 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
                     elif field["key"] == "case_stage_id":
                         # GET /case-stage?is_search=0 as per specification
                         resp = await core_client.lookup_case_stages(is_search=0)
+                    elif field["key"] == "billing_type_id":
+                        resp = await core_client.lookup_billing_info(is_search=0)
                     
                     if resp and resp.get("status") != "error":
                         data = resp.get("data", [])
