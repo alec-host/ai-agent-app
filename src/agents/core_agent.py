@@ -2,7 +2,7 @@ import copy
 import json
 import asyncio
 from ..logger import logger
-from ..utils import format_sync_chat_payload, standardize_response, deep_merge_drafts
+from ..utils import format_sync_chat_payload, standardize_response, deep_merge_drafts, prune_payload
 from ..remote_services.matterminer_core import MatterMinerCoreClient
 from ..config import settings
 
@@ -324,7 +324,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None):
                 return {
                     "status": "success",
                     "message": f"Contact found! ID is {contact_id}.",
-                    "data": resp,
+                    "data": prune_payload(resp, ["contact_id", "first_name", "last_name", "email", "phone"]),
                     "response_instruction": f"The contact has been discovered (ID: {contact_id}) and linked to the current draft. You can now proceed to create a client record for them if that was the user's intent, or ask what else they need."
                 }
             else:
@@ -504,7 +504,7 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
             return {
                 "status": "success",
                 "message": f"Successfully created your event: {payload.get('title')}\n\n{summary_table}",
-                "data": resp,
+                "data": prune_payload(resp, ["event_id", "title"]),
                 "response_instruction": "Confirm success, output the markdown table summary, remind the user it can be copied easily, and ask if they need anything else."
             }
         elif resp.get("status") == "api_key_error":
@@ -804,7 +804,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             return {
                 "status": "success",
                 "message": f"Successfully registered client: {draft.get('first_name')} {draft.get('last_name')}\n\n{summary_table}",
-                "data": resp,
+                "data": prune_payload(resp, ["client_id", "first_name", "last_name"]),
                 "response_instruction": "Confirm success and ask if they would like to create a matter for this client."
             }
         elif resp.get("status") == "api_key_error":
@@ -1040,7 +1040,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
             return {
                 "status": "success",
                 "message": f"Successfully created matter: {clean_draft.get('title')}\n\n{summary_table}",
-                "data": resp,
+                "data": prune_payload(resp, ["matter_id", "title"]),
                 "response_instruction": "Confirm the matter creation success, display the markdown table, and ask if any further steps are needed."
             }
         elif resp.get("status") == "api_key_error":

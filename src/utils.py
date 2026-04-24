@@ -7,6 +7,26 @@ import functools
 from typing import Any, List, Dict, Union
 from src.logger import logger
 
+def prune_payload(raw_data: Any, keep_keys: List[str] = None) -> Any:
+    """
+    Recursively strips dictionaries of ANY key not strictly permitted in keep_keys.
+    This prevents deep API payloads (CRM addresses, notes, billing structures) from 
+    unnecessarily drifting unmasked into external LLM prompts.
+    """
+    if keep_keys is None:
+        keep_keys = []
+    
+    if isinstance(raw_data, dict):
+        return {
+            k: prune_payload(v, keep_keys) if isinstance(v, (dict, list)) else v
+            for k, v in raw_data.items()
+            if k in keep_keys or str(k).lower() in ["id", "status", "success", "message", "data"]
+        }
+    elif isinstance(raw_data, list):
+        return [prune_payload(item, keep_keys) for item in raw_data]
+    else:
+        return raw_data
+
 def sanitize_history(history: list, max_content_length: int = 2000, keep_last_n: int = 3, redact_values: list = None):
     """
     Truncates older message content to save tokens, but STRICTLY PRESERVES 
