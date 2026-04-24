@@ -363,7 +363,7 @@ TOOLS = [
                    "description": {"type": "string", "description": "The details or summary of the matter."},
                    "case_stage_id": {"type": "integer", "description": "The ID of the case stage (obtained via lookup_case_stage)."},
                    "billing_type_id": {"type": "integer", "description": "The ID of the billing type (obtained via lookup_billing_type)."},
-                   "access_type": {"type": "string", "enum": ["restricted", "open", "private"]},
+                   "access_type": {"type": "string", "enum": ["restricted", "public"]},
                    "lawyer_assignments": {"type": "array", "items": {"type": "integer"}, "description": "Array of Lawyer User IDs"},
                    "matter_users": {"type": "array", "items": {"type": "integer"}, "description": "Array of Matter User IDs"},
                    "matter_groups": {"type": "array", "items": {"type": "integer"}, "description": "Array of Group IDs"},
@@ -379,7 +379,7 @@ TOOLS = [
                        }
                    }
                },
-               "required": ["title", "name", "client_id", "practice_area_id", "description", "case_stage_id", "billing_type_id"]
+               "required": ["title", "name", "client_id", "practice_area_id", "description", "access_type", "case_stage_id", "billing_type_id", "lawyer_assignments"]
            }
        }
     },
