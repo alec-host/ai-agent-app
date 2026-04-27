@@ -263,6 +263,14 @@ TOOLS = [
                    "description": {"type": "string", "description": "Agenda or notes."},
                    "location": {"type": "string", "description": "Venue or virtual link."},
                    "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
+                   "matter_id": {"type": ["integer", "null"], "description": "Relational matter ID if this event belongs to a firm matter. Otherwise null."},
+                   "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
+                   "status": {"type": "string", "description": "Event status, default is confirmed."},
+                   "reminders": {
+                       "type": "array",
+                       "items": {"type": "object", "properties": {"method": {"type": "string"}, "minutes": {"type": "integer"}}},
+                       "description": "List of reminders. E.g. [{\"method\": \"email\", \"minutes\": 60}]"
+                   },
                    "attendees": {
                        "type": "array",
                        "items": {"type": "string"},
@@ -286,6 +294,13 @@ TOOLS = [
                    "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-25T23:59:59)."},
                    "description": {"type": "string", "description": "Details about the deadline."},
                    "location": {"type": "string", "description": "Where the event/deadline takes place."},
+                   "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
+                   "status": {"type": "string", "description": "Event status, default is confirmed."},
+                   "reminders": {
+                       "type": "array",
+                       "items": {"type": "object", "properties": {"method": {"type": "string"}, "minutes": {"type": "integer"}}},
+                       "description": "List of reminders. E.g. [{\"method\": \"email\", \"minutes\": 1440}]"
+                   },
                    "attendees": {"type": "array", "items": {"type": "string"}, "description": "List of emails to invite."}
                },
                "required": ["title", "start_datetime", "end_datetime"]

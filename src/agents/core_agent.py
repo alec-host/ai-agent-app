@@ -39,7 +39,8 @@ async def run_draft_workflow(
     history,
     intro_message=None,
     db_session=None,
-    user_email=None
+    user_email=None,
+    user_tz=None
 ):
     """
     Unified engine for conversational drafting.
@@ -83,6 +84,13 @@ async def run_draft_workflow(
             if ck in args and args[ck] is not None:
                 resolved_args[key] = args[ck]
                 break
+                
+        # --- NEW: AUTO-DEFAULT INJECTOR ---
+        if key not in resolved_args and key not in vault_draft:
+            if field.get("suggest_from_context") == "user_timezone_name" and user_tz:
+                resolved_args[key] = user_tz
+            elif "default" in field:
+                resolved_args[key] = field["default"]
 
     # --- ANTI-HALLUCINATION PURGE ---
     # Identify the next missing required field before merging
@@ -132,8 +140,9 @@ async def run_draft_workflow(
             should_purge = False
             is_in_text = clean_val and clean_val in clean_user
             is_in_vault = k in vault_draft
+            is_system_default = ("default" in field_def and field_def["default"] == v)
             
-            if not is_in_text and not is_flexible and not is_normalized_type and not is_in_vault:
+            if not is_in_text and not is_flexible and not is_normalized_type and not is_in_vault and not is_system_default:
                 # SPECIAL EXCEPTION: If it is the expected_key, we allow a bypass UNLESS it's a Choice/Relational field.
                 # This allows 'Today' -> 'ISO Date' but prevents 'Hello' -> 'Mr.'
                 is_expected = (k == expected_key)
@@ -224,7 +233,7 @@ async def run_draft_workflow(
         # ALL REQUIRED ARE MET -> Trigger Submission Case
         return None, session, draft
 
-async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None, db_session=None):
+async def handle_core_ops(func_name, args, services, tenant_id, history, user_email=None, db_session=None, user_tz=None):
     """
     Handles operations for the MatterMiner Core remote system.
     Supports session tunneling (db_session) to minimize backend lookups.
@@ -246,11 +255,11 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
 
     elif func_name == "create_standard_event":
         args["is_all_day"] = False
-        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session, user_tz=user_tz)
 
     elif func_name == "create_all_day_event":
         args["is_all_day"] = True
-        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
+        return await handle_create_event(args, services, tenant_id, history, user_email=user_email, db_session=db_session, user_tz=user_tz)
 
     elif func_name == "create_matter":
         return await handle_create_matter(args, services, tenant_id, history, user_email=user_email, db_session=db_session)
@@ -443,7 +452,7 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None, db
     finally:
         await core_client.close()
 
-async def handle_create_event(args, services, tenant_id, history, user_email=None, db_session=None):
+async def handle_create_event(args, services, tenant_id, history, user_email=None, db_session=None, user_tz=None):
     """
     Handles conversational drafting and final submission of an event to MatterMiner Core.
     """
@@ -457,7 +466,8 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
         schema, args, services, tenant_id, metadata_key, workflow_id, history,
         intro_message=f"I'll help you schedule that {'Standard' if not is_all_day else 'All-Day'} event. To start, what should the **{schema[0]['label']}** be?",
         db_session=db_session,
-        user_email=user_email
+        user_email=user_email,
+        user_tz=user_tz
     )
     
     if partial_resp:
