@@ -258,8 +258,9 @@ TOOLS = [
                "type": "object",
                "properties": {
                    "title": {"type": "string", "description": "The title of the meeting."},
-                   "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-20T10:00:00)."},
-                   "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-20T11:30:00)."},
+                   "meeting_date": {"type": "string", "description": "Date of the meeting (YYYY-MM-DD format)."},
+                   "start_time": {"type": "string", "description": "Start time in HH:MM format."},
+                   "end_time": {"type": "string", "description": "End time in HH:MM format."},
                    "description": {"type": "string", "description": "Agenda or notes."},
                    "location": {"type": "string", "description": "Venue or virtual link."},
                    "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
@@ -277,7 +278,7 @@ TOOLS = [
                        "description": "List of attendee emails."
                    }
                },
-               "required": ["title", "start_datetime", "end_datetime"]
+               "required": ["title", "meeting_date", "start_time", "end_time"]
            }
        }
     },
@@ -289,10 +290,10 @@ TOOLS = [
            "parameters": {
                "type": "object",
                "properties": {
-                   "title": {"type": "string", "description": "The title of the deadline or event."},
-                   "start_datetime": {"type": "string", "description": "ISO 8601 start time (e.g. 2025-01-25T00:00:00)."},
-                   "end_datetime": {"type": "string", "description": "ISO 8601 end time (e.g. 2025-01-25T23:59:59)."},
-                   "description": {"type": "string", "description": "Details about the deadline."},
+                    "title": {"type": "string", "description": "The title of the deadline or event."},
+                    "meeting_date": {"type": "string", "description": "Date of the event (YYYY-MM-DD format)."},
+                    "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
+                    "description": {"type": "string", "description": "Details about the deadline."},
                    "location": {"type": "string", "description": "Where the event/deadline takes place."},
                    "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
                    "status": {"type": "string", "description": "Event status, default is confirmed."},
@@ -302,9 +303,9 @@ TOOLS = [
                        "description": "List of reminders. E.g. [{\"method\": \"email\", \"minutes\": 1440}]"
                    },
                    "attendees": {"type": "array", "items": {"type": "string"}, "description": "List of emails to invite."}
-               },
-               "required": ["title", "start_datetime", "end_datetime"]
-           }
+                },
+                "required": ["title", "meeting_date"]
+            }
        }
     },
     {

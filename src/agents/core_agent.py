@@ -484,6 +484,22 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
         # Clean out skipped values before submission
         clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
         
+        # --- DECOUPLED UX RECOMBINATION LAYER ---
+        # Seamlessly map conversational fragments into strict MatterMiner Core ISO formats
+        if not is_all_day:
+            if "meeting_date" in clean_draft and "start_time" in clean_draft:
+                clean_draft["start_datetime"] = f"{clean_draft['meeting_date']}T{clean_draft['start_time']}:00"
+            if "meeting_date" in clean_draft and "end_time" in clean_draft:
+                clean_draft["end_datetime"] = f"{clean_draft['meeting_date']}T{clean_draft['end_time']}:00"
+            
+            for key in ["meeting_date", "start_time", "end_time"]:
+                clean_draft.pop(key, None)
+        else:
+            if "meeting_date" in clean_draft:
+                clean_draft["start_datetime"] = f"{clean_draft['meeting_date']}T00:00:00"
+                clean_draft["end_datetime"] = f"{clean_draft['meeting_date']}T23:59:59"
+                clean_draft.pop("meeting_date", None)
+                
         # Pass is_all_day flag to handle end_datetime logic if needed
         payload = {**clean_draft, "is_all_day": is_all_day}
         resp = await core_client.create_core_event(payload)
