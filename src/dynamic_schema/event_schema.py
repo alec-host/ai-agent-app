@@ -16,9 +16,10 @@ STANDARD_EVENT_SCHEMA = [
 # Schema for an all-day event or deadline
 ALL_DAY_EVENT_SCHEMA = [
     {"key": "title", "label": "Title", "required": True},
-    {"key": "start_datetime", "label": "Start Date", "required": True, "aliases": ["start_date", "date", "start"]},
+    {"key": "start_datetime", "label": "Start Date", "required": True, "aliases": ["start_date", "date", "start", "meeting_date"]},
     {"key": "end_datetime", "label": "End Date", "required": True, "aliases": ["end_date", "end"]},
     {"key": "description", "label": "Description", "required": True, "aliases": ["summary", "body", "details", "notes"]},
+    {"key": "timezone", "label": "Timezone", "required": True, "suggest_from_context": "user_timezone_name"},
     {"key": "location", "label": "Location", "required": False, "aliases": ["Physical Address", "Zoom", "Google Meet","Teams"]},
     {"key": "visibility", "label": "Visibility", "required": False, "default": "private"},
     {"key": "status", "label": "Status", "required": False, "default": "confirmed"},
