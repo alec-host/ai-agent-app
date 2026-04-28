@@ -94,8 +94,17 @@ async def run_draft_workflow(
 
     # --- ANTI-HALLUCINATION PURGE ---
     # Identify the next missing required field before merging
+    def is_field_required(f, draft):
+        if not f.get("required", True): return False
+        if "depends_on" in f:
+            dep_key = f["depends_on"]["key"]
+            expected_val = f["depends_on"]["value"]
+            if dep_key not in draft: return False
+            if str(draft.get(dep_key)).lower() != str(expected_val).lower(): return False
+        return True
+
     visible_schema = [f for f in schema if not f.get("system_only", False)]
-    missing_before = [f for f in visible_schema if f.get("required", True) and (f["key"] not in vault_draft or not str(vault_draft[f["key"]]).strip() or str(vault_draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
+    missing_before = [f for f in visible_schema if is_field_required(f, vault_draft) and (f["key"] not in vault_draft or not str(vault_draft[f["key"]]).strip() or str(vault_draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
     if missing_before:
         expected_key = missing_before[0]["key"]
         
@@ -174,7 +183,7 @@ async def run_draft_workflow(
     
     # 6. Gating Logic: Identify next missing required field
     visible_schema = [f for f in schema if not f.get("system_only", False)]
-    required_missing = [f for f in visible_schema if f.get("required", True) and (f["key"] not in draft or not str(draft[f["key"]]).strip() or str(draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
+    required_missing = [f for f in visible_schema if is_field_required(f, draft) and (f["key"] not in draft or not str(draft[f["key"]]).strip() or str(draft[f["key"]]).strip().lower() in ["skip", "skipped", "none", "n/a", "null"])]
     optional_missing = [f for f in visible_schema if not f.get("required", True) and f["key"] not in draft]
 
     # Case A: Still missing required info -> MUST ASK
@@ -266,6 +275,9 @@ async def handle_core_ops(func_name, args, services, tenant_id, history, user_em
 
     elif func_name == "lookup_client":
         return await handle_lookup_client(args, services, tenant_id, user_email=user_email, db_session=db_session)
+
+    elif func_name == "lookup_matter":
+        return await handle_lookup_matter(args, services, tenant_id, user_email=user_email, db_session=db_session)
 
     elif func_name == "lookup_practice_area":
         return await handle_lookup_practice_area(args, services, tenant_id, user_email=user_email, db_session=db_session)
@@ -499,6 +511,12 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
                 clean_draft["start_datetime"] = f"{clean_draft['meeting_date']}T00:00:00"
                 clean_draft["end_datetime"] = f"{clean_draft['meeting_date']}T23:59:59"
                 clean_draft.pop("meeting_date", None)
+                
+        if str(clean_draft.get("is_matter_related")).lower() == "no":
+            clean_draft["client_id"] = None
+            clean_draft["matter_id"] = None
+            
+        clean_draft.pop("is_matter_related", None)
                 
         # Pass is_all_day flag to handle end_datetime logic if needed
         payload = {**clean_draft, "is_all_day": is_all_day}
@@ -1092,6 +1110,15 @@ async def handle_lookup_client(args, services, tenant_id, user_email=None, db_se
     finally:
         await core_client.close()
 
+async def handle_lookup_matter(args, services, tenant_id, user_email=None, db_session=None):
+    term = args.get("search_term", "")
+    core_client = _get_core_client(tenant_id, user_email)
+    try:
+        resp = await core_client.lookup_matter_info(term)
+        return await _process_lookup_response(resp, "matter_id", "matter_draft", tenant_id, services, term, user_email=user_email, db_session=db_session)
+    finally:
+        await core_client.close()
+
 async def handle_lookup_practice_area(args, services, tenant_id, user_email=None, db_session=None):
     term = args.get("search_term", "")
     core_client = _get_core_client(tenant_id, user_email)
@@ -1142,6 +1169,14 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
                 session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
                 metadata = session.get("metadata", {})
                 if isinstance(metadata, str): metadata = json.loads(metadata)
+                
+                active_wf = metadata.get("active_workflow")
+                if active_wf in ["standard_event", "all_day_event", "google_calendar"]:
+                    draft_key = "event_draft"
+                elif active_wf == "matter":
+                    draft_key = "matter_draft"
+                elif active_wf == "task":
+                    draft_key = "task_draft"
                 
                 draft = metadata.get(draft_key, {})
                 draft[link_key] = linked_id

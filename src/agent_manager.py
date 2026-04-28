@@ -114,7 +114,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
     # Phase 3 (Auth Migration): authenticate_to_core REMOVED from routing table.
     core_funcs = [
         "create_contact", "lookup_countries", 
-        "create_standard_event", "create_all_day_event", "lookup_client", 
+        "create_standard_event", "create_all_day_event", "lookup_client", "lookup_matter", 
         "lookup_practice_area", "lookup_case_stage", "lookup_billing_type", 
         "create_matter", "create_client_record", "setup_client", "promote_contact_to_client"
     ]

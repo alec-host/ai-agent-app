@@ -7,7 +7,9 @@ STANDARD_EVENT_SCHEMA = [
     {"key": "description", "label": "Description", "required": True, "aliases": ["summary", "body", "details", "notes"]},
     {"key": "location", "label": "Location", "required": False, "aliases": ["Physical Address", "Zoom", "Google Meet","Teams"]},
     {"key": "timezone", "label": "Timezone", "required": True, "suggest_from_context": "user_timezone_name"},
-    {"key": "matter_id", "label": "Matter", "required": False},
+    {"key": "is_matter_related", "label": "Related to Matter (Yes/No)", "required": True, "type": "choice", "choices": ["Yes", "No"]},
+    {"key": "client_id", "label": "Client ID", "required": True, "depends_on": {"key": "is_matter_related", "value": "Yes"}},
+    {"key": "matter_id", "label": "Matter ID", "required": True, "depends_on": {"key": "is_matter_related", "value": "Yes"}},
     {"key": "visibility", "label": "Visibility", "required": False, "default": "private"},
     {"key": "status", "label": "Status", "required": False, "default": "confirmed"},
     {"key": "reminders", "label": "Reminders", "required": False, "type": "list", "default": [{"method": "email", "minutes": 60}, {"method": "popup", "minutes": 15}]},
@@ -23,6 +25,9 @@ ALL_DAY_EVENT_SCHEMA = [
     {"key": "location", "label": "Location", "required": False, "aliases": ["Physical Address", "Zoom", "Google Meet","Teams"]},
     {"key": "visibility", "label": "Visibility", "required": False, "default": "private"},
     {"key": "status", "label": "Status", "required": False, "default": "confirmed"},
+    {"key": "is_matter_related", "label": "Related to Matter (Yes/No)", "required": True, "type": "choice", "choices": ["Yes", "No"]},
+    {"key": "client_id", "label": "Client ID", "required": True, "depends_on": {"key": "is_matter_related", "value": "Yes"}},
+    {"key": "matter_id", "label": "Matter ID", "required": True, "depends_on": {"key": "is_matter_related", "value": "Yes"}},
     {"key": "reminders", "label": "Reminders", "required": False, "type": "list", "default": [{"method": "email", "minutes": 1440}]}
 ]
 

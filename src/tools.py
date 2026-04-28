@@ -264,7 +264,9 @@ TOOLS = [
                    "description": {"type": "string", "description": "Agenda or notes."},
                    "location": {"type": "string", "description": "Venue or virtual link."},
                    "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
-                   "matter_id": {"type": ["integer", "null"], "description": "Relational matter ID if this event belongs to a firm matter. Otherwise null."},
+                   "is_matter_related": {"type": "string", "enum": ["Yes", "No"], "description": "Whether this event is related to a firm matter. Default is No."},
+                   "client_id": {"type": ["integer", "null"], "description": "Relational client ID if related to a matter. Obtain via lookup_client if Yes. Otherwise null."},
+                   "matter_id": {"type": ["integer", "null"], "description": "Relational matter ID if related to a matter. Obtain via lookup_matter if Yes. Otherwise null."},
                    "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
                    "status": {"type": "string", "description": "Event status, default is confirmed."},
                    "reminders": {
@@ -278,7 +280,7 @@ TOOLS = [
                        "description": "List of attendee emails."
                    }
                },
-               "required": ["title", "meeting_date", "start_time", "end_time"]
+               "required": ["title", "meeting_date", "start_time", "end_time", "is_matter_related"]
            }
        }
     },
@@ -294,17 +296,20 @@ TOOLS = [
                     "meeting_date": {"type": "string", "description": "Date of the event (YYYY-MM-DD format)."},
                     "timezone": {"type": "string", "description": "Timezone (e.g. America/New_York). IMPORTANT: If unknown, present the common choices from your instructions and ask for a selection."},
                     "description": {"type": "string", "description": "Details about the deadline."},
-                   "location": {"type": "string", "description": "Where the event/deadline takes place."},
-                   "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
-                   "status": {"type": "string", "description": "Event status, default is confirmed."},
-                   "reminders": {
-                       "type": "array",
-                       "items": {"type": "object", "properties": {"method": {"type": "string"}, "minutes": {"type": "integer"}}},
-                       "description": "List of reminders. E.g. [{\"method\": \"email\", \"minutes\": 1440}]"
-                   },
-                   "attendees": {"type": "array", "items": {"type": "string"}, "description": "List of emails to invite."}
+                    "location": {"type": "string", "description": "Where the event/deadline takes place."},
+                    "is_matter_related": {"type": "string", "enum": ["Yes", "No"], "description": "Whether this deadline is related to a firm matter. Default is No."},
+                    "client_id": {"type": ["integer", "null"], "description": "Relational client ID if related to a matter. Obtain via lookup_client if Yes. Otherwise null."},
+                    "matter_id": {"type": ["integer", "null"], "description": "Relational matter ID if related to a matter. Obtain via lookup_matter if Yes. Otherwise null."},
+                    "visibility": {"type": "string", "enum": ["private", "public", "restricted"], "description": "Event visibility. Default is private."},
+                    "status": {"type": "string", "description": "Event status, default is confirmed."},
+                    "reminders": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {"method": {"type": "string"}, "minutes": {"type": "integer"}}},
+                        "description": "List of reminders. E.g. [{\"method\": \"email\", \"minutes\": 1440}]"
+                    },
+                    "attendees": {"type": "array", "items": {"type": "string"}, "description": "List of emails to invite."}
                 },
-                "required": ["title", "meeting_date"]
+                "required": ["title", "meeting_date", "is_matter_related"]
             }
        }
     },
@@ -317,6 +322,20 @@ TOOLS = [
                "type": "object",
                "properties": {
                    "search_term": {"type": "string", "description": "The client name or email to search for."}
+               },
+               "required": ["search_term"]
+           }
+       }
+    },
+    {
+       "type": "function",
+       "function": {
+           "name": "lookup_matter",
+           "description": "Searches for a matter in the system to retrieve the matter_id. ONLY invoke this tool if the current workflow specifically requests it, or if the user explicitly provides a search term for it. Do NOT invoke proactively.",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "search_term": {"type": "string", "description": "The matter name or client to search for."}
                },
                "required": ["search_term"]
            }
