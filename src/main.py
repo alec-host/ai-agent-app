@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 from src.tools import TOOLS
 from src.prompts import get_legal_system_prompt
+from src.constants import CALENDAR_KEYWORDS, EXPLICIT_GOOGLE_KEYWORDS, EXPLICIT_CORE_KEYWORDS, COMPLEX_KEYWORDS
 
 # --- AGENT CONCURRENCY & TOOL MOCKS (DEP-02, CQ-04) ---
 # Global Semaphore to prevent Token-Per-Minute (TPM) exhaustion
@@ -43,6 +44,7 @@ from src.utils import sanitize_history, retry_with_backoff, get_starter_chips, s
 
 from src.remote_services.google_core import GoogleCalendarClient
 from src.remote_services.wallet_service import WalletClient
+from src.remote_services.session_service import SessionClient
 from src.agents.calendar_agent import perform_calendar_auth_check
 from src.agents.memory_agent import extract_and_save_facts, summarize_and_save
 
@@ -191,8 +193,7 @@ def get_optimal_model(active_workflow: str, user_message: str) -> str:
     if active_workflow in ["create_matter", "rag_query", "search_knowledge_base", "lookup_firm_protocol"]:
         return "gpt-4o"
         
-    complex_keywords = ["policy", "guideline", "summarize", "research", "analyze"]
-    if user_message and any(k in user_message.lower() for k in complex_keywords):
+    if user_message and any(k in user_message.lower() for k in COMPLEX_KEYWORDS):
         return "gpt-4o"
         
     return "gpt-4o-mini"
@@ -247,15 +248,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
             logger.info(f"[SESSION] [{tenant_id}] Fresh start - no legacy history found.")
     
     # --- Intent Gating (Proactive Auth Checks) ---
-    calendar_keywords = [
-        "schedule", "event", "meeting", "book", "appointment", "calendar",
-        "set up a meeting", "setup a meeting", "arrange a meeting",
-        "organize a meeting", "reschedule", "deposition"
-    ]
-    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+    is_calendar_intent = any(kw in user_prompt_raw for kw in CALENDAR_KEYWORDS)
     # Explicit system mentions to prevent cross-auth confusion
-    is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
-    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "matterminer", "deadline", "filing"])
+    is_explicit_google = any(kw in user_prompt_raw for kw in EXPLICIT_GOOGLE_KEYWORDS)
+    is_explicit_core = any(kw in user_prompt_raw for kw in EXPLICIT_CORE_KEYWORDS)
 
     # Only trigger Google Pre-flight if it is EXPLICITLY external (Google Calendar)
     # MatterMiner Core events (e.g. "schedule a strategy meeting") do NOT require Google OAuth
@@ -269,20 +265,17 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     # MatterMiner Core now authenticates via static API key (CORE_API_KEY) at the transport layer.
     # No has_valid_token() check or login card surfacing needed.
 
-	# DROP-IN PRE-FLIGHT WALLET CHECK
-    # wallet_check = await wallet_service.check_balance(auth_headers=calendar_service.headers)
-    '''
+    # DROP-IN PRE-FLIGHT WALLET CHECK
+    wallet_check = await wallet_service.check_balance(auth_headers=calendar_service.headers)
     if wallet_check and wallet_check.get("allowed") is False:
         error_type = wallet_check.get("error")
         if error_type == "insufficient_funds":
-            return {
-                "role": "assistant",
-                "content": f"Your token wallet is low ({wallet_check.get('balance')} tokens). Please top up your balance to continue using the AI assistant."
-            }
+            return standardize_response({"response": f"Your token wallet is low ({wallet_check.get('balance')} tokens). Please top up your balance to continue using the AI assistant.", "history": cleaned_history})
         elif error_type == "no_wallet":
-             return {"role": "assistant", "content": "No wallet found for this account. Please contact support."}
-    '''
-    services = {"calendar": calendar_service, "wallet": wallet_service}
+             return standardize_response({"response": "No wallet found for this account. Please contact support.", "history": cleaned_history})
+             
+    session_client = SessionClient(tenant_id, request.app.state.http_client, corr_id, req.thread_id or "default", auth.get("token"), user_email)
+    services = {"calendar": calendar_service, "wallet": wallet_service, "session": session_client}
 
     # --- 2. CONTEXT REHYDRATION (Source of Truth) ---
     # This fetches the latest saved state from the DB to prevent looping
@@ -301,9 +294,10 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     last_action = "Waiting for input"
 
     # --- 3. AGENTIC REASONING LOOP ---
+    tool_call_counts = {}
     for i in range(5):
         # Fetch current session state for precise injection
-        db_session = await services['calendar'].get_client_session(tenant_id)
+        db_session = await services['session'].get_client_session(tenant_id)
         
         # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks ---
         # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
@@ -455,10 +449,15 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         pending_throttle_msg = None
         for tool_call in assistant_msg.tool_calls:
             # Dispatch directly to Agent Manager
-            result = await execute_tool_call(
-                tool_call, services, user_role, tenant_id, messages, 
-                user_email=user_email, user_tz=user_tz, ai_client=ai_client
-            )
+            tool_name = tool_call.function.name
+            tool_call_counts[tool_name] = tool_call_counts.get(tool_name, 0) + 1
+            if tool_call_counts[tool_name] > 3:
+                result = {"status": "error", "message": f"You have attempted to use {tool_name} multiple times without success. Please ask the user directly for the missing information or clarify what you need.", "_exit_loop": False}
+            else:
+                result = await execute_tool_call(
+                    tool_call, services, user_role, tenant_id, messages, 
+                    user_email=user_email, user_tz=user_tz, ai_client=ai_client
+                )
             from src.utils import compact_tool_result
             tool_msg = {"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": json.dumps(result)}
             messages.append(tool_msg)
@@ -485,7 +484,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
 
         # Finalize Response Logic
         if pending_throttle_msg:
-             final_db = await services['calendar'].get_client_session(tenant_id)
+             final_db = await services['session'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
              # We include ALL reasoning steps to satisfy OpenAI's conversation requirements
              turn_messages = [{"role": "user", "content": req.prompt}] + turn_deltas
@@ -497,7 +496,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
              return standardize_response({"response": pending_throttle_msg or "", "history": messages[1:], "vault_data": final_db})
 
         if terminal_success_msg and not assistant_msg.content:
-             final_db = await services['calendar'].get_client_session(tenant_id)
+             final_db = await services['session'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
              await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": terminal_success_msg}])
              await redis_memory.close()
@@ -505,7 +504,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
         elif terminal_success_msg:
              # If assistant already had words, append the success table to it
              final_resp = f"{assistant_msg.content}\n\n{terminal_success_msg}"
-             final_db = await services['calendar'].get_client_session(tenant_id)
+             final_db = await services['session'].get_client_session(tenant_id)
              # [PROTOCOL-SC] Atomic Save of entire turn sequence
              await redis_memory.append_messages([{"role": "user", "content": req.prompt}] + turn_deltas + [{"role": "assistant", "content": final_resp}])
              await redis_memory.close()
@@ -515,7 +514,7 @@ async def handle_agent_query(req: ChatRequest, request: Request, auth: dict = De
     asyncio.create_task(extract_and_save_facts(tenant_id, messages, services, ai_client))
     asyncio.create_task(summarize_and_save(tenant_id, messages, services, ai_client))
     
-    final_db = await services['calendar'].get_client_session(tenant_id)
+    final_db = await services['session'].get_client_session(tenant_id)
     final_response_text = messages[-1].get("content")
     
     if final_response_text:
@@ -542,7 +541,18 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     wallet_service = WalletClient(tenant_id, request.app.state.http_client)
     ai_client = request.app.state.ai_client
     user_tz = auth.get("timezone", "UTC")
-    services = {"calendar": calendar_service, "wallet": wallet_service}
+    
+    # Wallet check for stream
+    wallet_check = await wallet_service.check_balance(auth_headers=calendar_service.headers)
+    if wallet_check and wallet_check.get("allowed") is False:
+        error_type = wallet_check.get("error")
+        msg = f"Your token wallet is low ({wallet_check.get('balance')} tokens). Please top up your balance." if error_type == "insufficient_funds" else "No wallet found for this account. Please contact support."
+        async def wallet_err_gen():
+            yield f"data: {json.dumps(standardize_response({'content': msg, 'done': True, 'history': []}))}\n\n"
+        return StreamingResponse(wallet_err_gen(), media_type="text/event-stream")
+
+    session_client = SessionClient(tenant_id, request.app.state.http_client, corr_id, req.thread_id or "default", auth.get("token"), user_email)
+    services = {"calendar": calendar_service, "wallet": wallet_service, "session": session_client}
 
     # Setup Redis Memory with User Isolation
     from src.remote_services.redis_memory import RedisMemoryClient
@@ -570,15 +580,10 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
     user_prompt_raw = req.prompt.lower().strip()
     
     # 1. Define Boolean Flags
-    calendar_keywords = [
-        "schedule", "event", "meeting", "book", "appointment", "calendar",
-        "set up a meeting", "setup a meeting", "arrange a meeting",
-        "organize a meeting", "reschedule", "deposition"
-    ]
-    is_calendar_intent = any(kw in user_prompt_raw for kw in calendar_keywords)
+    is_calendar_intent = any(kw in user_prompt_raw for kw in CALENDAR_KEYWORDS)
 
-    is_explicit_google = any(kw in user_prompt_raw for kw in ["google", "personal", "external"])
-    is_explicit_core = any(kw in user_prompt_raw for kw in ["matter", "firm", "internal", "deadline", "filing"])
+    is_explicit_google = any(kw in user_prompt_raw for kw in EXPLICIT_GOOGLE_KEYWORDS)
+    is_explicit_core = any(kw in user_prompt_raw for kw in EXPLICIT_CORE_KEYWORDS)
 
     # 2. Pre-LLM Auth Guard – only for explicit Google Calendar requests
     if is_calendar_intent and is_explicit_google:
@@ -613,7 +618,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
         for i in range(5):
             # Fetch current session state — fault-tolerant: stream must not fail if Node.js is down
             try:
-                db_session = await services['calendar'].get_client_session(tenant_id)
+                db_session = await services['session'].get_client_session(tenant_id)
                     # --- AGENT-LEVEL GATEKEEPER: Catch auth issues before AI even thinks (STREAMING) ---
                 # If we are in an active calendar workflow AND the user is still talking about calendar, verify auth.
                 # This allows the user to "break out" to a different workflow (like contact) without being blocked by Google.
@@ -814,7 +819,7 @@ async def handle_streaming_query(req: ChatRequest, request: Request, auth: dict 
                 # The auditor uses the enrichment already provided by run_draft_workflow via the tool result
                 auditor_payload = standardize_response({
                     'content': pending_throttle_msg, 
-                    'vault_data': await services['calendar'].get_client_session(tenant_id)
+                    'vault_data': await services['session'].get_client_session(tenant_id)
                 })
                 yield f"data: {json.dumps(auditor_payload)}\n\n"
 

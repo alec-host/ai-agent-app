@@ -25,7 +25,7 @@ async def test_auto_lookup_and_linking():
     mock_calendar.sync_client_session = mock_sync_session
     mock_calendar.thread_id = "t1"
     mock_calendar.access_token = "s1"
-    mock_services = {'calendar': mock_calendar}
+    mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
 
     with respx.mock:
         respx.get(url__regex=r".*/search-contact.*").mock(return_value=Response(
@@ -40,7 +40,7 @@ async def test_auto_lookup_and_linking():
 
         mock_tool = MockTool("create_client_record", {"client_email": "found@example.com"})
         
-        await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[], user_email="test@example.com")
+        await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
         
         # Verify sync had contact_id
         assert len(sync_recorded) > 0
@@ -67,7 +67,7 @@ async def test_country_direct_id_payload():
     mock_calendar.sync_client_session = mock_sync_session
     mock_calendar.thread_id = "t2"
     mock_calendar.access_token = "s2"
-    mock_services = {'calendar': mock_calendar}
+    mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
 
     with respx.mock:
         # Mock payload: { "success": true, "country_id": 15, "message": "Retreived country id successfully" }
@@ -83,7 +83,7 @@ async def test_country_direct_id_payload():
 
         mock_tool = MockTool("lookup_countries", {"search": "Kenya"})
         
-        result = await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[], user_email="test@example.com")
+        result = await execute_tool_call(mock_tool, mock_services, "user", tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
         
         assert result["status"] == "success"
         assert result["country_id"] == 15

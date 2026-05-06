@@ -14,11 +14,11 @@ async def get_rehydration_context(tenant_id, services, user_email=None):
     Calls each agent's hook to see if they have a recovery context.
     """
     try:
-        calendar_service = services.get("calendar")
-        if not calendar_service:
+        session_service = services.get("session")
+        if not session_service:
             return None
 
-        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
+        db_session = await session_service.get_client_session(tenant_id, user_email=user_email)
         raw_metadata = db_session.get("metadata", {})
         
         # [PHASE A: ISOLATION CHECK]
@@ -110,7 +110,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
         return res
 
     calendar_funcs = ["schedule_event", "initialize_calendar_session", "check_calendar_connection", "list_upcoming_events"]
-    rag_funcs = ["lookup_firm_protocol", "search_knowledge_base"]
+    rag_funcs = ["lookup_firm_protocol", "search_past_matters"]
     # Phase 3 (Auth Migration): authenticate_to_core REMOVED from routing table.
     core_funcs = [
         "create_contact", "lookup_countries", 
@@ -122,7 +122,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
 
     # --- WORKFLOW GATING (PREVENT OVERLAP) ---
     try:
-        db_session = await services['calendar'].get_client_session(tenant_id)
+        db_session = await services['session'].get_client_session(tenant_id)
         raw_metadata = db_session.get("metadata", {})
         if isinstance(raw_metadata, str):
             try: metadata = json.loads(raw_metadata)
@@ -148,7 +148,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
             if active_workflow in mm_intakes and func_name in ["schedule_event", "initialize_calendar_session"]:
                  return {"status": "error", "message": f"Conflict: Active {active_workflow} intake. Finish or cancel current MatterMiner workflow before using Google Calendar."}
             
-            result = await handle_calendar(func_name, args, services['calendar'], user_role, history=history)
+            result = await handle_calendar(func_name, args, services, user_role, history=history)
             
             # Post-execution Hook: If a new token was recovered, set it in the service
             if func_name == "initialize_calendar_session" and isinstance(result, dict) and result.get("status") == "ready":
@@ -211,7 +211,7 @@ async def execute_tool_call(tool_call, services, user_role, tenant_id, history, 
                     # Set the specific draft to empty in addition to workflow reset
                     **purge_payload
                 )
-                await services['calendar'].sync_client_session(clean_payload)
+                await services['session'].sync_client_session(clean_payload)
                 logger.info(f"[PURGE] Success. Cleaned up {func_name} state for tenant {tenant_id}")
         except Exception as cleanup_err:
              logger.warning(f"[PURGE-FAILED] Non-fatal state cleanup error: {cleanup_err}")

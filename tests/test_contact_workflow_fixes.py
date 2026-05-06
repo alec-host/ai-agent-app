@@ -32,7 +32,7 @@ async def test_contact_token_persistence_on_success():
         "metadata": initial_metadata.copy()
     }
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # 2. Mock the remote API
     with respx.mock:
@@ -41,7 +41,7 @@ async def test_contact_token_persistence_on_success():
         )
         
         # 3. Execute
-        result = await handle_create_contact({}, services, "tenant_123", [])
+        result = await handle_create_contact({}, services, "tenant_123", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
         
         # 4. Assertions
         assert result["status"] == "success"
@@ -67,10 +67,10 @@ async def test_sequential_field_asking():
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {"metadata": {"active_workflow": "contact"}}
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # First turn: Now expects Title first
-    result = await handle_create_contact({"first_name": "John"}, services, "tenant_123", [])
+    result = await handle_create_contact({"first_name": "John"}, services, "tenant_123", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     assert "Title" in result["response_instruction"]
     assert "Last Name" not in result["response_instruction"]
 
@@ -91,7 +91,7 @@ async def test_contact_rehydration_logic():
         }
     }
 
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     rehydration = await get_rehydration_context("tenant_123", services)
     
     assert rehydration is not None

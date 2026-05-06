@@ -55,7 +55,7 @@ async def test_client_to_contact_cross_pollination():
         mock_calendar.thread_id = "test-thread-cross"
 
         mock_services = {
-            'calendar': mock_calendar
+            'calendar': mock_calendar, 'session': mock_calendar
         }
         
         # 3. Test handle_create_client
@@ -71,7 +71,7 @@ async def test_client_to_contact_cross_pollination():
         # but since it uses MatterMinerCoreClient internally and that uses self.request, 
         # respx.mock should capture it if we mock the URL correctly.
         
-        result = await handle_create_client(args, mock_services, tenant_id, history=[], user_email=user_email)
+        result = await handle_create_client(args, mock_services, tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email=user_email)
         
         # 4. Assertions
         assert result["status"] == "partial_success"

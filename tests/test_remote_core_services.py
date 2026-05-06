@@ -159,10 +159,10 @@ async def test_agent_handle_create_contact_drafting():
     mock_cal_service.get_client_session.return_value = {"metadata": {}}
     mock_cal_service.thread_id = "test_thread"
     
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     args = {"first_name": "Jane", "last_name": "Smith"} # Missing Email
     
-    result = await handle_create_contact(args, services, "12345678", [])
+    result = await handle_create_contact(args, services, "12345678", [{"role": "user", "content": "Create a contact for Jane Smith"}])
     
     # Assertions
     assert result["status"] == "partial_success"
@@ -182,10 +182,10 @@ async def test_agent_handle_create_contact_drafting_with_partial_data():
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {"metadata": {}}
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # Provide only first_name — Title is now the first missing field
-    result = await handle_create_contact({"first_name": "Jane"}, services, "12345678", [])
+    result = await handle_create_contact({"first_name": "Jane"}, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     assert result["status"] == "partial_success"
     assert "Title" in result["response_instruction"]
 
@@ -215,14 +215,14 @@ async def test_agent_handle_create_contact_finalize():
         }
     }
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
 
     # Mock the remote API
     respx.post(url__regex=r".*/contact.*").mock(
         return_value=httpx.Response(200, json=CONTACT_SUCCESS_RESPONSE)
     )
 
-    result = await handle_create_contact({}, services, "12345678", [])
+    result = await handle_create_contact({}, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     assert result["status"] == "success"
     mock_cal_service.sync_client_session.assert_called()
     mock_cal_service.clear_client_session.assert_called_once_with("12345678")
@@ -235,7 +235,7 @@ async def test_agent_handle_lookup_countries():
     mock_cal_service.get_client_session.return_value = {
         "metadata": {"remote_access_token": "valid_token"}
     }
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # Mock the remote API
     respx.get(url__regex=r".*/countries.*").mock(
@@ -272,12 +272,12 @@ async def test_agent_handle_create_contact_failure():
         }
     }
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
 
     respx.post(url__regex=r".*/contact.*").mock(
         return_value=httpx.Response(500, json={"message": "Internal Server Error"})
     )
 
-    result = await handle_create_contact({}, services, "12345678", [])
+    result = await handle_create_contact({}, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     assert result["status"] == "error"
     assert "Internal Server Error" in result["message"]

@@ -47,7 +47,7 @@ async def run_draft_workflow(
     Handles field-by-field questioning, optional skipping, and contextual auto-detection.
     """
     # 1. Fetch Session (Atomic State Tunneling)
-    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+    session = db_session if db_session is not None else await services['session'].get_client_session(tenant_id, user_email=user_email)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -322,7 +322,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None, db_s
                 # --- PATTERN: LINKING DISCOVERED DATA ---
                 # Attempt to pre-fill client_draft for future client registration
                 try:
-                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+                    session = db_session if db_session is not None else await services['session'].get_client_session(tenant_id, user_email=user_email)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
@@ -341,7 +341,7 @@ async def handle_search_contact(args, services, tenant_id, user_email=None, db_s
                         history=[],
                         thread_id=services['calendar'].thread_id
                     )
-                    await services['calendar'].sync_client_session(sync_payload)
+                    await services['session'].sync_client_session(sync_payload)
                 except Exception as e:
                     logger.error(f"[SEARCH-LINK] Failed to sync contact_id to client_draft: {e}")
 
@@ -421,7 +421,7 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None, db
             if linked_id:
                 try:
                     # Tunneling: Reuse fetched session to prevent redundant backend IO
-                    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+                    session = db_session if db_session is not None else await services['session'].get_client_session(tenant_id, user_email=user_email)
                     metadata = session.get("metadata", {})
                     if isinstance(metadata, str): metadata = json.loads(metadata)
                     
@@ -437,7 +437,7 @@ async def handle_lookup_countries(args, services, tenant_id, user_email=None, db
                         history=[],
                         thread_id=services['calendar'].thread_id
                     )
-                    await services['calendar'].sync_client_session(sync_payload)
+                    await services['session'].sync_client_session(sync_payload)
                     logger.info(f"[{tenant_id}] Auto-linked country_id: {linked_id}")
                 except Exception as e:
                     logger.error(f"[COUNTRY-LINK] Failed to sync country_id: {e}")
@@ -537,7 +537,7 @@ async def handle_create_event(args, services, tenant_id, history, user_email=Non
                 history=history,
                 thread_id=services['calendar'].thread_id
             )
-            await services['calendar'].sync_client_session(sync_payload)
+            await services['session'].sync_client_session(sync_payload)
             await services['calendar'].clear_client_session(tenant_id)
             
             summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {payload.get(f['key'], 'N/A')} |" for f in schema])
@@ -590,7 +590,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        await services['session'].sync_client_session(sync_payload)
         return partial_resp
         
     # Case B: Ready to Submit
@@ -642,7 +642,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
                 active_workflow="cleared",
                 session_lifecycle="completed"
             )
-            await services['calendar'].sync_client_session(payload)
+            await services['session'].sync_client_session(payload)
             await services['calendar'].clear_client_session(tenant_id)
             
             msg = f"Contact created successfully: {draft.get('first_name')} {draft.get('last_name')}"
@@ -673,7 +673,7 @@ async def handle_create_contact(args, services, tenant_id, history, user_email=N
                 history=[],
                 thread_id=services['calendar'].thread_id
             )
-            await services['calendar'].sync_client_session(payload)
+            await services['session'].sync_client_session(payload)
             return _get_api_key_error_response(
                 "MatterMiner Core rejected the API key. Please contact your administrator.",
                 "Inform the user there is a system configuration issue. All contact details are preserved and will be saved once the issue is resolved. Do not ask for credentials."
@@ -710,7 +710,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        await services['session'].sync_client_session(sync_payload)
         
         # EARLIER LOOKUP PATTERN...
         
@@ -747,7 +747,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                         history=[],
                         thread_id=services['calendar'].thread_id
                     )
-                    await services['calendar'].sync_client_session(sync_payload)
+                    await services['session'].sync_client_session(sync_payload)
                     
                     # We proceed with the original partial_resp (the LLM will ask the next field in the schema)
                 else:
@@ -777,7 +777,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                         thread_id=services['calendar'].thread_id,
                         active_workflow="cleared"
                     )
-                    await services['calendar'].sync_client_session(sync_payload)
+                    await services['session'].sync_client_session(sync_payload)
                     await services['calendar'].clear_client_session(tenant_id)
                     
                     return {
@@ -815,6 +815,42 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         # Clean out skipped values before submission
         clean_draft = {k: v for k, v in draft.items() if str(v).lower().strip() not in ["skip", "skipped", "none", "n/a", ""]}
         
+        # --- RAG Guardrail: COI Pre-flight Check ---
+        if not metadata.get("coi_override"):
+            from src.rag_integrations.rag_client import RagClient
+            rag_client = RagClient(tenant_id)
+            try:
+                client_name = f"{clean_draft.get('first_name', '')} {clean_draft.get('last_name', '')}".strip()
+                if client_name:
+                    coi_check = await rag_client.check_coi(client_name)
+                    matches = coi_check.get("data", {}).get("matches", []) if isinstance(coi_check.get("data"), dict) else []
+                    if matches:
+                        highest = max(matches, key=lambda x: x.get("score", 0))
+                        if highest.get("score", 0) > 0.88:
+                            metadata["coi_override"] = True
+                            if db_session is not None: db_session["metadata"] = metadata
+                            
+                            sync_payload = format_sync_chat_payload(
+                                tenant_id=tenant_id,
+                                client_args=session,
+                                client_draft=draft,
+                                metadata=metadata,
+                                history=[],
+                                thread_id=services['calendar'].thread_id
+                            )
+                            await services['session'].sync_client_session(sync_payload)
+                            
+                            conflict_desc = highest.get("metadata", {}).get("data", highest.get("id", "Unknown Record"))
+                            return {
+                                "status": "partial_success",
+                                "message": f"⚠️ **POTENTIAL CONFLICT OF INTEREST DETECTED**\n\nThe name '{client_name}' strongly matches an existing record:\n\n* {conflict_desc}\n\nDo you want to override this warning and proceed?",
+                                "response_instruction": "Warn the user about the conflict and ask if they want to override and proceed anyway. The user must say 'yes' to proceed."
+                            }
+            except Exception as e:
+                logger.error(f"[RAG-COI-CHECK] Failed: {e}")
+            finally:
+                await rag_client.close()
+
         # Pass payload to Core API
         resp = await core_client.create_client(clean_draft)
         
@@ -822,9 +858,22 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
         is_success = resp.get("status") == "success" or resp.get("success") is True
         
         if is_success:
+            # --- RAG COI Upsert ---
+            try:
+                from src.rag_integrations.rag_client import RagClient
+                rag_client = RagClient(tenant_id)
+                client_name = f"{clean_draft.get('first_name', '')} {clean_draft.get('last_name', '')}".strip()
+                client_id = resp.get("data", {}).get("client_id") or resp.get("client_id", "Unknown")
+                data_str = f"Client {client_name} (ID: {client_id})"
+                await rag_client.upsert_coi_record(data_str, matter_id="N/A", status="active_client")
+                await rag_client.close()
+            except Exception as e:
+                logger.error(f"[RAG-COI-UPSERT] Failed: {e}")
+
             # Final cleanup
             metadata["client_draft"] = {}
             metadata["active_workflow"] = None
+            metadata["coi_override"] = False
             
             payload = format_sync_chat_payload(
                 tenant_id=tenant_id,
@@ -836,7 +885,7 @@ async def handle_create_client(args, services, tenant_id, history, user_email=No
                 active_workflow="cleared",
                 session_lifecycle="completed"
             )
-            await services['calendar'].sync_client_session(payload)
+            await services['session'].sync_client_session(payload)
             await services['calendar'].clear_client_session(tenant_id)
             
             # Build Summary Table
@@ -971,7 +1020,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
     Handles conversational matter creation with lazy dynamic choice fetching.
     """
     # 1. Fetch current session to calculate dynamic state (Tunneling enabled)
-    session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+    session = db_session if db_session is not None else await services['session'].get_client_session(tenant_id, user_email=user_email)
     metadata = session.get("metadata", {})
     if isinstance(metadata, str):
         try: metadata = json.loads(metadata)
@@ -1020,7 +1069,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
                             history=[],
                             thread_id=services['calendar'].thread_id
                         )
-                        await services['calendar'].sync_client_session(sync_payload)
+                        await services['session'].sync_client_session(sync_payload)
                 finally:
                     await core_client.close()
             
@@ -1045,7 +1094,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
             history=[],
             thread_id=services['calendar'].thread_id
         )
-        await services['calendar'].sync_client_session(sync_payload)
+        await services['session'].sync_client_session(sync_payload)
         return partial_resp
         
     metadata = session.get("metadata", {})
@@ -1062,6 +1111,19 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
         is_success = resp.get("status") == "success" or resp.get("success") is True
         
         if is_success:
+            # --- RAG COI Upsert ---
+            try:
+                from src.rag_integrations.rag_client import RagClient
+                rag_client = RagClient(tenant_id)
+                matter_title = clean_draft.get('title', 'Unknown Matter')
+                client_id = clean_draft.get('client_id', 'Unknown')
+                matter_id = resp.get("data", {}).get("matter_id") or resp.get("matter_id", "Unknown")
+                data_str = f"Matter {matter_title} (ID: {matter_id}) for Client ID: {client_id}. Description: {clean_draft.get('description', '')}"
+                await rag_client.upsert_coi_record(data_str, matter_id=str(matter_id), status="active")
+                await rag_client.close()
+            except Exception as e:
+                logger.error(f"[RAG-COI-UPSERT] Failed: {e}")
+
             metadata["matter_draft"] = {}
             metadata["active_workflow"] = None
             
@@ -1075,7 +1137,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
                 active_workflow="cleared",
                 session_lifecycle="completed"
             )
-            await services['calendar'].sync_client_session(payload)
+            await services['session'].sync_client_session(payload)
             await services['calendar'].clear_client_session(tenant_id)
             
             summary_rows = "\n".join([f"| **{f.get('label', f['key']).title()}** | {clean_draft.get(f['key'], 'N/A')} |" for f in MATTER_SCHEMA if not f.get("system_only")])
@@ -1094,7 +1156,7 @@ async def handle_create_matter(args, services, tenant_id, history, user_email=No
             }
         elif resp.get("status") == "api_key_error":
             payload = format_sync_chat_payload(tenant_id=tenant_id, client_args=session, matter_draft=draft, metadata=metadata, history=[], thread_id=services['calendar'].thread_id)
-            await services['calendar'].sync_client_session(payload)
+            await services['session'].sync_client_session(payload)
             return _get_api_key_error_response("MatterMiner Core rejected the API key. Please contact your administrator.", "Inform the user there is a system configuration issue. Matter draft is preserved. Do not ask for credentials.")
         else:
             return {"status": "error", "message": resp.get("message", "Failed to create matter."), "response_instruction": "Inform user about the error."}
@@ -1166,7 +1228,7 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
         if linked_id is not None:
             # --- PATTERN: LINKING DISCOVERED DATA ---
             try:
-                session = db_session if db_session is not None else await services['calendar'].get_client_session(tenant_id, user_email=user_email)
+                session = db_session if db_session is not None else await services['session'].get_client_session(tenant_id, user_email=user_email)
                 metadata = session.get("metadata", {})
                 if isinstance(metadata, str): metadata = json.loads(metadata)
                 
@@ -1207,7 +1269,7 @@ async def _process_lookup_response(resp, link_key, draft_key, tenant_id, service
                     payload_args["active_workflow"] = wk_id
                 payload_args[draft_key] = draft
                 sync_payload = format_sync_chat_payload(**payload_args)
-                await services['calendar'].sync_client_session(sync_payload)
+                await services['session'].sync_client_session(sync_payload)
                 logger.info(f"[{tenant_id}] Auto-linked {link_key}: {linked_id}")
             except Exception as e:
                 logger.error(f"[MATTER-LINK] Failed to sync {link_key}: {e}")

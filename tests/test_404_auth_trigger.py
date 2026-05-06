@@ -25,13 +25,12 @@ async def test_404_is_data_error_not_auth_countries():
         async def mock_get_session(t, user_email=None):
             return {"metadata": {}}
 
-        mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'access_token': None,
-                'thread_id': "test-thread"
-            })
-        }
+        mock_service_obj = type('obj', (object,), {
+            'get_client_session': mock_get_session,
+            'access_token': None,
+            'thread_id': "test-thread"
+        })
+        mock_services = {"calendar": mock_service_obj, "session": mock_service_obj}
 
         args = {"search": "test"}
         result = await handle_lookup_countries(args, mock_services, tenant_id, user_email="test@example.com")
@@ -57,13 +56,12 @@ async def test_401_triggers_api_key_error_countries():
         async def mock_get_session(t, user_email=None):
             return {"metadata": {}}
 
-        mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'access_token': None,
-                'thread_id': "test-thread"
-            })
-        }
+        mock_service_obj = type('obj', (object,), {
+            'get_client_session': mock_get_session,
+            'access_token': None,
+            'thread_id': "test-thread"
+        })
+        mock_services = {"calendar": mock_service_obj, "session": mock_service_obj}
 
         args = {"search": "Kenya"}
         result = await handle_lookup_countries(args, mock_services, tenant_id, user_email="test@example.com")
@@ -104,17 +102,19 @@ async def test_403_triggers_api_key_error_contact():
         async def mock_sync_session(p):
             return None
 
+        mock_service_obj = type('obj', (object,), {
+            'get_client_session': mock_get_session,
+            'sync_client_session': mock_sync_session,
+            'access_token': None,
+            'thread_id': "test-thread"
+        })
         mock_services = {
-            'calendar': type('obj', (object,), {
-                'get_client_session': mock_get_session,
-                'sync_client_session': mock_sync_session,
-                'access_token': None,
-                'thread_id': "test-thread"
-            })
+            'calendar': mock_service_obj,
+            'session': mock_service_obj
         }
 
         args = {}  # All fields already in draft
-        result = await handle_create_contact(args, mock_services, tenant_id, history=[], user_email="test@example.com")
+        result = await handle_create_contact(args, mock_services, tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
 
         assert result["status"] == "api_key_error", \
             f"403 should trigger api_key_error, got: {result['status']}"

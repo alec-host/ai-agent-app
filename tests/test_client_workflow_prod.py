@@ -48,10 +48,10 @@ async def test_client_creation_api_key_rejection():
         mock_calendar.clear_client_session = AsyncMock(return_value=True)
         mock_calendar.access_token = None
         mock_calendar.thread_id = "test-thread-client"
-        mock_services = {'calendar': mock_calendar}
+        mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
         
         args = {} # All fields already in draft/session
-        result = await handle_create_client(args, mock_services, tenant_id, history=[], user_email="test@example.com")
+        result = await handle_create_client(args, mock_services, tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
         
         # 3. Assertions — api_key_error, not auth_required
         assert result["status"] == "api_key_error"
@@ -101,9 +101,9 @@ async def test_client_creation_404_is_data_error():
         mock_calendar.clear_client_session = AsyncMock(return_value=True)
         mock_calendar.access_token = None
         mock_calendar.thread_id = "test-thread-client-404"
-        mock_services = {'calendar': mock_calendar}
+        mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
         
-        result = await handle_create_client({}, mock_services, tenant_id, history=[], user_email="test@example.com")
+        result = await handle_create_client({}, mock_services, tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
         
         # 404 should be a normal error, NOT api_key_error or auth_required
         assert result["status"] == "error", f"404 should be a normal error, got: {result['status']}"
@@ -149,9 +149,9 @@ async def test_client_creation_unexpected_error():
         mock_calendar.clear_client_session = AsyncMock(return_value=True)
         mock_calendar.access_token = None
         mock_calendar.thread_id = "test-thread-error"
-        mock_services = {'calendar': mock_calendar}
+        mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
         
-        result = await handle_create_client({}, mock_services, tenant_id, history=[], user_email="test@example.com")
+        result = await handle_create_client({}, mock_services, tenant_id, history=[{"role": "user", "content": "gibbs C483838 individual Jane Smith"}], user_email="test@example.com")
         
         assert result["status"] == "error"
         assert "Database error" in result["message"] or "Failed to create client" in result["message"]

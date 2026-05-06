@@ -14,7 +14,7 @@ async def test_client_glitch_guard_id_collision():
     mock_cal_service = AsyncMock()
     mock_cal_service.get_client_session.return_value = {"metadata": {"active_workflow": "client"}}
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # Case: AI misidentifies ID as Last Name
     args = {
@@ -23,7 +23,7 @@ async def test_client_glitch_guard_id_collision():
         "client_type": "individual"
     }
     
-    result = await handle_core_ops("create_client_record", args, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", args, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
@@ -51,12 +51,12 @@ async def test_client_id_update_does_not_wipe_name():
         }
     }
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # AI only provides the number in this turn
     args = {"client_type": "individual"}
     
-    await handle_core_ops("create_client_record", args, services, "12345678", [])
+    await handle_core_ops("create_client_record", args, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     
     # Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]
@@ -94,9 +94,9 @@ async def test_client_save_failure_retains_session(monkeypatch):
     
     monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
-    result = await handle_core_ops("create_client_record", {}, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", {}, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     
     assert result["status"] == "error"
     assert "Not Found" in result["message"]
@@ -134,9 +134,9 @@ async def test_client_save_success_clears_session(monkeypatch):
     
     monkeypatch.setattr("src.agents.core_agent.MatterMinerCoreClient", lambda **kwargs: mock_core_client)
     
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
-    result = await handle_core_ops("create_client_record", {}, services, "12345678", [])
+    result = await handle_core_ops("create_client_record", {}, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     
     assert result["status"] == "success"
     
@@ -185,7 +185,7 @@ async def test_client_creation_stringified_metadata():
         })
     }
     mock_cal_service.thread_id = "test_thread"
-    services = {"calendar": mock_cal_service}
+    services = {"calendar": mock_cal_service, "session": mock_cal_service}
     
     # AI provides a new field
     args = {"client_email": "string@test.com"}
@@ -195,7 +195,7 @@ async def test_client_creation_stringified_metadata():
         respx.get("https://dev.matterminer.com/app/core/search-contact").mock(
             return_value=httpx.Response(200, json={"status": "success", "contact_id": "123"})
         )
-        result = await handle_core_ops("create_client_record", args, services, "12345678", [])
+        result = await handle_core_ops("create_client_record", args, services, "12345678", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
     
     # 2. Verify sync call args
     sync_payload = mock_cal_service.sync_client_session.call_args[0][0]

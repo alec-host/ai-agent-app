@@ -22,7 +22,7 @@ async def test_rehydration_aggregator_calendar():
     from unittest.mock import AsyncMock
     mock_calendar = AsyncMock()
     mock_calendar.get_client_session = mock_get_session
-    mock_services = {'calendar': mock_calendar}
+    mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
     
     result = await get_rehydration_context(tenant_id, mock_services, user_email="test@example.com")
     
@@ -52,7 +52,7 @@ async def test_rehydration_aggregator_client():
     from unittest.mock import AsyncMock
     mock_calendar = AsyncMock()
     mock_calendar.get_client_session = mock_get_session
-    mock_services = {'calendar': mock_calendar}
+    mock_services = {'calendar': mock_calendar, 'session': mock_calendar}
     
     result = await get_rehydration_context(tenant_id, mock_services, user_email="test@example.com")
     

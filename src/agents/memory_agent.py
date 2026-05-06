@@ -51,11 +51,11 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client, user_e
             return
 
         # 2. Update the Vault (Persistence)
-        calendar_service = services.get("calendar")
-        if not calendar_service:
+        session_service = services.get("session")
+        if not session_service:
             return
 
-        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
+        db_session = await session_service.get_client_session(tenant_id, user_email=user_email)
         metadata = db_session.get("metadata", {})
         if isinstance(metadata, str):
             try:
@@ -70,7 +70,7 @@ async def extract_and_save_facts(tenant_id, history, services, ai_client, user_e
         metadata["global_facts"] = updated_facts
         
         # Sync back to DB
-        await calendar_service.sync_client_session({
+        await session_service.sync_client_session({
             "metadata": metadata
         })
         
@@ -136,8 +136,8 @@ async def summarize_and_save(tenant_id, history, services, ai_client, user_email
         return
 
     try:
-        calendar_service = services.get("calendar")
-        db_session = await calendar_service.get_client_session(tenant_id, user_email=user_email)
+        session_service = services.get("session")
+        db_session = await session_service.get_client_session(tenant_id, user_email=user_email)
         metadata = db_session.get("metadata", {})
         if isinstance(metadata, str):
             try: metadata = json.loads(metadata)
@@ -180,7 +180,7 @@ async def summarize_and_save(tenant_id, history, services, ai_client, user_email
         metadata["history_summary"] = new_summary
         metadata["last_summary_turn_count"] = len(history)
         
-        await calendar_service.sync_client_session({
+        await session_service.sync_client_session({
             "metadata": metadata
         })
         

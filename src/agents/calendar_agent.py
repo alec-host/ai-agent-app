@@ -12,11 +12,13 @@ async def perform_calendar_auth_check(calendar_service, tenant_id, history):
     # Always succeed here; letting the backend's 401/403 trigger the auth card if needed.
     return None 
 
-async def handle_calendar(func_name, args, calendar_service, user_role, history=None):
+async def handle_calendar(func_name, args, services, user_role, history=None):
     """
     Specialist agent for all calendar operations.
     Handles temporal logic, auth chaining, and persistent 'Drafting' to prevent amnesia.
     """
+    calendar_service = services.get("calendar")
+    session_service = services.get("session")
     tenant_id = calendar_service.tenant_id
     logger.info(f"[{tenant_id}] Handling Calendar: {func_name}")
     
@@ -30,7 +32,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
     # 1. FETCH CURRENT SESSION (For Drafting Persistence)
     db_data = {}
     try:
-        resp = await calendar_service.get_client_session(tenant_id)
+        resp = await session_service.get_client_session(tenant_id)
         db_data = resp if isinstance(resp, dict) else (resp.json() if hasattr(resp, 'json') else {})
 
         # SELF-DISCOVERY: Read the threadId from the DB record and bind it to the service client.
@@ -70,7 +72,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 active_workflow="google_calendar",
                 thread_id=thread_id
             )
-            await calendar_service.sync_client_session(sync_payload)
+            await session_service.sync_client_session(sync_payload)
             logger.info(f"[CAL-DRAFT] Sync successful for '{current_draft.get('title')}'")
         except Exception as e:
             logger.error(f"[CAL-DRAFT] Sync failed: {e}")
@@ -79,7 +81,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
         if func_name == "schedule_event":
             # Validation
             if not current_draft.get("startTime") or not current_draft.get("title"):
-                await calendar_service.sync_client_session(
+                await session_service.sync_client_session(
                     format_sync_chat_payload(
                         tenant_id=tenant_id, 
                         client_args=db_data, 
@@ -101,7 +103,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
             # --- Step-by-Step Conversational Workflow ---
             if not current_draft.get("summary_requested"):
                 current_draft["summary_requested"] = True
-                await calendar_service.sync_client_session(
+                await session_service.sync_client_session(
                     format_sync_chat_payload(
                         tenant_id=tenant_id, 
                         client_args=db_data, 
@@ -119,7 +121,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
             if not current_draft.get("attendees_requested"):
                 current_draft["attendees_requested"] = True
-                await calendar_service.sync_client_session(
+                await session_service.sync_client_session(
                     format_sync_chat_payload(
                         tenant_id=tenant_id, 
                         client_args=db_data, 
@@ -137,7 +139,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
             if not current_draft.get("location_requested"):
                 current_draft["location_requested"] = True
-                await calendar_service.sync_client_session(
+                await session_service.sync_client_session(
                     format_sync_chat_payload(
                         tenant_id=tenant_id, 
                         client_args=db_data, 
@@ -159,7 +161,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 end_time = calendar_service.calculate_end_time(current_draft["startTime"], duration, reference_time=ref_time)
                 if not end_time:
                     current_draft["startTime"] = None
-                    await calendar_service.sync_client_session(
+                    await session_service.sync_client_session(
                         format_sync_chat_payload(
                             tenant_id=tenant_id, 
                             client_args=db_data, 
@@ -189,7 +191,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                 }
 
             # PRE-FLIGHT SYNC
-            await calendar_service.sync_client_session(
+            await session_service.sync_client_session(
                 format_sync_chat_payload(
                     tenant_id=tenant_id, 
                     client_args=db_data, 
@@ -233,12 +235,12 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
                             thread_id=thread_id,  # Targets the exact DB row being cleared
                             session_lifecycle="completed" # Mark as finished to prevent zombie re-hydration
                         )
-                        await calendar_service.sync_client_session(wipe_payload)
+                        await session_service.sync_client_session(wipe_payload)
                         logger.info(f"[CAL] Wipe sync dispatched for threadId: {thread_id}")
                     except Exception as e:
                         logger.error(f"[CAL] Sync wipe failed: {e}")
                     
-                    cleared = await calendar_service.clear_client_session(tenant_id)
+                    cleared = await session_service.clear_client_session(tenant_id)
                     if cleared:
                         logger.info(f"[CAL] Session record deleted for tenant {tenant_id}, threadId: {thread_id}")
                     else:
@@ -272,7 +274,7 @@ async def handle_calendar(func_name, args, calendar_service, user_role, history=
 
     # --- 4. SESSION INITIALIZATION ---
     if func_name == "initialize_calendar_session":
-        await calendar_service.sync_client_session(
+        await session_service.sync_client_session(
             format_sync_chat_payload(tenant_id, db_data, event_draft, history, active_workflow="calendar", thread_id=thread_id)
         )
         if calendar_service.is_authenticated():

@@ -11,7 +11,8 @@ async def test_rehydration_multi_block_injection():
     Verifies that the rehydration aggregator correctly assembles 
     multiple memory blocks (Facts, Summary) into the system prompt.
     """
-    mock_services = {"calendar": AsyncMock()}
+    mock_session_service = AsyncMock()
+    mock_services = {"calendar": mock_session_service, "session": mock_session_service}
     mock_db_session = {
         "metadata": {
             "global_facts": {"role": "Senior Partner", "timezone": "Africa/Nairobi"},
@@ -43,7 +44,7 @@ async def test_fact_extraction_and_mysql_sync():
 
     mock_calendar_service = AsyncMock()
     mock_calendar_service.get_client_session.return_value = {"metadata": {}}
-    mock_services = {"calendar": mock_calendar_service}
+    mock_services = {"calendar": mock_calendar_service, "session": mock_calendar_service}
 
     history = [
         {"role": "user", "content": "I am a legal expert in contract law."},
@@ -143,7 +144,7 @@ async def test_automated_state_purging():
     # Mocking successful session fetch
     mock_calendar_service.get_client_session.return_value = {"metadata": {"active_workflow": "contact", "contact_draft": {"first_name": "Jane"}}}
     
-    mock_services = {"calendar": mock_calendar_service}
+    mock_services = {"calendar": mock_calendar_service, "session": mock_calendar_service}
 
     # Patch handle_core_ops to return our terminal success
     with patch("src.agent_manager.handle_core_ops", new_callable=AsyncMock) as mock_core:

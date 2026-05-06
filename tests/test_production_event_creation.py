@@ -128,7 +128,7 @@ async def test_advanced_event_creation_flow():
             mock_final_resp.choices[0].message = final_msg
 
             def context_aware_mock(*args, **kwargs):
-                msgs = kwargs.get("messages", [])
+                msgs = kwargs.get("messages", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
                 is_memory = any("fact extraction" in m.get("content", "").lower() for m in msgs if m.get("role") == "system")
                 if is_memory:
                     mem_resp = MagicMock()
@@ -332,7 +332,7 @@ async def test_session_recovery_after_wipe():
 
             def context_aware_mock(*args, **kwargs):
                 # Peak at messages to see if it's the Memory Agent calling
-                msgs = kwargs.get("messages", [])
+                msgs = kwargs.get("messages", [{"role": "user", "content": "gibbs C483838 individual Jane Smith"}])
                 is_memory = any("fact extraction" in m.get("content", "").lower() for m in msgs if m.get("role") == "system")
                 
                 if is_memory:

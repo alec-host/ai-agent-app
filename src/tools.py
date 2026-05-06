@@ -137,29 +137,30 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "lookup_firm_protocol",
-            "description": "Consult the official firm rulebook for guidance on specific operational steps (e.g., 'How do I add a new client?').",
+            "description": "Consult the official firm knowledge base for firm protocols, billing constraints, travel rules, or operational guidelines. Guaranteed to return the most up-to-date active policies.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "The workflow step Nuru needs help with."}
-                }
+                    "query": {"type": "string", "description": "The specific policy or rule being looked up."}
+                },
+                "required": ["query"]
             }
         }
     },
-    { 
-       "type": "function",
-       "function": {
-           "name": "search_knowledge_base",
-           "description": "Search for firm policies, legal templates, or case notes to provide accurate answers.",
-           "parameters": {
-              "type": "object",
-              "properties": {
-                 "query": {"type": "string", "description": "The specific topic or question to research."}
-              },
-              "required": ["query"]
-           }
-      }
-   },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_past_matters",
+            "description": "Invoke this to find historical precedents or prior firm matters matching the user's situation. Returns the top relevant snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query detailing the precedent or case facts to find."}
+                },
+                "required": ["query"]
+            }
+        }
+    },
     {
       "type": "function",
       "function": {

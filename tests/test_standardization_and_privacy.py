@@ -126,7 +126,7 @@ async def test_dispatcher_redaction():
     import src.agent_manager
     src.agent_manager.handle_calendar = mock_handle_calendar
 
-    result = await execute_tool_call(MockTool(), {"calendar": mock_calendar}, "admin", tenant_id, [], user_email=user_email)
+    result = await execute_tool_call(MockTool(), {"calendar": mock_calendar, "session": mock_calendar}, "admin", tenant_id, [], user_email=user_email)
     
     # If the dispatcher failed internally, 'result' might be an error dict.
     # Check for success first (status: ready)

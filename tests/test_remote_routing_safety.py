@@ -11,8 +11,10 @@ async def test_google_client_routing_safety():
     """
     Verify that GoogleCalendarClient handles various base_url formats without app/app/ bug.
     """
+    from src.remote_services.session_service import SessionClient
+    
     # 1. Test with clean host
-    client_host = GoogleCalendarClient("123", httpx.AsyncClient(), "corr")
+    client_host = SessionClient("123", httpx.AsyncClient(), "corr")
     client_host.base_url = "https://dev.matterminer.com"
     
     with respx.mock:
@@ -21,7 +23,7 @@ async def test_google_client_routing_safety():
         assert resp == {"status": "success"}
 
     # 2. Test with legacy /api or /calendar suffix (Safety Check)
-    client_legacy = GoogleCalendarClient("123", httpx.AsyncClient(), "corr")
+    client_legacy = SessionClient("123", httpx.AsyncClient(), "corr")
     # Simulate a legacy .env
     client_legacy.base_url = "https://dev.matterminer.com/calendar".rstrip("/").replace("/api", "").replace("/app", "").replace("/calendar", "")
     assert client_legacy.base_url == "https://dev.matterminer.com"

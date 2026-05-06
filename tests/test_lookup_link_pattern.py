@@ -118,8 +118,10 @@ async def test_pattern_promote_tool_uses_client_logic(mock_services):
         "street": "1 Main St"
     }
     
+    respx.get(url__regex=r".*/search-contact.*").mock(return_value=httpx.Response(200, json={"status": "success", "contact_id": "existing-cont-1"}))
+    
     # Call core_ops instead of handle_create_client directly to test routing
-    result = await handle_core_ops("promote_contact_to_client", args, services, tenant_id="test", history=[], user_email="test@example.com")
+    result = await handle_core_ops("promote_contact_to_client", args, services, tenant_id="test", history=[{"role": "user", "content": "existing-cont-1 individual 5 1 Main St"}], user_email="test@example.com")
     
     assert result["status"] == "success"
     assert "Successfully registered client" in result["message"]
